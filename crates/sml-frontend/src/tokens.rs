@@ -1,10 +1,10 @@
-use super::ast::Literal;
+use super::ast::Const;
 use sml_util::interner::Symbol;
 
 #[allow(dead_code)]
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
 pub enum Token {
-    /// Reserved symbols
+    /// Reserved symbols, see sml-util/interner.rs for defs
     Apostrophe,
     Wildcard,
     Dot,
@@ -22,6 +22,7 @@ pub enum Token {
     RBrace,
     LBracket,
     RBracket,
+    Selector,
 
     /// Reserved keywords
     Abstype,
@@ -63,7 +64,7 @@ pub enum Token {
     /// Symbolic identifier
     IdS(Symbol),
     /// Literal value
-    Literal(Literal),
+    Const(Const),
 
     /// Errors
     Invalid(char),

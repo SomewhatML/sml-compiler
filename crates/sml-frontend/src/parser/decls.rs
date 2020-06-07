@@ -60,7 +60,7 @@ impl<'s, 'sym> Parser<'s, 'sym> {
             Token::Infix => self.spanned(|p| {
                 p.expect(Token::Infix)?;
                 let num = match p.current() {
-                    Token::Literal(Literal::Int(i)) => {
+                    Token::Const(Const::Int(i)) => {
                         p.bump();
                         i as u8
                     }
@@ -72,7 +72,7 @@ impl<'s, 'sym> Parser<'s, 'sym> {
             Token::Infixr => self.spanned(|p| {
                 p.expect(Token::Infixr)?;
                 let num = match p.current() {
-                    Token::Literal(Literal::Int(i)) => {
+                    Token::Const(Const::Int(i)) => {
                         p.bump();
                         i as u8
                     }

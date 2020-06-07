@@ -2,7 +2,7 @@ use sml_util::interner::Symbol;
 use sml_util::span::{Span, Spanned};
 
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
-pub enum Literal {
+pub enum Const {
     Unit,
     Int(usize),
     Char(char),
@@ -35,16 +35,20 @@ pub enum TypeKind {
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub enum ExprKind {
-    Lit(Literal),
+    Andalso(Box<Expr>, Box<Expr>),
+    App(Box<Expr>, Box<Expr>),
+    Case(Box<Expr>, Vec<Arm>),
+    Const(Const),
+
     Var(Symbol),
     Abs(Box<Pat>, Box<Expr>),
-    App(Box<Expr>, Box<Expr>),
+
     FlatApp(Vec<Expr>),
     Ann(Box<Expr>, Box<Type>),
     Record(Vec<Field>),
     Tuple(Vec<Expr>),
     Projection(Box<Expr>, Box<Expr>),
-    Case(Box<Expr>, Vec<Arm>),
+
     Let(Vec<Decl>, Box<Expr>),
 }
 
@@ -52,8 +56,8 @@ pub enum ExprKind {
 pub enum PatKind {
     /// Wildcard
     Any,
-    /// Literal
-    Lit(Literal),
+    /// Constant
+    Const(Const),
     /// Type ascription
     Ascribe(Box<Pat>, Box<Type>),
     /// Variable binding

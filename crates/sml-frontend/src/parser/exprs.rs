@@ -66,9 +66,9 @@ impl<'s, 'sym> Parser<'s, 'sym> {
         Ok(ExprKind::Abs(Box::new(arg), Box::new(body)))
     }
 
-    pub(crate) fn literal(&mut self) -> Result<Literal, Error> {
+    pub(crate) fn constant(&mut self) -> Result<Const, Error> {
         match self.bump() {
-            Token::Literal(lit) => Ok(lit),
+            Token::Const(c) => Ok(c),
             _ => self.error(ErrorKind::Internal),
         }
     }
@@ -88,12 +88,12 @@ impl<'s, 'sym> Parser<'s, 'sym> {
             }
             Token::LBrace => self.spanned(|p| p.record_expr()),
             Token::Let => self.spanned(|p| p.let_binding()),
-            Token::Literal(_) => self.literal().map(|l| Expr::new(ExprKind::Lit(l), span)),
+            Token::Const(_) => self.constant().map(|l| Expr::new(ExprKind::Const(l), span)),
             Token::LParen => {
                 self.expect(Token::LParen)?;
                 if self.bump_if(Token::RParen) {
                     return Ok(Expr::new(
-                        ExprKind::Lit(Literal::Unit),
+                        ExprKind::Const(Const::Unit),
                         span + self.current.span,
                     ));
                 }
@@ -124,29 +124,13 @@ impl<'s, 'sym> Parser<'s, 'sym> {
     /// appexp ::=      atexp
     ///                 appexp atexp
     fn application_expr(&mut self) -> Result<Expr, Error> {
-        let mut span = self.current.span;
+        let span = self.current.span;
         let mut exprs = self.plus(|p| p.projection_expr(), None)?;
         match exprs.len() {
             1 => Ok(exprs.pop().unwrap()),
             _ => Ok(Expr::new(ExprKind::FlatApp(exprs), span + self.prev)),
         }
     }
-
-    /// exp ::=     appexp
-    ///             exp path exp
-    // fn infix_expr(&mut self) -> Result<Expr, Error> {
-    //     let mut span = self.current.span;
-    //     let mut expr = self.application_expr()?;
-
-    //     // Declaring as mut op is a borrowck hack to allow us to move
-    //     while let Token::BinOp(op) = self.current.data {
-    //         let _ = self.bump();
-    //         let e = self.application_expr()?;
-    //         span += self.prev;
-    //         expr = Expr::new(ExprKind::Infix(op, Box::new(expr), Box::new(e)), span)
-    //     }
-    //     Ok(expr)
-    // }
 
     /// exp ::=     if exp then exp2 else exp3
     ///             case exp of casearm end

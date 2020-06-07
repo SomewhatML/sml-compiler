@@ -8,7 +8,7 @@ impl<'s, 'sym> Parser<'s, 'sym> {
         self.expect(Token::LParen)?;
         if self.bump_if(Token::RParen) {
             return Ok(Pat::new(
-                PatKind::Lit(Literal::Unit),
+                PatKind::Const(Const::Unit),
                 span + self.current.span,
             ));
         }
@@ -16,7 +16,7 @@ impl<'s, 'sym> Parser<'s, 'sym> {
         self.expect(Token::RParen)?;
         span += self.prev;
         match v.len() {
-            0 => Ok(Pat::new(PatKind::Lit(Literal::Unit), span)),
+            0 => Ok(Pat::new(PatKind::Const(Const::Unit), span)),
             1 => Ok(v.pop().unwrap()),
             _ => Ok(Pat::new(PatKind::Product(v), span)),
         }
@@ -47,7 +47,7 @@ impl<'s, 'sym> Parser<'s, 'sym> {
             Token::Id(_) | Token::IdS(_) => self
                 .expect_id()
                 .map(|s| Pat::new(PatKind::Variable(s), span)),
-            Token::Literal(_) => self.literal().map(|l| Pat::new(PatKind::Lit(l), span)),
+            Token::Const(_) => self.constant().map(|l| Pat::new(PatKind::Const(l), span)),
             Token::LParen => self.tuple_pattern(),
             Token::LBrace => self.record_pattern(),
             _ => self.error(ErrorKind::ExpectedPat),

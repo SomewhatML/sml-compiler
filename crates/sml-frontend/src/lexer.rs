@@ -1,4 +1,4 @@
-use super::ast::Literal;
+use super::ast::Const;
 use super::tokens::*;
 use sml_util::interner::*;
 use sml_util::span::{Location, Span, Spanned};
@@ -144,71 +144,87 @@ impl<'s, 'sym> Lexer<'s, 'sym> {
         Spanned::new(kind, sp)
     }
 
-    fn string_lit(&mut self) -> Spanned<Token> {
+    fn string_lit(&mut self) -> Option<Spanned<Token>> {
+        self.consume()?;
         let (s, sp) = self.consume_while(|c| c != '"');
-        let _ = self.consume();
-        Spanned::new(Token::Literal(Literal::String(self.interner.intern(s))), sp)
+        self.consume()?;
+        Some(Spanned::new(
+            Token::Const(Const::String(self.interner.intern(s))),
+            sp,
+        ))
     }
 
     /// Consume the next input character, expecting to match `ch`.
     /// Return a [`TokenKind::Invalid`] if the next character does not match,
     /// or the argument `kind` if it does
-    fn eat(&mut self, ch: char, kind: Token) -> Spanned<Token> {
+    fn eat(&mut self, kind: Token) -> Option<Spanned<Token>> {
         let loc = self.current;
         // Lexer::eat() should only be called internally after calling peek()
         // so we know that it's safe to unwrap the result of Lexer::consume()
         let n = self.consume().unwrap();
-        let kind = if n == ch { kind } else { Token::Invalid(n) };
-        Spanned::new(kind, Span::new(loc, self.current))
+        Some(Spanned::new(kind, Span::new(loc, self.current)))
     }
 
     /// Lex a natural number
-    fn number(&mut self) -> Spanned<Token> {
+    fn number(&mut self) -> Option<Spanned<Token>> {
         // Since we peeked at least one numeric char, we should always
         // have a string containing at least 1 single digit, as such
         // it is safe to call unwrap() on str::parse<u32>
         let (data, span) = self.consume_while(char::is_numeric);
-        let n = data.parse::<usize>().unwrap();
-        Spanned::new(Token::Literal(Literal::Int(n)), span)
+        let n = data.parse::<usize>().ok()?;
+        Some(Spanned::new(Token::Const(Const::Int(n)), span))
     }
 
-    pub fn lex(&mut self) -> Spanned<Token> {
+    fn char_lit(&mut self) -> Option<Spanned<Token>> {
+        let sp = self.current;
+        match self.consume()? {
+            '"' => {}
+            c => return Some(Spanned::new(Token::Invalid(c), Span::new(sp, self.current))),
+        }
+        let ch = self.consume()?;
+        match self.consume()? {
+            '"' => Some(Spanned::new(
+                Token::Const(Const::Char(ch)),
+                Span::new(sp, self.current),
+            )),
+            c => Some(Spanned::new(Token::Invalid(c), Span::new(sp, self.current))),
+        }
+    }
+
+    pub fn lex(&mut self) -> Option<Spanned<Token>> {
         self.consume_delimiter();
         let sp = self.current;
-        let next = match self.peek() {
-            Some(ch) => ch,
-            None => return Spanned::new(Token::EOF, Span::new(self.current, self.current)),
-        };
 
-        match next {
-            ';' => self.eat(';', Token::Semi),
-            ',' => self.eat(',', Token::Comma),
-            '\'' => self.eat('\'', Token::Apostrophe),
-            '_' => self.eat('_', Token::Wildcard),
-            '.' => self.eat('.', Token::Dot),
-            '(' => self.eat('(', Token::LParen),
-            ')' => self.eat(')', Token::RParen),
-            '{' => self.eat('{', Token::LBrace),
-            '}' => self.eat('}', Token::RBrace),
-            '[' => self.eat('[', Token::LBracket),
-            ']' => self.eat(']', Token::RBracket),
-            'λ' => self.eat('λ', Token::Fn),
-            '∀' => self.eat('∀', Token::Forall),
+        match self.peek()? {
+            ';' => self.eat(Token::Semi),
+            ',' => self.eat(Token::Comma),
+            '\'' => self.eat(Token::Apostrophe),
+            '_' => self.eat(Token::Wildcard),
+            '.' => self.eat(Token::Dot),
+            '(' => self.eat(Token::LParen),
+            ')' => self.eat(Token::RParen),
+            '{' => self.eat(Token::LBrace),
+            '}' => self.eat(Token::RBrace),
+            '[' => self.eat(Token::LBracket),
+            ']' => self.eat(Token::RBracket),
+            'λ' => self.eat(Token::Fn),
+            '∀' => self.eat(Token::Forall),
             '#' => {
                 self.consume();
-                match self.consume() {
-                    Some(ch) => Spanned::new(
-                        Token::Literal(Literal::Char(ch)),
-                        Span::new(sp, self.current),
-                    ),
-                    _ => Spanned::new(Token::EOF, Span::new(sp, self.current)),
+                match self.peek() {
+                    Some('"') => self.char_lit(),
+                    Some(_) => Some(Spanned::new(Token::Selector, Span::new(sp, self.current))),
+                    _ => None,
                 }
             }
             '"' => self.string_lit(),
-            x if x.is_ascii_alphabetic() => self.keyword(),
+            x if x.is_ascii_alphabetic() => Some(self.keyword()),
             x if x.is_numeric() => self.number(),
-            x if Self::valid_symbolic(x) => self.symbolic(),
-            _ => Spanned::new(Token::Invalid(next), Span::new(self.current, self.current)),
+            x if Self::valid_symbolic(x) => Some(self.symbolic()),
+            ch => Some(Spanned::new(
+                Token::Invalid(ch),
+                Span::new(self.current, self.current),
+            )),
         }
     }
 }
@@ -216,11 +232,6 @@ impl<'s, 'sym> Lexer<'s, 'sym> {
 impl<'s, 'sym> Iterator for Lexer<'s, 'sym> {
     type Item = Spanned<Token>;
     fn next(&mut self) -> Option<Self::Item> {
-        match self.lex() {
-            Spanned {
-                data: Token::EOF, ..
-            } => None,
-            tok => Some(tok),
-        }
+        self.lex()
     }
 }
