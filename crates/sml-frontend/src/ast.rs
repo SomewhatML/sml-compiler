@@ -39,17 +39,20 @@ pub enum ExprKind {
     App(Box<Expr>, Box<Expr>),
     Case(Box<Expr>, Vec<Arm>),
     Const(Const),
-
-    Var(Symbol),
-    Abs(Box<Pat>, Box<Expr>),
-
+    Constraint(Box<Expr>, Box<Type>),
     FlatApp(Vec<Expr>),
-    Ann(Box<Expr>, Box<Type>),
-    Record(Vec<Field>),
-    Tuple(Vec<Expr>),
-    Projection(Box<Expr>, Box<Expr>),
-
+    Fn(Vec<Arm>),
+    Handle(Box<Expr>, Vec<Arm>),
+    If(Box<Expr>, Box<Expr>, Box<Expr>),
     Let(Vec<Decl>, Box<Expr>),
+    List(Vec<Expr>),
+    Orelse(Box<Expr>, Box<Expr>),
+    Raise(Box<Expr>),
+    Record(Vec<Field>),
+    Selector(Symbol),
+    Seq(Vec<Expr>),
+    Var(Symbol),
+    While(Box<Expr>, Box<Expr>),
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
@@ -118,3 +121,18 @@ pub type Decl = Spanned<DeclKind>;
 pub type Type = Spanned<TypeKind>;
 pub type Expr = Spanned<ExprKind>;
 pub type Pat = Spanned<PatKind>;
+
+/// Interestingly, MLton immediately desugars tuples during parsing, rather than during elaboration.
+/// We do the same
+pub fn make_record(v: Vec<Expr>) -> ExprKind {
+    ExprKind::Record(
+        v.into_iter()
+            .enumerate()
+            .map(|(idx, ex)| Field {
+                label: Symbol::tuple_field(idx as u32),
+                span: ex.span,
+                expr: ex,
+            })
+            .collect(),
+    )
+}

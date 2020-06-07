@@ -78,6 +78,11 @@ impl Symbol {
     pub const fn builtin(self) -> bool {
         self.0 <= S_TOTAL_GLOBALS
     }
+
+    pub const fn tuple_field(idx: u32) -> Self {
+        // Hopefully we never are close to this many unique symbols...
+        Self(idx | 0x8000_0000)
+    }
 }
 
 #[derive(Clone, PartialEq)]

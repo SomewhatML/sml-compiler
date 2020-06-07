@@ -1,5 +1,6 @@
 [workspace] 
 members = [
+    "crates/sml-driver",
     "crates/sml-core",
     "crates/sml-frontend",
     "crates/sml-util",

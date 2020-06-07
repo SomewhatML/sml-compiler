@@ -1,6 +1,13 @@
 use super::*;
 
 impl<'s, 'sym> Parser<'s, 'sym> {
+    pub(crate) fn constant(&mut self) -> Result<Const, Error> {
+        match self.bump() {
+            Token::Const(c) => Ok(c),
+            _ => self.error(ErrorKind::Internal),
+        }
+    }
+
     fn record_row(&mut self) -> Result<Field, Error> {
         let mut span = self.current.span;
         let label = self.expect_id()?;
@@ -57,19 +64,75 @@ impl<'s, 'sym> Parser<'s, 'sym> {
 
     fn lambda_expr(&mut self) -> Result<ExprKind, Error> {
         self.expect(Token::Fn)?;
-        let arg = self.once(
-            |p| p.parse_pattern(),
-            "expected pattern binding in lambda expression!",
-        )?;
-        self.expect(Token::DArrow)?;
-        let body = self.parse_expr()?;
-        Ok(ExprKind::Abs(Box::new(arg), Box::new(body)))
+        let arms = self.delimited(|p| p.case_arm(), Token::Bar)?;
+        Ok(ExprKind::Fn(arms))
     }
 
-    pub(crate) fn constant(&mut self) -> Result<Const, Error> {
-        match self.bump() {
-            Token::Const(c) => Ok(c),
-            _ => self.error(ErrorKind::Internal),
+    fn while_expr(&mut self) -> Result<ExprKind, Error> {
+        self.expect(Token::While)?;
+        let test = self.parse_expr()?;
+        self.expect(Token::Do)?;
+        let expr = self.parse_expr()?;
+        Ok(ExprKind::While(Box::new(test), Box::new(expr)))
+    }
+
+    fn if_expr(&mut self) -> Result<ExprKind, Error> {
+        self.expect(Token::If)?;
+        let test = self.parse_expr()?;
+        self.expect(Token::Then)?;
+        let a = self.parse_expr()?;
+        self.expect(Token::Else)?;
+        let b = self.parse_expr()?;
+        Ok(ExprKind::If(Box::new(test), Box::new(a), Box::new(b)))
+    }
+
+    fn raise_expr(&mut self) -> Result<ExprKind, Error> {
+        self.expect(Token::Raise)?;
+        let expr = self.parse_expr()?;
+        Ok(ExprKind::Raise(Box::new(expr)))
+    }
+
+    fn seq_expr(&mut self) -> Result<ExprKind, Error> {
+        self.expect(Token::LParen)?;
+        if self.bump_if(Token::RParen) {
+            return Ok(ExprKind::Const(Const::Unit));
+        }
+        let first = self.parse_expr()?;
+        let expected = match self.current() {
+            Token::Semi => Token::Semi,
+            Token::Comma => Token::Comma,
+            _ => return Ok(first.data),
+        };
+        self.bump();
+        let mut v = vec![first];
+        while let Ok(x) = self.parse_expr() {
+            v.push(x);
+            if !self.bump_if(expected) {
+                break;
+            }
+        }
+        self.expect(Token::RParen)?;
+        match v.len() {
+            1 => Ok(v.pop().unwrap().data),
+            _ => match expected {
+                Token::Semi => Ok(ExprKind::Seq(v)),
+                _ => Ok(make_record(v)),
+            },
+        }
+    }
+
+    fn selector(&mut self) -> Result<ExprKind, Error> {
+        self.expect(Token::Selector)?;
+        match self.current() {
+            Token::Id(s) | Token::IdS(s) => {
+                self.bump();
+                Ok(ExprKind::Selector(s))
+            }
+            Token::Const(Const::Int(idx)) => {
+                self.bump();
+                Ok(ExprKind::Selector(Symbol::tuple_field(idx as u32)))
+            }
+            _ => self.error(ErrorKind::ExpectedIdentifier),
         }
     }
 
@@ -88,44 +151,21 @@ impl<'s, 'sym> Parser<'s, 'sym> {
             }
             Token::LBrace => self.spanned(|p| p.record_expr()),
             Token::Let => self.spanned(|p| p.let_binding()),
+            Token::Selector => self.spanned(|p| {
+                p.bump();
+                p.expect_id().map(ExprKind::Selector)
+            }),
             Token::Const(_) => self.constant().map(|l| Expr::new(ExprKind::Const(l), span)),
-            Token::LParen => {
-                self.expect(Token::LParen)?;
-                if self.bump_if(Token::RParen) {
-                    return Ok(Expr::new(
-                        ExprKind::Const(Const::Unit),
-                        span + self.current.span,
-                    ));
-                }
-                let mut exprs = self.delimited(|p| p.parse_expr(), Token::Comma)?;
-                let e = match exprs.len() {
-                    1 => exprs.pop().unwrap(),
-                    _ => Expr::new(ExprKind::Tuple(exprs), span),
-                };
-                self.expect(Token::RParen)?;
-                span += self.prev;
-                Ok(e)
-            }
+            Token::LParen => self.spanned(|p| p.seq_expr()),
             _ => self.error(ErrorKind::ExpectedExpr),
         }
-    }
-
-    fn projection_expr(&mut self) -> Result<Expr, Error> {
-        let mut span = self.current.span;
-        let mut expr = self.atomic_expr()?;
-        while self.bump_if(Token::Dot) {
-            span += self.prev;
-            let p = self.once(|p| p.atomic_expr(), "expected expr after Dot")?;
-            expr = Expr::new(ExprKind::Projection(Box::new(expr), Box::new(p)), span);
-        }
-        Ok(expr)
     }
 
     /// appexp ::=      atexp
     ///                 appexp atexp
     fn application_expr(&mut self) -> Result<Expr, Error> {
         let span = self.current.span;
-        let mut exprs = self.plus(|p| p.projection_expr(), None)?;
+        let mut exprs = self.plus(|p| p.atomic_expr(), None)?;
         match exprs.len() {
             1 => Ok(exprs.pop().unwrap()),
             _ => Ok(Expr::new(ExprKind::FlatApp(exprs), span + self.prev)),
@@ -140,15 +180,47 @@ impl<'s, 'sym> Parser<'s, 'sym> {
         let expr = match self.current() {
             Token::Case => self.spanned(|p| p.case_expr()),
             Token::Fn => self.spanned(|p| p.lambda_expr()),
+            Token::While => self.spanned(|p| p.while_expr()),
+            Token::If => self.spanned(|p| p.if_expr()),
+            Token::Raise => self.spanned(|p| p.raise_expr()),
             _ => self.application_expr(),
         }?;
 
-        if self.bump_if(Token::Colon) {
-            let ty = self.once(|p| p.parse_type(), "expected type annotation!")?;
-            let sp = expr.span + self.prev;
-            Ok(Expr::new(ExprKind::Ann(Box::new(expr), Box::new(ty)), sp))
-        } else {
-            Ok(expr)
+        match self.current() {
+            Token::Colon => {
+                self.bump();
+                let snd = self.once(|p| p.parse_type(), "expected type after `exp : `")?;
+                let sp = expr.span + snd.span;
+                Ok(Expr::new(
+                    ExprKind::Constraint(Box::new(expr), Box::new(snd)),
+                    sp,
+                ))
+            }
+            Token::Handle => {
+                self.bump();
+                let snd = self.spanned(|p| p.delimited(|p| p.case_arm(), Token::Bar))?;
+                let sp = expr.span + snd.span;
+                Ok(Expr::new(ExprKind::Handle(Box::new(expr), snd.data), sp))
+            }
+            Token::Orelse => {
+                self.bump();
+                let snd = self.once(|p| p.parse_expr(), "expected expression after orelse")?;
+                let sp = expr.span + snd.span;
+                Ok(Expr::new(
+                    ExprKind::Orelse(Box::new(expr), Box::new(snd)),
+                    sp,
+                ))
+            }
+            Token::Andalso => {
+                self.bump();
+                let snd = self.once(|p| p.parse_expr(), "expected expression after andalso")?;
+                let sp = expr.span + snd.span;
+                Ok(Expr::new(
+                    ExprKind::Andalso(Box::new(expr), Box::new(snd)),
+                    sp,
+                ))
+            }
+            _ => Ok(expr),
         }
     }
 }
