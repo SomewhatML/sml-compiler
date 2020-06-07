@@ -1,0 +1,6 @@
+[workspace] 
+members = [
+    "crates/sml-core",
+    "crates/sml-frontend",
+    "crates/sml-util",
+]
