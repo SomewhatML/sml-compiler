@@ -23,6 +23,13 @@ pub struct Typebind {
     pub ty: Type,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
+pub enum Fixity {
+    Infix,
+    Infixr,
+    Nonfix,
+}
+
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub enum DeclKind {
     Datatype(Vec<Datatype>),
@@ -30,8 +37,7 @@ pub enum DeclKind {
     Function(Symbol, Function),
     Value(Pat, Expr),
     Exception(Vec<Variant>),
-    Infix(u8, Symbol),
-    Infixr(u8, Symbol),
+    Fixity(Fixity, u8, Symbol),
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]

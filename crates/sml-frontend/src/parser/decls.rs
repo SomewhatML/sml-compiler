@@ -83,6 +83,28 @@ impl<'s, 'sym> Parser<'s, 'sym> {
         Ok(DeclKind::Exception(bindings))
     }
 
+    fn fixity(&mut self) -> Result<DeclKind, Error> {
+        let fixity = match self.bump() {
+            Token::Infix => Fixity::Infix,
+            Token::Infixr => Fixity::Infixr,
+            Token::Nonfix => Fixity::Nonfix,
+            _ => unreachable!(),
+        };
+
+        let num = match self.current() {
+            Token::Const(Const::Int(i)) => {
+                self.bump();
+                i as u8
+            }
+            _ => 0,
+        };
+        let sym = self.once(
+            |p| p.expect_id(),
+            "symbol required after fixity declaration",
+        )?;
+        Ok(DeclKind::Fixity(fixity, num, sym))
+    }
+
     pub fn parse_decl(&mut self) -> Result<Decl, Error> {
         match self.current() {
             Token::Fun => self.spanned(|p| p.parse_decl_fun()),
@@ -90,30 +112,7 @@ impl<'s, 'sym> Parser<'s, 'sym> {
             Token::Type => self.spanned(|p| p.parse_decl_type()),
             Token::Datatype => self.spanned(|p| p.parse_decl_datatype()),
             Token::Exception => self.spanned(|p| p.parse_decl_exn()),
-            Token::Infix => self.spanned(|p| {
-                p.expect(Token::Infix)?;
-                let num = match p.current() {
-                    Token::Const(Const::Int(i)) => {
-                        p.bump();
-                        i as u8
-                    }
-                    _ => 0,
-                };
-                let sym = p.expect_id()?;
-                Ok(DeclKind::Infix(num, sym))
-            }),
-            Token::Infixr => self.spanned(|p| {
-                p.expect(Token::Infixr)?;
-                let num = match p.current() {
-                    Token::Const(Const::Int(i)) => {
-                        p.bump();
-                        i as u8
-                    }
-                    _ => 0,
-                };
-                let sym = p.expect_id()?;
-                Ok(DeclKind::Infixr(num, sym))
-            }),
+            Token::Infix | Token::Infixr | Token::Nonfix => self.spanned(|p| p.fixity()),
             _ => {
                 self.diags.push(Diagnostic::error(
                     self.current.span,
