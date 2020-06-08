@@ -92,7 +92,11 @@ impl<'s, 'sym> Parser<'s, 'sym> {
                 if v.len() == 1 {
                     Ok(v.pop().unwrap())
                 } else {
-                    Ok(Type::new(TypeKind::Product(v), span + self.current.span))
+                    let tycon = self.once(
+                        |p| p.expect_id(),
+                        "expected type constructor after `(ty1,...tyN)`",
+                    )?;
+                    Ok(Type::new(TypeKind::Con(tycon, v), span + self.prev))
                 }
             }
             _ => self.error(ErrorKind::ExpectedType),
@@ -107,26 +111,21 @@ impl<'s, 'sym> Parser<'s, 'sym> {
         while self.is_id() && self.current() != Token::IdS(S_MUL) {
             let con = self.expect_id()?;
             let sp = fst.span;
-            let k = match fst.data {
-                TypeKind::Product(v) => TypeKind::Con(con, v),
-                _ => TypeKind::Con(con, vec![fst]),
-            };
-            fst = Type::new(k, sp + self.prev);
+            fst = Type::new(TypeKind::Con(con, vec![fst]), sp + self.prev);
         }
         Ok(fst)
     }
 
     /// Parse a type of form: `ty` | `ty * ty2 * ...`
     fn product(&mut self) -> Result<Type, Error> {
-        let mut span = self.current.span;
+        let span = self.current.span;
         let mut v = vec![self.application()?];
         while self.bump_if(Token::IdS(S_MUL)) {
             v.push(self.application()?);
         }
-        span += self.prev;
         match v.len() {
             1 => Ok(v.pop().unwrap()),
-            _ => Ok(Type::new(Product(v), span)),
+            _ => Ok(Type::new(make_record_type(v), span + self.prev)),
         }
     }
 

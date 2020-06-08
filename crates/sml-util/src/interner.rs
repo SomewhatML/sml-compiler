@@ -166,6 +166,9 @@ impl Interner {
 
 impl std::fmt::Debug for Symbol {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        if (self.0 & 0x8000_0000) != 0 {
+            return write!(f, "{}", self.0 & !0x8000_0000);
+        }
         INTERNER.with(|i| match i.try_borrow() {
             Ok(b) => match b.get(*self) {
                 Some(s) => write!(f, "{}", s),

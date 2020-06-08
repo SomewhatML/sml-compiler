@@ -25,8 +25,6 @@ pub enum TypeKind {
     Var(Symbol),
     /// Constructor, with applied arguments
     Con(Symbol, Vec<Type>),
-    /// Tuple type
-    Product(Vec<Type>),
     /// Record type
     Record(Vec<Row>),
     /// Universally quantified type
@@ -132,6 +130,19 @@ pub fn make_record(v: Vec<Expr>) -> ExprKind {
                 label: Symbol::tuple_field(idx as u32),
                 span: ex.span,
                 expr: ex,
+            })
+            .collect(),
+    )
+}
+
+pub fn make_record_type(v: Vec<Type>) -> TypeKind {
+    TypeKind::Record(
+        v.into_iter()
+            .enumerate()
+            .map(|(idx, ex)| Row {
+                label: Symbol::tuple_field(idx as u32),
+                span: ex.span,
+                ty: ex,
             })
             .collect(),
     )
