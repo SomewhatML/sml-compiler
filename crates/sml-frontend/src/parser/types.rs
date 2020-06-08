@@ -7,9 +7,12 @@ impl<'s, 'sym> Parser<'s, 'sym> {
     pub(crate) fn variant(&mut self) -> Result<Variant, Error> {
         let mut span = self.current.span;
         let label = self.expect_id()?;
-        let ty = self.star(|p| p.type_atom(), None);
+        let data = match self.bump_if(Token::Of) {
+            true => Some(self.parse_type()?),
+            false => None,
+        };
         span += self.prev;
-        Ok(Variant { label, ty, span })
+        Ok(Variant { label, data, span })
     }
 
     pub(crate) fn type_var_seq(&mut self) -> Result<Vec<Symbol>, Error> {
@@ -38,17 +41,17 @@ impl<'s, 'sym> Parser<'s, 'sym> {
     }
 
     /// Parse a type row of form `label: ty`
-    fn row(&mut self) -> Result<Row, Error> {
+    fn row(&mut self) -> Result<Row<Type>, Error> {
         let mut span = self.current.span;
         let label = self.expect_id()?;
         self.expect(Token::Colon)?;
-        let ty = self.once(
+        let data = self.once(
             |p| p.parse_type(),
             "record type row requires a type {label: ty, ...}",
         )?;
         span += self.prev;
 
-        Ok(Row { label, ty, span })
+        Ok(Row { label, data, span })
     }
 
     /// Parse a type of form `{ label: ty, label2: ty2, ...}`

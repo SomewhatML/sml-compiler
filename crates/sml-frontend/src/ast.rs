@@ -11,7 +11,7 @@ pub enum Const {
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub enum DeclKind {
-    Datatype(Symbol, Vec<Symbol>, Spanned<Vec<Variant>>),
+    Datatype(Symbol, Vec<Symbol>, Vec<Variant>),
     Type(Symbol, Vec<Symbol>, Type),
     Function(Symbol, Function),
     Value(Pat, Expr),
@@ -26,7 +26,7 @@ pub enum TypeKind {
     /// Constructor, with applied arguments
     Con(Symbol, Vec<Type>),
     /// Record type
-    Record(Vec<Row>),
+    Record(Vec<Row<Type>>),
     /// Universally quantified type
     Univ(Symbol, Box<Type>),
 }
@@ -46,7 +46,7 @@ pub enum ExprKind {
     List(Vec<Expr>),
     Orelse(Box<Expr>, Box<Expr>),
     Raise(Box<Expr>),
-    Record(Vec<Field>),
+    Record(Vec<Row<Expr>>),
     Selector(Symbol),
     Seq(Vec<Expr>),
     Var(Symbol),
@@ -63,10 +63,10 @@ pub enum PatKind {
     Ascribe(Box<Pat>, Box<Type>),
     /// Variable binding
     Variable(Symbol),
-    /// Tuple of pattern bindings (_, x)
-    Product(Vec<Pat>),
     /// Record pattern { label1, label2 }
-    Record(Vec<Pat>),
+    Record(Vec<Row<Pat>>),
+    /// List pattern [pat1, ... patN]
+    List(Vec<Pat>),
     /// A collection of pat applications, possibly including infix constructors
     FlatApp(Vec<Pat>),
     /// Algebraic datatype constructor, along with binding pattern
@@ -95,23 +95,9 @@ pub struct Arm {
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
-pub struct Field {
+pub struct Row<T> {
     pub label: Symbol,
-    pub expr: Expr,
-    pub span: Span,
-}
-
-#[derive(Clone, Debug, PartialEq, PartialOrd)]
-pub struct Variant {
-    pub label: Symbol,
-    pub ty: Vec<Type>,
-    pub span: Span,
-}
-
-#[derive(Clone, Debug, PartialEq, PartialOrd)]
-pub struct Row {
-    pub label: Symbol,
-    pub ty: Type,
+    pub data: T,
     pub span: Span,
 }
 
@@ -119,6 +105,7 @@ pub type Decl = Spanned<DeclKind>;
 pub type Type = Spanned<TypeKind>;
 pub type Expr = Spanned<ExprKind>;
 pub type Pat = Spanned<PatKind>;
+pub type Variant = Row<Option<Type>>;
 
 /// Interestingly, MLton immediately desugars tuples during parsing, rather than during elaboration.
 /// We do the same
@@ -126,10 +113,10 @@ pub fn make_record(v: Vec<Expr>) -> ExprKind {
     ExprKind::Record(
         v.into_iter()
             .enumerate()
-            .map(|(idx, ex)| Field {
+            .map(|(idx, ex)| Row {
                 label: Symbol::tuple_field(idx as u32),
                 span: ex.span,
-                expr: ex,
+                data: ex,
             })
             .collect(),
     )
@@ -142,7 +129,20 @@ pub fn make_record_type(v: Vec<Type>) -> TypeKind {
             .map(|(idx, ex)| Row {
                 label: Symbol::tuple_field(idx as u32),
                 span: ex.span,
-                ty: ex,
+                data: ex,
+            })
+            .collect(),
+    )
+}
+
+pub fn make_record_pat(v: Vec<Pat>) -> PatKind {
+    PatKind::Record(
+        v.into_iter()
+            .enumerate()
+            .map(|(idx, ex)| Row {
+                label: Symbol::tuple_field(idx as u32),
+                span: ex.span,
+                data: ex,
             })
             .collect(),
     )

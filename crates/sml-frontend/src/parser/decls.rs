@@ -15,7 +15,7 @@ impl<'s, 'sym> Parser<'s, 'sym> {
         let args = self.type_var_seq()?;
         let name = self.expect_id()?;
         self.expect(Token::Equals)?;
-        let vars = self.spanned(|p| p.delimited(|p| p.variant(), Token::Bar))?;
+        let vars = self.delimited(|p| p.variant(), Token::Bar)?;
         Ok(DeclKind::Datatype(name, args, vars))
     }
 

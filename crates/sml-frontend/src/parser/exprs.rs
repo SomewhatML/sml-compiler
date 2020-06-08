@@ -8,13 +8,13 @@ impl<'s, 'sym> Parser<'s, 'sym> {
         }
     }
 
-    fn record_row(&mut self) -> Result<Field, Error> {
+    fn record_row(&mut self) -> Result<Row<Expr>, Error> {
         let mut span = self.current.span;
         let label = self.expect_id()?;
         self.expect(Token::Equals)?;
-        let expr = self.once(|p| p.parse_expr(), "missing expr in record row")?;
+        let data = self.once(|p| p.parse_expr(), "missing expr in record row")?;
         span += self.prev;
-        Ok(Field { label, expr, span })
+        Ok(Row { label, data, span })
     }
 
     fn record_expr(&mut self) -> Result<ExprKind, Error> {
@@ -144,19 +144,21 @@ impl<'s, 'sym> Parser<'s, 'sym> {
     ///             ( exp )
     ///             let decl in exp, ... expN end
     fn atomic_expr(&mut self) -> Result<Expr, Error> {
-        let mut span = self.current.span;
+        let span = self.current.span;
         match self.current.data {
             Token::Id(_) | Token::IdS(_) => {
                 self.expect_id().map(|e| Expr::new(ExprKind::Var(e), span))
             }
-            Token::LBrace => self.spanned(|p| p.record_expr()),
             Token::Let => self.spanned(|p| p.let_binding()),
-            Token::Selector => self.spanned(|p| {
-                p.bump();
-                p.expect_id().map(ExprKind::Selector)
-            }),
+            Token::Selector => self.spanned(|p| p.selector()),
             Token::Const(_) => self.constant().map(|l| Expr::new(ExprKind::Const(l), span)),
+            Token::LBrace => self.spanned(|p| p.record_expr()),
             Token::LParen => self.spanned(|p| p.seq_expr()),
+            Token::LBracket => self.spanned(|p| {
+                p.delimited(|q| q.parse_expr(), Token::Comma)
+                    .map(ExprKind::List)
+            }),
+
             _ => self.error(ErrorKind::ExpectedExpr),
         }
     }
