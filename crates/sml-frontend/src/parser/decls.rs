@@ -9,7 +9,7 @@ impl<'s, 'sym> Parser<'s, 'sym> {
         Ok(Typebind { tycon, tyvars, ty })
     }
 
-    pub fn parse_decl_type(&mut self) -> Result<DeclKind, Error> {
+    fn parse_decl_type(&mut self) -> Result<DeclKind, Error> {
         self.expect(Token::Type)?;
         let bindings = self.delimited(|p| p.type_binding(), Token::And)?;
         Ok(DeclKind::Type(bindings))
@@ -39,13 +39,13 @@ impl<'s, 'sym> Parser<'s, 'sym> {
         })
     }
 
-    pub fn parse_decl_datatype(&mut self) -> Result<DeclKind, Error> {
+    fn parse_decl_datatype(&mut self) -> Result<DeclKind, Error> {
         self.expect(Token::Datatype)?;
         let bindings = self.delimited(|p| p.datatype(), Token::And)?;
         Ok(DeclKind::Datatype(bindings))
     }
 
-    pub fn parse_decl_val(&mut self) -> Result<DeclKind, Error> {
+    fn parse_decl_val(&mut self) -> Result<DeclKind, Error> {
         self.expect(Token::Val)?;
         let pat = self.parse_pattern()?;
         self.expect(Token::Equals)?;
@@ -53,28 +53,34 @@ impl<'s, 'sym> Parser<'s, 'sym> {
         Ok(DeclKind::Value(pat, expr))
     }
 
-    pub fn parse_fun_binding(&mut self) -> Result<FnBinding, Error> {
+    fn parse_fun_binding(&mut self) -> Result<FnBinding, Error> {
+        let name = self.once(|p| p.expect_id(), "id required for function binding")?;
         let pats = self.plus(|p| p.atomic_pattern(), None)?;
-        self.expect(Token::Equals)?;
-        let expr = self.once(|p| p.parse_expr(), "missing expression in function!")?;
-        Ok(FnBinding { pats, expr })
-    }
-
-    pub fn parse_decl_fun(&mut self) -> Result<DeclKind, Error> {
-        let mut span = self.current.span;
-        self.expect(Token::Fun)?;
-        let name = self.expect_id()?;
-        let ty = if self.bump_if(Token::Colon) {
-            let ty = self.once(|p| p.parse_type(), "type annotation required after `:`")?;
-            self.expect(Token::Bar)?;
+        let res_ty = if self.bump_if(Token::Colon) {
+            let ty = self.once(|p| p.parse_type(), "result type expected after `:`")?;
             Some(ty)
         } else {
-            self.bump_if(Token::Bar);
             None
         };
-        let body = self.delimited(|p| p.parse_fun_binding(), Token::Bar)?;
-        span += self.prev;
-        Ok(DeclKind::Function(name, Function { ty, body, span }))
+        self.expect(Token::Equals)?;
+        let expr = self.once(|p| p.parse_expr(), "missing expression in function!")?;
+        Ok(FnBinding {
+            name,
+            pats,
+            expr,
+            res_ty,
+        })
+    }
+
+    fn parse_fun(&mut self) -> Result<Fun, Error> {
+        self.spanned(|p| p.delimited(|j| j.parse_fun_binding(), Token::Bar))
+    }
+
+    fn parse_decl_fun(&mut self) -> Result<DeclKind, Error> {
+        self.expect(Token::Fun)?;
+        let tyvars = self.type_var_seq()?;
+        let funs = self.delimited(|p| p.parse_fun(), Token::And)?;
+        Ok(DeclKind::Function(tyvars, funs))
     }
 
     pub fn parse_decl_exn(&mut self) -> Result<DeclKind, Error> {
@@ -105,7 +111,7 @@ impl<'s, 'sym> Parser<'s, 'sym> {
         Ok(DeclKind::Fixity(fixity, num, sym))
     }
 
-    pub fn parse_decl(&mut self) -> Result<Decl, Error> {
+    fn parse_decl_atom(&mut self) -> Result<Decl, Error> {
         match self.current() {
             Token::Fun => self.spanned(|p| p.parse_decl_fun()),
             Token::Val => self.spanned(|p| p.parse_decl_val()),
@@ -123,6 +129,21 @@ impl<'s, 'sym> Parser<'s, 'sym> {
                 ));
                 self.error(ErrorKind::ExpectedDecl)
             }
+        }
+    }
+
+    pub fn parse_decl(&mut self) -> Result<Decl, Error> {
+        let mut seq = Vec::new();
+        let span = self.current.span;
+        self.bump_if(Token::Semi);
+        while let Ok(decl) = self.parse_decl_atom() {
+            seq.push(decl);
+            self.bump_if(Token::Semi);
+        }
+        match seq.len() {
+            0 => self.error(ErrorKind::ExpectedDecl),
+            1 => Ok(seq.pop().unwrap()),
+            _ => Ok(Decl::new(DeclKind::Seq(seq), span + self.prev)),
         }
     }
 }

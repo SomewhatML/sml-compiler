@@ -15,7 +15,7 @@ fn main() {
         let (res, diags) = INTERNER.with(|i| {
             let x = &mut i.borrow_mut();
             let mut p = Parser::new(&buffer, x);
-            (p.top_level(), p.diags)
+            (p.parse_decl(), p.diags)
         });
 
         match res {

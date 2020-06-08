@@ -32,12 +32,22 @@ pub enum Fixity {
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub enum DeclKind {
+    /// If `N` > 1, then we have potentially mutually recursive datatype definitions
     Datatype(Vec<Datatype>),
+    /// If `N` > 1, then we have mutually rec. type defs
     Type(Vec<Typebind>),
-    Function(Symbol, Function),
+    /// Allow for mutually recursive function defs:
+    /// fun 'tyvars fnbindings1
+    ///             ...
+    ///      and    fnbindingsN
+    Function(Vec<Symbol>, Vec<Fun>),
+
     Value(Pat, Expr),
     Exception(Vec<Variant>),
     Fixity(Fixity, u8, Symbol),
+    Local(Box<Decl>, Box<Decl>),
+    Seq(Vec<Decl>),
+    Do(Box<Expr>),
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
@@ -95,15 +105,10 @@ pub enum PatKind {
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
-pub struct Function {
-    pub ty: Option<Type>,
-    pub body: Vec<FnBinding>,
-    pub span: Span,
-}
-
-#[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub struct FnBinding {
+    pub name: Symbol,
     pub pats: Vec<Pat>,
+    pub res_ty: Option<Type>,
     pub expr: Expr,
 }
 
@@ -127,6 +132,7 @@ pub type Type = Spanned<TypeKind>;
 pub type Expr = Spanned<ExprKind>;
 pub type Pat = Spanned<PatKind>;
 pub type Variant = Row<Option<Type>>;
+pub type Fun = Spanned<Vec<FnBinding>>;
 
 /// Interestingly, MLton immediately desugars tuples during parsing, rather than during elaboration.
 /// We do the same

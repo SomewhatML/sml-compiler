@@ -22,14 +22,14 @@ impl<'s, 'sym> Parser<'s, 'sym> {
     }
 
     /// Parse a universal type of form `forall ('tv :: K) of ty`
-    fn universal(&mut self) -> Result<Type, Error> {
-        let mut span = self.current.span;
+    fn universal(&mut self) -> Result<TypeKind, Error> {
+        println!("{:?} forall", self.current.data);
         self.expect(Token::Forall)?;
+
         let arg = self.once(|p| p.type_var(), "universal type requires an argument")?;
         self.expect(Token::Dot)?;
-        let body = self.once(|p| p.type_atom(), "universal type requires a body")?;
-        span += self.prev;
-        Ok(Type::new(Univ(arg, Box::new(body)), span))
+        let body = self.once(|p| p.parse_type(), "universal type requires a body")?;
+        Ok(Univ(arg, Box::new(body)))
     }
 
     /// Parse a type row of form `label: ty`
@@ -42,18 +42,15 @@ impl<'s, 'sym> Parser<'s, 'sym> {
             "record type row requires a type {label: ty, ...}",
         )?;
         span += self.prev;
-
         Ok(Row { label, data, span })
     }
 
     /// Parse a type of form `{ label: ty, label2: ty2, ...}`
-    fn record(&mut self) -> Result<Type, Error> {
-        let mut span = self.current.span;
+    fn record(&mut self) -> Result<TypeKind, Error> {
         self.expect(Token::LBrace)?;
         let rows = self.delimited(|p| p.row(), Token::Comma)?;
         self.expect(Token::RBrace)?;
-        span += self.prev;
-        Ok(Type::new(Record(rows), span))
+        Ok(Record(rows))
     }
 
     /// Parse a type of form:
@@ -77,8 +74,8 @@ impl<'s, 'sym> Parser<'s, 'sym> {
             Token::Id(_) | Token::IdS(_) => self
                 .expect_id()
                 .map(|p| Type::new(Con(p, Vec::new()), span)),
-            Token::Forall => self.universal(),
-            Token::LBrace => self.record(),
+            Token::Forall => self.spanned(|p| p.universal()),
+            Token::LBrace => self.spanned(|p| p.record()),
             Token::LParen => {
                 self.bump();
                 let mut v = self.delimited(|p| p.parse_type(), Token::Comma)?;
