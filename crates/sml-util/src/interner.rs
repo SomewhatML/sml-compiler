@@ -192,6 +192,5 @@ mod test {
         assert_eq!(interner.get(h), Some("hello"));
         assert_eq!(interner.get(j), Some("fn"));
         assert_eq!(interner.get(i), Some("lambda"));
-        assert_eq!(i, Symbol(2));
     }
 }

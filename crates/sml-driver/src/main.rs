@@ -20,15 +20,14 @@ fn main() {
 
         match res {
             Ok(d) => {
-                println!("====> {:?}", &d);
-
+                println!("{:?}", d);
                 // let elab1 = ctx.elab_program(d);
                 // let inlined = hir::inline(&elab1);
                 // println!("====> {:?}", &elab1);
                 // ctx.dump();
             }
             Err(e) => {
-                println!("[err] {:?}: {:?}", e, diags);
+                println!("[err] {:?}: {:?}", e.to_diagnostic(), diags);
             }
         }
     }

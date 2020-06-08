@@ -37,6 +37,26 @@ pub struct Error {
     pub kind: ErrorKind,
 }
 
+impl Error {
+    pub fn to_diagnostic(self) -> Diagnostic {
+        use ErrorKind::*;
+        let message = match self.kind {
+            ExpectedToken(kind) => format!(
+                "expected a token of kind {:?}, but encountered {:?}",
+                kind, self.token
+            ),
+            ExpectedIdentifier => format!("expected identifier, but encountered {:?}", self.token),
+            ExpectedType => format!("expected type, but encountered {:?}", self.token),
+            ExpectedPat => format!("expected pattern, but encountered {:?}", self.token),
+            ExpectedExpr => format!("expected expression, but encountered {:?}", self.token),
+            ExpectedDecl => format!("expected declaration, but encountered {:?}", self.token),
+            Internal => format!("internal parser error! last token was {:?}", self.token),
+            EOF => format!("EOF?"),
+        };
+        Diagnostic::error(self.span, message)
+    }
+}
+
 #[macro_export]
 macro_rules! diag {
     ($sp:expr, $msg:expr, $($t:expr),+) => { Diagnostic::error($sp, format!($msg, $($t),+)) };
@@ -52,15 +72,6 @@ impl<'s, 'sym> Parser<'s, 'sym> {
         };
         p.bump();
         p
-    }
-
-    pub fn top_level(&mut self) -> Result<Vec<Decl>, Error> {
-        let mut v = Vec::new();
-        while self.current() != Token::EOF {
-            v.push(self.parse_decl()?);
-            self.bump_if(Token::Semi);
-        }
-        Ok(v)
     }
 
     /// Generate a parsing error. These are not necessarily fatal
@@ -80,10 +91,6 @@ impl<'s, 'sym> Parser<'s, 'sym> {
     /// from the lexer
     fn bump(&mut self) -> Token {
         match self.tokens.next() {
-            Some(Spanned {
-                data: Token::Comment(_),
-                ..
-            }) => self.bump(),
             Some(t) => {
                 #[cfg(test)]
                 {

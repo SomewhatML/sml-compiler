@@ -191,21 +191,14 @@ impl<'s, 'sym> Lexer<'s, 'sym> {
         }
     }
 
-    fn comment(&mut self, mut base: Spanned<String>) -> Option<Spanned<Token>> {
-        let (mut s, mut sp) = self.consume_while(|ch| ch != '*');
+    fn comment(&mut self) -> Option<Spanned<Token>> {
+        self.consume_while(|ch| ch != '*');
         self.consume()?;
-        if !base.data.is_empty() {
-            base.data.push_str(s.trim());
-            s = base.data;
-            sp = base.span + sp;
-        }
         if let Some(')') = self.peek() {
             self.consume();
-            dbg!(&s);
-            return Some(Spanned::new(Token::Comment(self.interner.intern(s)), sp));
+            return self.lex();
         }
-
-        self.comment(Spanned::new(s, sp))
+        self.comment()
     }
 
     pub fn lex(&mut self) -> Option<Spanned<Token>> {
@@ -221,7 +214,7 @@ impl<'s, 'sym> Lexer<'s, 'sym> {
             '(' => {
                 let alt = self.eat(Token::LParen);
                 if let Some('*') = self.peek() {
-                    self.comment(Spanned::new(String::new(), Span::zero()))
+                    self.comment()
                 } else {
                     alt
                 }
