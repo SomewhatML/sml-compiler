@@ -3,25 +3,17 @@ use super::*;
 use TypeKind::*;
 
 impl<'s, 'sym> Parser<'s, 'sym> {
-    // /// Parse a datatype Constructor [A-Z]+
-    pub(crate) fn variant(&mut self) -> Result<Variant, Error> {
-        let mut span = self.current.span;
-        let label = self.expect_id()?;
-        let data = match self.bump_if(Token::Of) {
-            true => Some(self.parse_type()?),
-            false => None,
-        };
-        span += self.prev;
-        Ok(Variant { label, data, span })
-    }
-
     pub(crate) fn type_var_seq(&mut self) -> Result<Vec<Symbol>, Error> {
         if self.bump_if(Token::LParen) {
             let ret = self.delimited(|p| p.type_var(), Token::Comma)?;
             self.expect(Token::RParen)?;
             return Ok(ret);
         }
-        self.type_var().map(|x| vec![x])
+        match self.type_var() {
+            Ok(x) => Ok(vec![x]),
+            _ => Ok(Vec::new()),
+        }
+        // self.type_var().map(|x| vec![x])
     }
 
     pub(crate) fn type_var(&mut self) -> Result<Symbol, Error> {

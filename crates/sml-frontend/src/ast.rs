@@ -10,11 +10,26 @@ pub enum Const {
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct Datatype {
+    pub tycon: Symbol,
+    pub tyvars: Vec<Symbol>,
+    pub constructors: Vec<Variant>,
+}
+
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct Typebind {
+    pub tycon: Symbol,
+    pub tyvars: Vec<Symbol>,
+    pub ty: Type,
+}
+
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub enum DeclKind {
-    Datatype(Symbol, Vec<Symbol>, Vec<Variant>),
-    Type(Symbol, Vec<Symbol>, Type),
+    Datatype(Vec<Datatype>),
+    Type(Vec<Typebind>),
     Function(Symbol, Function),
     Value(Pat, Expr),
+    Exception(Vec<Variant>),
     Infix(u8, Symbol),
     Infixr(u8, Symbol),
 }
