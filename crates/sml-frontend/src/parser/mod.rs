@@ -80,6 +80,10 @@ impl<'s, 'sym> Parser<'s, 'sym> {
     /// from the lexer
     fn bump(&mut self) -> Token {
         match self.tokens.next() {
+            Some(Spanned {
+                data: Token::Comment(_),
+                ..
+            }) => self.bump(),
             Some(t) => {
                 #[cfg(test)]
                 {

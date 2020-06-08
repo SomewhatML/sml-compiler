@@ -66,6 +66,7 @@ pub enum Token {
     /// Literal value
     Const(Const),
 
+    Comment(Symbol),
     /// Errors
     Invalid(char),
     EOF,
