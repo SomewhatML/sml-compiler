@@ -118,7 +118,7 @@ impl<T: std::fmt::Debug, Q: Query<T>> Prec<T, Q> {
                     }
                 }
             }
-            Element::Infix(_, e) => Err(Error::EndsInfix),
+            Element::Infix(_, _) => Err(Error::EndsInfix),
         }
     }
 

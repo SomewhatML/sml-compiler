@@ -161,7 +161,7 @@ impl<'s, 'sym> Lexer<'s, 'sym> {
         let loc = self.current;
         // Lexer::eat() should only be called internally after calling peek()
         // so we know that it's safe to unwrap the result of Lexer::consume()
-        let n = self.consume().unwrap();
+        self.consume().unwrap();
         Some(Spanned::new(kind, Span::new(loc, self.current)))
     }
 
