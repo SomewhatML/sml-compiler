@@ -84,16 +84,11 @@ impl<'s, 'sym> Parser<'s, 'sym> {
     ///                 app_pat atpat
     fn application_pattern(&mut self) -> Result<Pat, Error> {
         let span = self.current.span;
-        let pat = self.atomic_pattern()?;
-        if let PatKind::Variable(_) = pat.data {
-            let mut v = Vec::new();
-            v.push(pat);
-            while let Ok(arg) = self.atomic_pattern() {
-                v.push(arg);
-            }
-            return Ok(Pat::new(PatKind::FlatApp(v), span + self.prev));
+        let mut pats = self.plus(|p| p.atomic_pattern(), None)?;
+        match pats.len() {
+            1 => Ok(pats.pop().unwrap()),
+            _ => Ok(Pat::new(PatKind::FlatApp(pats), span + self.prev)),
         }
-        Ok(pat)
     }
 
     pub fn parse_pattern(&mut self) -> Result<Pat, Error> {
