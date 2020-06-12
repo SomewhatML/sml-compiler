@@ -37,6 +37,7 @@ pub enum Token {
     Exception,
     Fn,
     Fun,
+    Functor,
     Handle,
     If,
     In,
@@ -57,6 +58,10 @@ pub enum Token {
     With,
     Withtype,
     While,
+    Sig,
+    Signature,
+    Struct,
+    Structure,
 
     Forall,
     /// Alphabetic identifier

@@ -28,7 +28,6 @@ pub struct Span {
     pub end: Location,
 }
 
-#[derive(PartialEq, PartialOrd)]
 /// Data with associated code span
 pub struct Spanned<T> {
     pub span: Span,
@@ -66,6 +65,18 @@ impl<T> Spanned<T> {
     }
 }
 
+impl<T: PartialEq> PartialEq for Spanned<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.data == other.data
+    }
+}
+
+impl<T: PartialOrd> PartialOrd for Spanned<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.data.partial_cmp(&other.data)
+    }
+}
+
 impl<T> std::ops::Deref for Spanned<T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
@@ -91,6 +102,7 @@ impl<T> Spanned<Option<T>> {
     }
 }
 
+impl<T: Copy> Copy for Spanned<T> {}
 impl<T: Clone> Clone for Spanned<T> {
     fn clone(&self) -> Self {
         Spanned::new(self.data.clone(), self.span)
@@ -98,6 +110,12 @@ impl<T: Clone> Clone for Spanned<T> {
 }
 
 impl<T: fmt::Debug> fmt::Debug for Spanned<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.data.fmt(f)
+    }
+}
+
+impl<T: fmt::Display> fmt::Display for Spanned<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.data.fmt(f)
     }

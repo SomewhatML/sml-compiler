@@ -31,6 +31,7 @@ globals!(
     S_EXCEPTION,
     S_FN,
     S_FUN,
+    S_FUNCTOR,
     S_HANDLE,
     S_IF,
     S_IN,
@@ -51,12 +52,18 @@ globals!(
     S_WITH,
     S_WITHTYPE,
     S_WHILE,
+    S_SIG,
+    S_SIGNATURE,
+    S_STRUCT,
+    S_STRUCTURE,
+    S_DOT,
     S_FLEX,
     S_ARROW,
     S_DARROW,
     S_COLON,
     S_BAR,
     S_EQUAL,
+    S_OPAQUE,
     S_MUL,
     S_DIV,
     S_PLUS,
@@ -110,6 +117,7 @@ impl Interner {
         assert_eq!(S_EXCEPTION, i.intern("exception".into()));
         assert_eq!(S_FN, i.intern("fn".into()));
         assert_eq!(S_FUN, i.intern("fun".into()));
+        assert_eq!(S_FUNCTOR, i.intern("functor".into()));
         assert_eq!(S_HANDLE, i.intern("handle".into()));
         assert_eq!(S_IF, i.intern("if".into()));
         assert_eq!(S_IN, i.intern("in".into()));
@@ -130,12 +138,18 @@ impl Interner {
         assert_eq!(S_WITH, i.intern("with".into()));
         assert_eq!(S_WITHTYPE, i.intern("withtype".into()));
         assert_eq!(S_WHILE, i.intern("while".into()));
+        assert_eq!(S_SIG, i.intern("sig".into()));
+        assert_eq!(S_SIGNATURE, i.intern("signature".into()));
+        assert_eq!(S_STRUCT, i.intern("struct".into()));
+        assert_eq!(S_STRUCTURE, i.intern("structure".into()));
+        assert_eq!(S_DOT, i.intern(".".into()));
         assert_eq!(S_FLEX, i.intern("...".into()));
         assert_eq!(S_ARROW, i.intern("->".into()));
         assert_eq!(S_DARROW, i.intern("=>".into()));
         assert_eq!(S_COLON, i.intern(":".into()));
         assert_eq!(S_BAR, i.intern("|".into()));
         assert_eq!(S_EQUAL, i.intern("=".into()));
+        assert_eq!(S_OPAQUE, i.intern(":>".into()));
         assert_eq!(S_MUL, i.intern("*".into()));
         assert_eq!(S_DIV, i.intern("\\".into()));
         assert_eq!(S_PLUS, i.intern("+".into()));

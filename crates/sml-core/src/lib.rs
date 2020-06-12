@@ -1,4 +1,5 @@
 use sml_util::span::Span;
+pub mod elaborate;
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, PartialOrd, Eq, Hash)]
 pub struct TypId(pub u32);

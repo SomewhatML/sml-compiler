@@ -74,7 +74,7 @@ impl<'s, 'sym> Lexer<'s, 'sym> {
     fn valid_symbolic(c: char) -> bool {
         match c {
             '!' | '%' | '&' | '$' | '#' | '+' | '-' | '/' | ':' | '<' | '=' | '>' | '?' | '@'
-            | '~' | '`' | '^' | '|' | '*' | '\\' => true,
+            | '~' | '`' | '^' | '|' | '*' | '\\' | '.' => true,
             _ => false,
         }
     }
@@ -88,6 +88,8 @@ impl<'s, 'sym> Lexer<'s, 'sym> {
             S_COLON => Token::Colon,
             S_BAR => Token::Bar,
             S_EQUAL => Token::Equals,
+            S_DOT => Token::Dot,
+            S_FLEX => Token::Flex,
             x => Token::IdS(x),
         };
         Spanned::new(kind, sp)
@@ -118,6 +120,7 @@ impl<'s, 'sym> Lexer<'s, 'sym> {
             S_EXCEPTION => Token::Exception,
             S_FN => Token::Fn,
             S_FUN => Token::Fun,
+            S_FUNCTOR => Token::Functor,
             S_HANDLE => Token::Handle,
             S_IF => Token::If,
             S_IN => Token::In,
@@ -138,7 +141,10 @@ impl<'s, 'sym> Lexer<'s, 'sym> {
             S_WITH => Token::With,
             S_WITHTYPE => Token::Withtype,
             S_WHILE => Token::While,
-            S_FLEX => Token::Flex,
+            S_SIG => Token::Sig,
+            S_SIGNATURE => Token::Signature,
+            S_STRUCT => Token::Struct,
+            S_STRUCTURE => Token::Structure,
             _ => Token::Id(word),
         };
         Spanned::new(kind, sp)
@@ -210,7 +216,7 @@ impl<'s, 'sym> Lexer<'s, 'sym> {
             ',' => self.eat(Token::Comma),
             '\'' => self.eat(Token::Apostrophe),
             '_' => self.eat(Token::Wildcard),
-            '.' => self.eat(Token::Dot),
+            // '.' => self.eat(Token::Dot),
             '(' => {
                 let alt = self.eat(Token::LParen);
                 if let Some('*') = self.peek() {
@@ -238,10 +244,13 @@ impl<'s, 'sym> Lexer<'s, 'sym> {
             x if x.is_ascii_alphabetic() => Some(self.keyword()),
             x if x.is_numeric() => self.number(),
             x if Self::valid_symbolic(x) => Some(self.symbolic()),
-            ch => Some(Spanned::new(
-                Token::Invalid(ch),
-                Span::new(self.current, self.current),
-            )),
+            ch => {
+                self.consume();
+                Some(Spanned::new(
+                    Token::Invalid(ch),
+                    Span::new(self.current, self.current),
+                ))
+            }
         }
     }
 }
@@ -250,5 +259,35 @@ impl<'s, 'sym> Iterator for Lexer<'s, 'sym> {
     type Item = Spanned<Token>;
     fn next(&mut self) -> Option<Self::Item> {
         self.lex()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn _span(a: u32, b: u32) -> Span {
+        Span::new(Location::new(0, a as u16, a), Location::new(0, b as u16, b))
+    }
+
+    #[test]
+    fn keywords() {
+        let mut int = Interner::with_capacity(64);
+        let lex = Lexer::new("andalso and fn ...".chars(), &mut int);
+
+        let tks = lex.collect::<Vec<Spanned<Token>>>();
+        assert_eq!(
+            tks,
+            vec![
+                Spanned::new(Token::Andalso, _span(0, 7)),
+                Spanned::new(Token::And, _span(8, 11)),
+                Spanned::new(Token::Fn, _span(12, 14)),
+                Spanned::new(Token::Flex, _span(15, 18)),
+            ]
+        );
+        assert_eq!(
+            tks.into_iter().map(|s| s.span).collect::<Vec<_>>(),
+            vec![_span(0, 7), _span(8, 11), _span(12, 14), _span(15, 18),]
+        )
     }
 }

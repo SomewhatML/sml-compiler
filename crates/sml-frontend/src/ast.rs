@@ -41,7 +41,6 @@ pub enum DeclKind {
     ///             ...
     ///      and    fnbindingsN
     Function(Vec<Symbol>, Vec<Fun>),
-
     Value(Pat, Expr),
     Exception(Vec<Variant>),
     Fixity(Fixity, u8, Symbol),

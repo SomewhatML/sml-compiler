@@ -92,19 +92,8 @@ impl<'s, 'sym> Parser<'s, 'sym> {
     fn bump(&mut self) -> Token {
         match self.tokens.next() {
             Some(t) => {
-                #[cfg(test)]
-                {
-                    let t = std::mem::replace(&mut self.current, t).data();
-                    self.current.span = Span::default();
-                    self.prev = Span::default();
-
-                    t
-                }
-                #[cfg(not(test))]
-                {
-                    self.prev = self.current.span;
-                    std::mem::replace(&mut self.current, t).data()
-                }
+                self.prev = self.current.span;
+                std::mem::replace(&mut self.current, t).data()
             }
             None => std::mem::replace(&mut self.current.data, Token::EOF),
         }
