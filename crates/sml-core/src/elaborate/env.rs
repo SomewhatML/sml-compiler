@@ -3,5 +3,6 @@ use std::collections::HashMap;
 
 pub struct Namespace {
     parent: Option<usize>,
-    // types: HashMap<String, CoreId>
+    types: HashMap<Symbol, TypeId>,
+    exprs: HashMap<Symbol, ExprId>,
 }
