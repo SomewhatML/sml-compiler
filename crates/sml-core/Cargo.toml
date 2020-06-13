@@ -8,3 +8,4 @@ edition = "2018"
 
 [dependencies]
 sml-util = {path = "../sml-util"}
+sml-frontend = {path = "../sml-frontend"}

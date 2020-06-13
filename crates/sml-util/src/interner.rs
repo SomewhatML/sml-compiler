@@ -71,6 +71,7 @@ globals!(
     S_INT,
     S_CHAR,
     S_STRING,
+    S_REF,
     S_UNIT
 );
 
@@ -157,6 +158,7 @@ impl Interner {
         assert_eq!(S_INT, i.intern("int".into()));
         assert_eq!(S_CHAR, i.intern("char".into()));
         assert_eq!(S_STRING, i.intern("string".into()));
+        assert_eq!(S_REF, i.intern("ref".into()));
         assert_eq!(S_UNIT, i.intern("unit".into()));
         assert_eq!(S_TOTAL_GLOBALS, S_UNIT.0);
         i

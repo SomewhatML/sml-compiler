@@ -22,15 +22,15 @@ impl<'s, 'sym> Parser<'s, 'sym> {
     }
 
     /// Parse a universal type of form `forall ('tv :: K) of ty`
-    fn universal(&mut self) -> Result<TypeKind, Error> {
-        println!("{:?} forall", self.current.data);
-        self.expect(Token::Forall)?;
+    // fn universal(&mut self) -> Result<TypeKind, Error> {
+    //     println!("{:?} forall", self.current.data);
+    //     self.expect(Token::Forall)?;
 
-        let arg = self.once(|p| p.type_var(), "universal type requires an argument")?;
-        self.expect(Token::Dot)?;
-        let body = self.once(|p| p.parse_type(), "universal type requires a body")?;
-        Ok(Univ(arg, Box::new(body)))
-    }
+    //     let arg = self.once(|p| p.type_var(), "universal type requires an argument")?;
+    //     self.expect(Token::Dot)?;
+    //     let body = self.once(|p| p.parse_type(), "universal type requires a body")?;
+    //     Ok(Univ(arg, Box::new(body)))
+    // }
 
     /// Parse a type row of form `label: ty`
     fn row(&mut self) -> Result<Row<Type>, Error> {
@@ -74,7 +74,7 @@ impl<'s, 'sym> Parser<'s, 'sym> {
             Token::Id(_) | Token::IdS(_) => self
                 .expect_id()
                 .map(|p| Type::new(Con(p, Vec::new()), span)),
-            Token::Forall => self.spanned(|p| p.universal()),
+            // Token::Forall => self.spanned(|p| p.universal()),
             Token::LBrace => self.spanned(|p| p.record()),
             Token::LParen => {
                 self.bump();

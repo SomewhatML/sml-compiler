@@ -32,12 +32,12 @@ pub trait Query<T> {
     fn apply(&self, a: T, b: T) -> T;
 }
 
-pub struct Prec<T: std::fmt::Debug, Q: Query<T>> {
+pub struct Precedence<T: std::fmt::Debug, Q: Query<T>> {
     stack: Vec<Element<T>>,
     query: Q,
 }
 
-impl<T: std::fmt::Debug, Q: Query<T>> Prec<T, Q> {
+impl<T: std::fmt::Debug, Q: Query<T>> Precedence<T, Q> {
     fn parse(&mut self, item: T) -> Result<(), Error> {
         use Element::*;
         let f = self.query.fixity(&item);
@@ -123,7 +123,7 @@ impl<T: std::fmt::Debug, Q: Query<T>> Prec<T, Q> {
     }
 
     pub fn run(q: Q, mut items: Vec<T>) -> Result<T, Error> {
-        let mut prec = Prec {
+        let mut prec = Precedence {
             stack: Vec::new(),
             query: q,
         };

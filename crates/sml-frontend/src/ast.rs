@@ -57,8 +57,8 @@ pub enum TypeKind {
     Con(Symbol, Vec<Type>),
     /// Record type
     Record(Vec<Row<Type>>),
-    /// Universally quantified type
-    Univ(Symbol, Box<Type>),
+    // Universally quantified type
+    // Univ(Symbol, Box<Type>),
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
