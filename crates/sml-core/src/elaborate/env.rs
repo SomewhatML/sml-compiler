@@ -4,6 +4,7 @@ use sml_frontend::parser::precedence::{self, Fixity, Precedence, Query};
 use sml_util::{span::*, stack::Stack};
 use std::collections::HashMap;
 
+#[derive(Copy, Clone, Debug)]
 pub enum Error {
     UnboundTyvar(Symbol, Span),
     UnboundTycon(Symbol, Span),
@@ -13,6 +14,7 @@ pub enum Error {
 }
 
 /// Identifier status for the Value Environment, as defined in the Defn.
+#[derive(Copy, Clone, Debug)]
 pub enum IdStatus {
     Exn(Constructor),
     Con(Constructor),
@@ -21,6 +23,7 @@ pub enum IdStatus {
 
 /// Essentially a minimized Value Environment (VE) containing only datatype
 /// constructors, and without the indirection of going from names->id->def
+#[derive(Clone, Debug)]
 pub struct Cons {
     name: Symbol,
     scheme: Scheme,
@@ -28,6 +31,7 @@ pub struct Cons {
 
 /// TyStr, a [`TypeStructure`] from the Defn. This is a component of the
 /// Type Environment, TE
+#[derive(Clone, Debug)]
 pub enum TypeStructure {
     /// TyStr (t, VE), a datatype
     Datatype(Tycon, Vec<Cons>),
@@ -55,7 +59,7 @@ impl TypeStructure {
 }
 
 /// An environment scope, that can hold a collection of type and expr bindings
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Namespace {
     parent: Option<usize>,
     types: HashMap<Symbol, TypeId>,
@@ -63,6 +67,7 @@ pub struct Namespace {
     infix: HashMap<Symbol, Fixity>,
 }
 
+#[derive(Default, Debug)]
 pub struct Context {
     tmvars: Stack<Symbol>,
     tyvars: Stack<Symbol>,
@@ -88,6 +93,16 @@ impl Namespace {
 }
 
 impl Context {
+    pub fn new() -> Context {
+        let mut ctx = Context::default();
+        ctx.namespaces.push(Namespace::default());
+
+        for tc in &crate::builtin::tycons::T_BUILTINS {
+            ctx.define_type(tc.name, TypeStructure::Tycon(*tc));
+        }
+
+        ctx
+    }
     /// Keep track of the type variable stack, while executing the combinator
     /// function `f` on `self`. Any stack growth is popped off after `f`
     /// returns.
@@ -227,7 +242,10 @@ impl Context {
     fn elab_decl_type(&mut self, tbs: &[ast::Typebind]) -> Result<(), Error> {
         for typebind in tbs {
             let scheme = if !typebind.tyvars.is_empty() {
-                let ty = self.with_tyvars(|f| f.elaborate_type(&typebind.ty, false))?;
+                let ty = self.with_tyvars(|f| {
+                    f.tyvars.extend(typebind.tyvars.iter().copied());
+                    f.elaborate_type(&typebind.ty, false)
+                })?;
                 Scheme::Poly(ty, typebind.tyvars.clone())
             } else {
                 Scheme::Mono(self.elaborate_type(&typebind.ty, false)?)
@@ -237,11 +255,67 @@ impl Context {
         Ok(())
     }
 
-    fn elaborate_decl(&mut self, decl: &ast::Decl) -> Result<(), Error> {
+    fn elab_decl_conbind(&mut self, db: &ast::Datatype) -> Result<(), Error> {
+        let tycon = Tycon::new(db.tycon, db.tyvars.len());
+        let type_id = self.define_type(db.tycon, TypeStructure::Tycon(tycon));
+
+        let tyvars: Vec<Type> = db
+            .tyvars
+            .iter()
+            .enumerate()
+            .map(|(idx, &name)| {
+                Type::Var(Local {
+                    name,
+                    idx: tycon.arity - idx - 1,
+                })
+            })
+            .collect();
+        for (tag, con) in db.constructors.iter().enumerate() {
+            let res = Type::Con(tycon, tyvars.clone());
+            let ty = match &con.data {
+                Some(ty) => {
+                    let dom = self.with_tyvars(|f| {
+                        f.tyvars.extend(db.tyvars.iter().copied());
+                        f.elaborate_type(ty, false)
+                    })?;
+                    Type::arrow(dom, res)
+                }
+                None => res,
+            };
+            let cons = Constructor {
+                name: con.label,
+                type_id,
+                tag: tag as u32,
+            };
+            self.define_value(
+                con.label,
+                Scheme::new(ty, db.tyvars.clone()),
+                IdStatus::Con(cons),
+            );
+        }
+
+        Ok(())
+    }
+
+    fn elab_decl_datatype(&mut self, dbs: &[ast::Datatype]) -> Result<(), Error> {
+        // Add all of the type constructors to the environment first, so that
+        // we can construct data constructor arguments (e.g. recursive/mutually
+        // recursive datatypes)
+        for db in dbs {
+            let tycon = Tycon::new(db.tycon, db.tyvars.len());
+            self.define_type(db.tycon, TypeStructure::Tycon(tycon));
+        }
+        for db in dbs {
+            self.elab_decl_conbind(db)?;
+        }
+        Ok(())
+    }
+
+    pub fn elaborate_decl(&mut self, decl: &ast::Decl) -> Result<(), Error> {
         use ast::DeclKind::*;
         match &decl.data {
-            Datatype(dbs) => unimplemented!(),
-            Type(tbs) => unimplemented!(),
+            Datatype(dbs) => self.elab_decl_datatype(dbs),
+            Type(tbs) => self.elab_decl_type(tbs),
             Function(tyvars, fbs) => unimplemented!(),
             Value(pat, expr) => unimplemented!(),
             Exception(exns) => unimplemented!(),

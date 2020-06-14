@@ -5,6 +5,8 @@ use std::io::prelude::*;
 fn main() {
     println!("SimpleML (c) 2020");
 
+    let mut ctx = sml_core::elaborate::env::Context::new();
+
     loop {
         let mut buffer = String::new();
         print!("repl: ");
@@ -21,6 +23,8 @@ fn main() {
         match res {
             Ok(d) => {
                 println!("{:?}", d);
+                ctx.elaborate_decl(&d).unwrap();
+                dbg!(&ctx);
                 // let elab1 = ctx.elab_program(d);
                 // let inlined = hir::inline(&elab1);
                 // println!("====> {:?}", &elab1);
