@@ -9,11 +9,11 @@ impl<'s, 'sym> Parser<'s, 'sym> {
             self.expect(Token::RParen)?;
             return Ok(ret);
         }
-        match self.type_var() {
-            Ok(x) => Ok(vec![x]),
-            _ => Ok(Vec::new()),
+        if Token::Apostrophe == self.current() {
+            Ok(vec![self.type_var()?])
+        } else {
+            Ok(Vec::new())
         }
-        // self.type_var().map(|x| vec![x])
     }
 
     pub(crate) fn type_var(&mut self) -> Result<Symbol, Error> {

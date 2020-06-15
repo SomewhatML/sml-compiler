@@ -119,6 +119,7 @@ impl<'s, 'sym> Parser<'s, 'sym> {
             Token::Datatype => self.spanned(|p| p.parse_decl_datatype()),
             Token::Exception => self.spanned(|p| p.parse_decl_exn()),
             Token::Infix | Token::Infixr | Token::Nonfix => self.spanned(|p| p.fixity()),
+            Token::EOF => self.error(ErrorKind::EOF),
             _ => {
                 self.diags.push(Diagnostic::error(
                     self.current.span,

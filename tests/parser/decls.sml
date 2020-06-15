@@ -23,3 +23,19 @@ infixr 10 $
 
 val x = Some 10;
 val y = x >>= fn (x : int) => return $ x + 1;
+
+val x = let
+    val x = 10;
+    val y = let
+      val q = 10;
+      fun map nil     f = nil
+        | map (x::xs) f = (f x :: map xs f);
+        
+    in
+      body
+    end
+in
+  {label = x, value = (Some x) >>= fn x => x + 1 }
+end
+
+

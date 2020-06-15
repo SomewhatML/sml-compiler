@@ -101,7 +101,10 @@ impl<'s, 'sym> Parser<'s, 'sym> {
         let expected = match self.current() {
             Token::Semi => Token::Semi,
             Token::Comma => Token::Comma,
-            _ => return Ok(first.data),
+            _ => {
+                self.expect(Token::RParen)?;
+                return Ok(first.data);
+            }
         };
         self.bump();
         let mut v = vec![first];
@@ -167,7 +170,10 @@ impl<'s, 'sym> Parser<'s, 'sym> {
     ///                 appexp atexp
     fn application_expr(&mut self) -> Result<Expr, Error> {
         let span = self.current.span;
-        let mut exprs = self.plus(|p| p.atomic_expr(), None)?;
+        let mut exprs = vec![self.atomic_expr()?];
+        while let Ok(e) = self.parse_expr() {
+            exprs.push(e);
+        }
         match exprs.len() {
             1 => Ok(exprs.pop().unwrap()),
             _ => Ok(Expr::new(ExprKind::FlatApp(exprs), span + self.prev)),
