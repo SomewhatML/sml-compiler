@@ -77,6 +77,7 @@ pub struct Context {
 
     types: Vec<TypeStructure>,
     values: Vec<(Scheme, IdStatus)>,
+    exist: usize,
 
     decls: Vec<Decl>,
 }
@@ -173,6 +174,12 @@ impl Context {
                 None => ptr = &self.namespaces[ptr.parent?],
             }
         }
+    }
+
+    fn fresh_ty(&mut self) -> Type {
+        let ex = self.exist;
+        self.exist += 1;
+        Type::Exist(ex)
     }
 }
 
