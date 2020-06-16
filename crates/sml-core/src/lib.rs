@@ -14,6 +14,7 @@ pub struct Local {
     idx: usize,
 }
 
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub enum Type {
     Var(Local),
     Con(Tycon, Vec<Type>),
@@ -34,11 +35,13 @@ pub struct Constructor {
     tag: u32,
 }
 
+#[derive(Clone, Debug)]
 pub enum Scheme {
     Mono(Type),
     Poly(Type, Vec<Symbol>),
 }
 
+#[derive(Clone, Debug)]
 pub enum ExprKind {
     App(Box<Expr>, Box<Expr>),
     Con(Constructor, Vec<Type>),
@@ -46,11 +49,13 @@ pub enum ExprKind {
     Const(Const),
 }
 
+#[derive(Clone, Debug)]
 pub struct Expr {
     pub expr: ExprKind,
     pub ty: Type,
 }
 
+#[derive(Clone, Debug)]
 pub enum Decl {}
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
@@ -75,5 +80,30 @@ impl Scheme {
 
     pub fn apply(&self, args: Vec<Type>) -> Type {
         unimplemented!()
+    }
+
+    pub fn new(ty: Type, tyvars: Vec<Symbol>) -> Scheme {
+        match tyvars.len() {
+            0 => Scheme::Mono(ty),
+            _ => Scheme::Poly(ty, tyvars),
+        }
+    }
+}
+
+impl Type {
+    pub fn fresh_tyvars(arity: usize) -> Vec<Type> {
+        (0..arity)
+            .rev()
+            .map(|idx| {
+                Type::Var(Local {
+                    name: Symbol::dummy(),
+                    idx,
+                })
+            })
+            .collect()
+    }
+
+    pub fn arrow(a: Type, b: Type) -> Type {
+        Type::Con(builtin::tycons::T_ARROW, vec![a, b])
     }
 }
