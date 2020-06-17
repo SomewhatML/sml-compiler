@@ -72,6 +72,12 @@ globals!(
     S_CHAR,
     S_STRING,
     S_REF,
+    S_LIST,
+    S_BOOL,
+    S_NIL,
+    S_CONS,
+    S_TRUE,
+    S_FALSE,
     S_UNIT
 );
 
@@ -159,7 +165,12 @@ impl Interner {
         assert_eq!(S_CHAR, i.intern("char".into()));
         assert_eq!(S_STRING, i.intern("string".into()));
         assert_eq!(S_REF, i.intern("ref".into()));
-        assert_eq!(S_UNIT, i.intern("unit".into()));
+        assert_eq!(S_LIST, i.intern("list".into()));
+        assert_eq!(S_BOOL, i.intern("bool".into()));
+        assert_eq!(S_NIL, i.intern("nil".into()));
+        assert_eq!(S_CONS, i.intern("::".into()));
+        assert_eq!(S_TRUE, i.intern("true".into()));
+        assert_eq!(S_FALSE, i.intern("false".into()));
         assert_eq!(S_TOTAL_GLOBALS, S_UNIT.0);
         i
     }

@@ -1,8 +1,12 @@
 mod prec;
+mod stack;
+
+use super::builtin::tycons::*;
+use super::inference::Constraint;
 use super::*;
 use sml_frontend::ast;
 use sml_frontend::parser::precedence::{self, Fixity, Precedence, Query};
-use sml_util::{span::*, stack::Stack};
+use stack::TyVarStack;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Copy, Clone, Debug)]
@@ -71,8 +75,8 @@ pub struct Namespace {
 
 #[derive(Default, Debug)]
 pub struct Context {
-    tmvars: Stack<Symbol>,
-    tyvars: Vec<(Symbol, TypeVar)>,
+    tmvars: TyVarStack,
+    tyvars: TyVarStack,
 
     namespaces: Vec<Namespace>,
     current: usize,
@@ -80,6 +84,8 @@ pub struct Context {
     types: Vec<TypeStructure>,
     values: Vec<(Scheme, IdStatus)>,
     exist: TypeVar,
+
+    constraints: Vec<Constraint>,
 
     decls: Vec<Decl>,
 }
@@ -112,9 +118,8 @@ impl Context {
     fn with_tyvars<T, F: FnMut(&mut Context) -> T>(&mut self, mut f: F) -> T {
         let n = self.tyvars.len();
         let r = f(self);
-        while self.tyvars.len() != n {
-            self.tyvars.pop().unwrap();
-        }
+        let to_pop = self.tmvars.len() - n;
+        self.tyvars.popn(to_pop);
         r
     }
 
@@ -221,6 +226,12 @@ impl Context {
         self.exist.0 += 1;
         ex
     }
+
+    fn constrain_list(&mut self, tv: TypeVar, tys: &[&Type]) {
+        for &ty in tys {
+            self.constraints.push(Constraint(Type::Var(tv), ty.clone()));
+        }
+    }
 }
 
 impl Context {
@@ -305,18 +316,25 @@ impl Context {
         use ast::PatKind::*;
         match &pat.data {
             App(con, p) => {
-                let (scheme, constr) = match self.lookup_value(con) {
-                    Some((scheme, IdStatus::Con(constr))) => (scheme, constr),
-                    _ => return Err(Error::NotConstructor(*con, pat.span)),
-                };
-                // TODO: Scheme instantiation
                 let p = self.elaborate_pat(p, bind)?;
-                Ok(p)
+                match self.lookup_value(con) {
+                    Some((scheme, IdStatus::Con(constr))) => {
+                        // TODO: Scheme instantiation
+                        let ty = scheme.instantiate();
+                        Ok(Pat::new(
+                            PatKind::App(*constr, Some(Box::new(p))),
+                            ty,
+                            pat.span,
+                        ))
+                    }
+                    _ => Err(Error::NotConstructor(*con, pat.span)),
+                }
             }
             Ascribe(p, ty) => {
                 let p = self.elaborate_pat(p, bind)?;
                 let ty = self.elaborate_type(ty, false)?;
                 // TODO: Unify types
+                self.constraints.push(Constraint(p.ty.clone(), ty));
                 Ok(p)
             }
             Const(c) => {
@@ -335,10 +353,12 @@ impl Context {
 
                 // TODO: Unify types
                 let tys = pats.iter().map(|p| &p.ty).collect::<Vec<&Type>>();
+                let fresh = self.fresh_tyvar();
+                self.constrain_list(fresh, &tys);
 
                 Ok(Pat::new(
                     PatKind::List(pats),
-                    Type::Var(self.fresh_tyvar()),
+                    Type::Con(T_LIST, vec![Type::Var(fresh)]),
                     pat.span,
                 ))
             }
@@ -348,20 +368,31 @@ impl Context {
                     .map(|r| self.elab_row(|f, rho| f.elaborate_pat(rho, bind), r))
                     .collect::<Result<_, _>>()?;
 
-                let tys = pats.iter().map(|p| &p.data.ty).collect::<Vec<&Type>>();
-                Ok(Pat::new(
-                    PatKind::Record(pats),
-                    Type::Var(self.fresh_tyvar()),
-                    pat.span,
-                ))
+                let tys = pats
+                    .iter()
+                    .map(|p| Row {
+                        label: p.label,
+                        span: p.span,
+                        data: p.data.ty.clone(),
+                    })
+                    .collect::<Vec<Row<Type>>>();
+
+                Ok(Pat::new(PatKind::Record(pats), Type::Record(tys), pat.span))
             }
-            Variable(sym) => {
-                let tv = self.fresh_tyvar();
-                if bind {
-                    self.tmvars.push(*sym);
+            Variable(sym) => match self.lookup_value(sym) {
+                Some((scheme, IdStatus::Con(c))) => {
+                    let ty = scheme.instantiate();
+                    Ok(Pat::new(PatKind::App(*c, None), ty, pat.span))
                 }
-                Ok(Pat::new(PatKind::Var(*sym), Type::Var(tv), pat.span))
-            }
+                Some(_) => Err(Error::NotConstructor(*sym, pat.span)),
+                None => {
+                    let tv = self.fresh_tyvar();
+                    if bind {
+                        self.tmvars.push(*sym, tv);
+                    }
+                    Ok(Pat::new(PatKind::Var(*sym), Type::Var(tv), pat.span))
+                }
+            },
             Wild => Ok(Pat::new(
                 PatKind::Wild,
                 Type::Var(self.fresh_tyvar()),
@@ -402,7 +433,7 @@ impl Context {
                 self.with_tyvars(|f| {
                     for s in typebind.tyvars.iter() {
                         let v = f.fresh_tyvar();
-                        f.tyvars.push((*s, v));
+                        f.tyvars.push(*s, v);
                     }
                     let ty = f.elaborate_type(&typebind.ty, false)?;
                     Ok(f.generalize(ty))
@@ -460,7 +491,7 @@ impl Context {
             self.with_tyvars(|f| {
                 for s in &db.tyvars {
                     let v = f.fresh_tyvar();
-                    f.tyvars.push((*s, v));
+                    f.tyvars.push(*s, v);
                 }
                 f.elab_decl_conbind(db)
             })?;
@@ -474,7 +505,11 @@ impl Context {
             Datatype(dbs) => self.elab_decl_datatype(dbs),
             Type(tbs) => self.elab_decl_type(tbs),
             Function(tyvars, fbs) => unimplemented!(),
-            Value(pat, expr) => unimplemented!(),
+            Value(pat, expr) => {
+                dbg!(self.elaborate_pat(pat, false)?);
+
+                Ok(())
+            }
             Exception(exns) => unimplemented!(),
             Fixity(fixity, bp, sym) => self.elab_decl_fixity(fixity, *bp, *sym),
             Local(decls, body) => self.elab_decl_local(decls, body),

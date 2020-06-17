@@ -3,6 +3,7 @@ use sml_util::interner::Symbol;
 use sml_util::span::Span;
 pub mod builtin;
 pub mod elaborate;
+pub mod inference;
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, PartialOrd, Eq, Hash)]
 pub struct TypeId(pub u32);
@@ -71,7 +72,7 @@ pub struct Expr {
 #[derive(Clone, Debug)]
 pub enum PatKind {
     /// Constructor application
-    App(Constructor, Box<Pat>),
+    App(Constructor, Option<Box<Pat>>),
     /// Constant
     Const(Const),
     /// Literal list
@@ -123,6 +124,13 @@ impl Scheme {
 
     pub fn apply(&self, args: Vec<Type>) -> Type {
         unimplemented!()
+    }
+
+    pub fn instantiate(&self) -> Type {
+        match self {
+            Scheme::Mono(ty) => ty.clone(),
+            Scheme::Poly(ty, _) => ty.clone(),
+        }
     }
 
     pub fn new(ty: Type, tyvars: Vec<TypeVar>) -> Scheme {
