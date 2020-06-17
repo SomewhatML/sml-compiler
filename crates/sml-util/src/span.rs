@@ -6,12 +6,12 @@ use std::fmt;
 pub struct Location {
     pub line: u16,
     pub col: u16,
-    pub abs: u32,
+    // pub abs: u32,
 }
 
 impl Location {
     pub fn new(line: u16, col: u16, abs: u32) -> Location {
-        Location { line, col, abs }
+        Location { line, col }
     }
 }
 
@@ -130,7 +130,7 @@ impl Span {
         let max = Location {
             line: 0,
             col: 0,
-            abs: 0,
+            // abs: 0,
         };
         Span {
             start: max,

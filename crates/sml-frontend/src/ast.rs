@@ -65,12 +65,12 @@ pub enum TypeKind {
 pub enum ExprKind {
     Andalso(Box<Expr>, Box<Expr>),
     App(Box<Expr>, Box<Expr>),
-    Case(Box<Expr>, Vec<Arm>),
+    Case(Box<Expr>, Vec<Rule>),
     Const(Const),
     Constraint(Box<Expr>, Box<Type>),
     FlatApp(Vec<Expr>),
-    Fn(Vec<Arm>),
-    Handle(Box<Expr>, Vec<Arm>),
+    Fn(Vec<Rule>),
+    Handle(Box<Expr>, Vec<Rule>),
     If(Box<Expr>, Box<Expr>, Box<Expr>),
     Let(Vec<Decl>, Box<Expr>),
     List(Vec<Expr>),
@@ -85,22 +85,23 @@ pub enum ExprKind {
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub enum PatKind {
-    /// Wildcard
-    Any,
-    /// Constant
-    Const(Const),
+    /// Algebraic datatype constructor, along with binding pattern
+    App(Symbol, Box<Pat>),
     /// Type ascription
     Ascribe(Box<Pat>, Box<Type>),
-    /// Variable binding
-    Variable(Symbol),
-    /// Record pattern { label1, label2 }
-    Record(Vec<Row<Pat>>),
-    /// List pattern [pat1, ... patN]
-    List(Vec<Pat>),
+    /// Constant
+    Const(Const),
     /// A collection of pat applications, possibly including infix constructors
     FlatApp(Vec<Pat>),
-    /// Algebraic datatype constructor, along with binding pattern
-    App(Box<Pat>, Box<Pat>),
+    /// List pattern [pat1, ... patN]
+    List(Vec<Pat>),
+    /// Record pattern { label1, label2 }
+    Record(Vec<Row<Pat>>),
+
+    /// Variable binding
+    Variable(Symbol),
+    /// Wildcard
+    Wild,
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
@@ -111,9 +112,9 @@ pub struct FnBinding {
     pub expr: Expr,
 }
 
-/// Arm of a case expression
+/// Rule of a case expression
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
-pub struct Arm {
+pub struct Rule {
     pub pat: Pat,
     pub expr: Expr,
     pub span: Span,

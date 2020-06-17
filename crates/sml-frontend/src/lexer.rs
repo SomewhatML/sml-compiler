@@ -19,7 +19,7 @@ impl<'s, 'sym> Lexer<'s, 'sym> {
             current: Location {
                 line: 0,
                 col: 0,
-                abs: 0,
+                // abs: 0,
             },
             interner,
         }
@@ -36,12 +36,12 @@ impl<'s, 'sym> Lexer<'s, 'sym> {
             Some('\n') => {
                 self.current.line += 1;
                 self.current.col = 0;
-                self.current.abs += 1;
+                // self.current.abs += 1;
                 Some('\n')
             }
             Some(ch) => {
                 self.current.col += 1;
-                self.current.abs += 1;
+                // self.current.abs += 1;
                 Some(ch)
             }
             None => None,

@@ -1,5 +1,6 @@
 use sml_frontend::ast::Const;
 use sml_util::interner::Symbol;
+use sml_util::span::Span;
 pub mod builtin;
 pub mod elaborate;
 
@@ -44,15 +45,53 @@ pub enum Scheme {
 #[derive(Clone, Debug)]
 pub enum ExprKind {
     App(Box<Expr>, Box<Expr>),
+    Case(Box<Expr>, Vec<Rule>),
     Con(Constructor, Vec<Type>),
-    Case(Box<Expr>),
     Const(Const),
+    Handle(Box<Expr>, Vec<Rule>),
+    Lambda(Symbol, Box<Expr>),
+    Let(Vec<Decl>, Box<Expr>),
+    List(Vec<Expr>),
+    Raise(Box<Expr>),
+    Record(Vec<Row<Expr>>),
+    Seq(Vec<Expr>),
+    Var(Symbol),
 }
 
 #[derive(Clone, Debug)]
 pub struct Expr {
     pub expr: ExprKind,
     pub ty: Type,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub enum PatKind {
+    /// Constructor application
+    App(Constructor, Box<Pat>),
+    /// Constant
+    Const(Const),
+    /// Literal list
+    List(Vec<Pat>),
+    /// Record
+    Record(Vec<Row<Pat>>),
+    /// Variable binding
+    Var(Symbol),
+    /// Wildcard
+    Wild,
+}
+
+#[derive(Clone, Debug)]
+pub struct Pat {
+    pub pat: PatKind,
+    pub ty: Type,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct Rule {
+    pub pat: Pat,
+    pub exp: Expr,
 }
 
 #[derive(Clone, Debug)]
@@ -105,5 +144,11 @@ impl Type {
 
     pub fn arrow(a: Type, b: Type) -> Type {
         Type::Con(builtin::tycons::T_ARROW, vec![a, b])
+    }
+}
+
+impl Pat {
+    pub fn new(pat: PatKind, ty: Type, span: Span) -> Pat {
+        Pat { pat, ty, span }
     }
 }

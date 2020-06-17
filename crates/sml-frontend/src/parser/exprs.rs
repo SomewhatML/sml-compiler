@@ -40,12 +40,12 @@ impl<'s, 'sym> Parser<'s, 'sym> {
         Ok(ExprKind::Let(decls, Box::new(t2)))
     }
 
-    fn case_arm(&mut self) -> Result<Arm, Error> {
+    fn case_arm(&mut self) -> Result<Rule, Error> {
         let pat = self.once(|p| p.parse_pattern(), "missing pattern in case arm")?;
         self.expect(Token::DArrow)?;
         let expr = self.once(|p| p.parse_expr(), "missing expression in case arm")?;
         self.bump_if(Token::Comma);
-        Ok(Arm {
+        Ok(Rule {
             span: pat.span + expr.span,
             pat,
             expr,

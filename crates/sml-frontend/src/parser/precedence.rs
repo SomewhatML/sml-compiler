@@ -24,12 +24,13 @@ pub enum Error {
     SamePrecedence,
     /// Expression ends with an infix operator
     EndsInfix,
+    InvalidOperator,
 }
 
 pub trait Query<T> {
     fn fixity(&self, t: &T) -> Fixity;
-    fn infix(&self, a: T, b: T, c: T) -> T;
-    fn apply(&self, a: T, b: T) -> T;
+    fn infix(&self, a: T, b: T, c: T) -> Result<T, Error>;
+    fn apply(&self, a: T, b: T) -> Result<T, Error>;
 }
 
 pub struct Precedence<T: std::fmt::Debug, Q: Query<T>> {
@@ -47,7 +48,7 @@ impl<T: std::fmt::Debug, Q: Query<T>> Precedence<T, Q> {
 
         match (top, f) {
             (Nonfix(ele), Fixity::Nonfix) => {
-                self.stack.push(Nonfix(self.query.apply(ele, item)));
+                self.stack.push(Nonfix(self.query.apply(ele, item)?));
                 Ok(())
             }
 
@@ -65,7 +66,7 @@ impl<T: std::fmt::Debug, Q: Query<T>> Precedence<T, Q> {
                         } else if lbp == bp {
                             Err(Error::SamePrecedence)
                         } else {
-                            self.stack.push(Nonfix(self.query.infix(e2, e3, e1)));
+                            self.stack.push(Nonfix(self.query.infix(e2, e3, e1)?));
                             self.parse(item)
                         }
                     } else {
@@ -111,7 +112,7 @@ impl<T: std::fmt::Debug, Q: Query<T>> Precedence<T, Q> {
                     match (e2, e3) {
                         (Element::Infix(_, e2), Element::Nonfix(e3)) => {
                             self.stack
-                                .push(Element::Nonfix(self.query.infix(e2, e3, e)));
+                                .push(Element::Nonfix(self.query.infix(e2, e3, e)?));
                             self.finish()
                         }
                         _ => panic!("parser::precedence"),

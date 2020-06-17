@@ -67,7 +67,7 @@ impl<'s, 'sym> Parser<'s, 'sym> {
         match self.current.data {
             Token::Wildcard => {
                 self.bump();
-                Ok(Pat::new(PatKind::Any, span))
+                Ok(Pat::new(PatKind::Wild, span))
             }
             Token::Id(_) | Token::IdS(_) => self
                 .expect_id()
