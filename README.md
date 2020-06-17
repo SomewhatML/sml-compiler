@@ -1,19 +1,5 @@
-# SimpleML
+# sml-compiler
 
-SimpleML is a toy Standard ML compiler
+This is a WIP compiler targeting the core term language of Standard ML '97 (i.e. no structures/signatures). The goal is to first get a source -> machine code pipeline working, then perhaps go back and add in the ML module system.
 
-
-```
-fun main (x : 'a) (y : ∀'b. 'b -> 'b) : 'a 
-    = y x
-
-fun main : 'a -> forall 'b. 'b -> 'b) -> 'a
-    | x f = f x
-
-fun 'a main x y : int = x + y
-     | main 9 0 : int = 10
-and do_it nil = 0
-  | do_it (x::xs) = 1 + do_it xs
-
-
-```
+We take an approach similar to MLton, where we will be performing whole-program compilation and monomorphization
