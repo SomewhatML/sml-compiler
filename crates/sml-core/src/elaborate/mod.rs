@@ -247,12 +247,7 @@ impl Context {
             }
             Record(rows) => rows
                 .into_iter()
-                .map(|row| {
-                    Ok(Row {
-                        label: row.label,
-                        data: self.elaborate_type(&row.data, allow_unbound)?,
-                    })
-                })
+                .map(|row| self.elab_row(|f, r| f.elaborate_type(r, allow_unbound), row))
                 .collect::<Result<Vec<Row<Type>>, Error>>()
                 .map(Type::Record),
         }
@@ -292,53 +287,88 @@ impl Context {
         }
     }
 
-    // fn elaborate_pat(&mut self, pat: &ast::Pat, bind: bool) -> Result<Pat, Error> {
-    //     use ast::PatKind::*;
-    //     match &pat.data {
-    //         App(con, p) => {
-    //             let (scheme, constr) = match self.lookup_value(con) {
-    //                 Some((scheme, IdStatus::Con(constr))) => (scheme, constr),
-    //                 _ => return Err(Error::NotConstructor(*con, pat.span)),
-    //             };
-    //             // TODO: Scheme instantiation
-    //             let p = self.elaborate_pat(p, bind)?;
-    //             Ok(p)
-    //         }
-    //         Ascribe(p, ty) => {
-    //             let p = self.elaborate_pat(p, bind)?;
-    //             let ty = self.elaborate_type(ty, false)?;
-    //             // TODO: Unify types
-    //             Ok(p)
-    //         }
-    //         Const(c) => {
-    //             let ty = self.const_ty(*c);
-    //             Ok(Pat::new(PatKind::Const(*c), ty, pat.span))
-    //         }
-    //         FlatApp(pats) => {
-    //             let p = self.pat_precedence(pats.clone(), pat.span)?;
-    //             self.elaborate_pat(&p, bind)
-    //         }
-    //         List(pats) => {
-    //             let pats: Vec<Pat> = pats
-    //                 .into_iter()
-    //                 .map(|p| self.elaborate_pat(p, bind))
-    //                 .collect::<Result<_, _>>()?;
+    /// Generic function to elaborate an ast::Row<T> into a core::Row<S>
+    /// where T might be ast::Type and S is core::Type, for instance
+    fn elab_row<T, S, E, F: FnMut(&mut Context, &T) -> Result<S, E>>(
+        &mut self,
+        mut f: F,
+        row: &ast::Row<T>,
+    ) -> Result<Row<S>, E> {
+        Ok(Row {
+            label: row.label,
+            span: row.span,
+            data: f(self, &row.data)?,
+        })
+    }
 
-    //             // TODO: Unify types
-    //             let tys = pats.iter().map(|p| &p.ty).collect::<Vec<&Type>>();
+    fn elaborate_pat(&mut self, pat: &ast::Pat, bind: bool) -> Result<Pat, Error> {
+        use ast::PatKind::*;
+        match &pat.data {
+            App(con, p) => {
+                let (scheme, constr) = match self.lookup_value(con) {
+                    Some((scheme, IdStatus::Con(constr))) => (scheme, constr),
+                    _ => return Err(Error::NotConstructor(*con, pat.span)),
+                };
+                // TODO: Scheme instantiation
+                let p = self.elaborate_pat(p, bind)?;
+                Ok(p)
+            }
+            Ascribe(p, ty) => {
+                let p = self.elaborate_pat(p, bind)?;
+                let ty = self.elaborate_type(ty, false)?;
+                // TODO: Unify types
+                Ok(p)
+            }
+            Const(c) => {
+                let ty = self.const_ty(*c);
+                Ok(Pat::new(PatKind::Const(*c), ty, pat.span))
+            }
+            FlatApp(pats) => {
+                let p = self.pat_precedence(pats.clone(), pat.span)?;
+                self.elaborate_pat(&p, bind)
+            }
+            List(pats) => {
+                let pats: Vec<Pat> = pats
+                    .into_iter()
+                    .map(|p| self.elaborate_pat(p, bind))
+                    .collect::<Result<_, _>>()?;
 
-    //             Ok(Pat::new(PatKind::List(pats), self.fresh_ty(), pat.span))
-    //         }
-    //         Record(rows) => {
+                // TODO: Unify types
+                let tys = pats.iter().map(|p| &p.ty).collect::<Vec<&Type>>();
 
-    //         }
-    //         Variable(sym) => {
+                Ok(Pat::new(
+                    PatKind::List(pats),
+                    Type::Var(self.fresh_tyvar()),
+                    pat.span,
+                ))
+            }
+            Record(rows) => {
+                let pats: Vec<Row<Pat>> = rows
+                    .into_iter()
+                    .map(|r| self.elab_row(|f, rho| f.elaborate_pat(rho, bind), r))
+                    .collect::<Result<_, _>>()?;
 
-    //         }
-    //         Wild => Ok(Pat::new(PatKind::Wild, self.fresh_ty(), pat.span)),
-
-    //     }
-    // }
+                let tys = pats.iter().map(|p| &p.data.ty).collect::<Vec<&Type>>();
+                Ok(Pat::new(
+                    PatKind::Record(pats),
+                    Type::Var(self.fresh_tyvar()),
+                    pat.span,
+                ))
+            }
+            Variable(sym) => {
+                let tv = self.fresh_tyvar();
+                if bind {
+                    self.tmvars.push(*sym);
+                }
+                Ok(Pat::new(PatKind::Var(*sym), Type::Var(tv), pat.span))
+            }
+            Wild => Ok(Pat::new(
+                PatKind::Wild,
+                Type::Var(self.fresh_tyvar()),
+                pat.span,
+            )),
+        }
+    }
 }
 
 impl Context {

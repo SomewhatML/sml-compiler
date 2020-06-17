@@ -104,6 +104,7 @@ pub enum Decl {}
 pub struct Row<T> {
     pub label: Symbol,
     pub data: T,
+    pub span: Span,
 }
 
 impl Tycon {
