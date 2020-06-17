@@ -141,7 +141,7 @@ pub fn make_record(v: Vec<Expr>) -> ExprKind {
         v.into_iter()
             .enumerate()
             .map(|(idx, ex)| Row {
-                label: Symbol::tuple_field(idx as u32),
+                label: Symbol::tuple_field(1 + idx as u32),
                 span: ex.span,
                 data: ex,
             })
@@ -154,7 +154,7 @@ pub fn make_record_type(v: Vec<Type>) -> TypeKind {
         v.into_iter()
             .enumerate()
             .map(|(idx, ex)| Row {
-                label: Symbol::tuple_field(idx as u32),
+                label: Symbol::tuple_field(1 + idx as u32),
                 span: ex.span,
                 data: ex,
             })
@@ -167,7 +167,7 @@ pub fn make_record_pat(v: Vec<Pat>) -> PatKind {
         v.into_iter()
             .enumerate()
             .map(|(idx, ex)| Row {
-                label: Symbol::tuple_field(idx as u32),
+                label: Symbol::tuple_field(1 + idx as u32),
                 span: ex.span,
                 data: ex,
             })

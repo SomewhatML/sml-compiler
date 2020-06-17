@@ -37,6 +37,7 @@ fn main() {
         return;
     }
 
+    let mut ctx = sml_core::elaborate::Context::new();
     println!("SimpleML (c) 2020");
     loop {
         let mut buffer = String::new();
@@ -54,8 +55,8 @@ fn main() {
         match res {
             Ok(d) => {
                 println!("{:?}", d);
-                // ctx.elaborate_decl(&d).unwrap();
-                // dbg!(&ctx);
+                ctx.elaborate_decl(&d).unwrap();
+                dbg!(&ctx);
                 // let elab1 = ctx.elab_program(d);
                 // let inlined = hir::inline(&elab1);
                 // println!("====> {:?}", &elab1);

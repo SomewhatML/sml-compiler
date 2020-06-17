@@ -9,6 +9,9 @@ pub struct TypeId(pub u32);
 #[derive(Copy, Clone, Debug, Default, PartialEq, PartialOrd, Eq, Hash)]
 pub struct ExprId(pub u32);
 
+#[derive(Copy, Clone, Debug, Default, PartialEq, PartialOrd, Eq, Hash)]
+pub struct TypeVar(pub u32);
+
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
 pub struct Local {
     name: Symbol,
@@ -17,10 +20,10 @@ pub struct Local {
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub enum Type {
-    Var(Local),
+    Var(TypeVar),
     Con(Tycon, Vec<Type>),
     Record(Vec<Row<Type>>),
-    Exist(usize),
+    // Exist(usize),
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
@@ -39,7 +42,7 @@ pub struct Constructor {
 #[derive(Clone, Debug)]
 pub enum Scheme {
     Mono(Type),
-    Poly(Type, Vec<Symbol>),
+    Poly(Type, Vec<TypeVar>),
 }
 
 #[derive(Clone, Debug)]
@@ -121,7 +124,7 @@ impl Scheme {
         unimplemented!()
     }
 
-    pub fn new(ty: Type, tyvars: Vec<Symbol>) -> Scheme {
+    pub fn new(ty: Type, tyvars: Vec<TypeVar>) -> Scheme {
         match tyvars.len() {
             0 => Scheme::Mono(ty),
             _ => Scheme::Poly(ty, tyvars),
@@ -130,20 +133,38 @@ impl Scheme {
 }
 
 impl Type {
-    pub fn fresh_tyvars(arity: usize) -> Vec<Type> {
-        (0..arity)
-            .rev()
-            .map(|idx| {
-                Type::Var(Local {
-                    name: Symbol::dummy(),
-                    idx,
-                })
-            })
-            .collect()
-    }
+    // pub fn fresh_tyvars(arity: usize) -> Vec<Type> {
+    //     (0..arity)
+    //         .rev()
+    //         .map(|idx| {
+    //             Type::Var(Local {
+    //                 name: Symbol::dummy(),
+    //                 idx,
+    //             })
+    //         })
+    //         .collect()
+    // }
 
     pub fn arrow(a: Type, b: Type) -> Type {
         Type::Con(builtin::tycons::T_ARROW, vec![a, b])
+    }
+
+    fn ftv(&self, set: &mut Vec<TypeVar>) {
+        match self {
+            Type::Var(x) => {
+                set.push(*x);
+            }
+            Type::Record(rows) => {
+                for row in rows {
+                    row.data.ftv(set);
+                }
+            }
+            Type::Con(_, tys) => {
+                for ty in tys {
+                    ty.ftv(set);
+                }
+            }
+        }
     }
 }
 

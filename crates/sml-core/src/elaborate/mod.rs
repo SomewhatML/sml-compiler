@@ -3,7 +3,7 @@ use super::*;
 use sml_frontend::ast;
 use sml_frontend::parser::precedence::{self, Fixity, Precedence, Query};
 use sml_util::{span::*, stack::Stack};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Copy, Clone, Debug)]
 pub enum Error {
@@ -72,14 +72,14 @@ pub struct Namespace {
 #[derive(Default, Debug)]
 pub struct Context {
     tmvars: Stack<Symbol>,
-    tyvars: Stack<Symbol>,
+    tyvars: Vec<(Symbol, TypeVar)>,
 
     namespaces: Vec<Namespace>,
     current: usize,
 
     types: Vec<TypeStructure>,
     values: Vec<(Scheme, IdStatus)>,
-    exist: usize,
+    exist: TypeVar,
 
     decls: Vec<Decl>,
 }
@@ -112,8 +112,9 @@ impl Context {
     fn with_tyvars<T, F: FnMut(&mut Context) -> T>(&mut self, mut f: F) -> T {
         let n = self.tyvars.len();
         let r = f(self);
-        let to_pop = self.tyvars.len() - n;
-        self.tyvars.popn(to_pop);
+        while self.tyvars.len() != n {
+            self.tyvars.pop().unwrap();
+        }
         r
     }
 
@@ -178,6 +179,16 @@ impl Context {
         }
     }
 
+    fn lookup_typeid(&self, sym: &Symbol) -> Option<TypeId> {
+        let mut ptr = &self.namespaces[self.current];
+        loop {
+            match ptr.types.get(sym) {
+                Some(idx) => return Some(*idx),
+                None => ptr = &self.namespaces[ptr.parent?],
+            }
+        }
+    }
+
     fn lookup_value(&self, sym: &Symbol) -> Option<&(Scheme, IdStatus)> {
         let mut ptr = &self.namespaces[self.current];
         loop {
@@ -188,10 +199,27 @@ impl Context {
         }
     }
 
-    fn fresh_ty(&mut self) -> Type {
+    fn lookup_tyvar(&mut self, s: &Symbol, allow_unbound: bool) -> Option<TypeVar> {
+        for (sym, tv) in self.tyvars.iter().rev() {
+            if sym == s {
+                return Some(*tv);
+            }
+        }
+        if allow_unbound {
+            Some(self.fresh_tyvar())
+        } else {
+            None
+        }
+    }
+
+    fn bound_tyvars(&self) -> HashSet<TypeVar> {
+        self.tyvars.iter().map(|(_, v)| *v).collect()
+    }
+
+    fn fresh_tyvar(&mut self) -> TypeVar {
         let ex = self.exist;
-        self.exist += 1;
-        Type::Exist(ex)
+        self.exist.0 += 1;
+        ex
     }
 }
 
@@ -199,11 +227,9 @@ impl Context {
     fn elaborate_type(&mut self, ty: &ast::Type, allow_unbound: bool) -> Result<Type, Error> {
         use ast::TypeKind::*;
         match &ty.data {
-            Var(s) => match (self.tyvars.lookup(s), allow_unbound) {
-                (Some(idx), _) => Ok(Type::Var(Local { name: *s, idx })),
-                // TODO
-                (None, true) => Ok(Type::Var(Local { name: *s, idx: 0 })),
-                (None, false) => Err(Error::UnboundTyvar(*s, ty.span)),
+            Var(s) => match self.lookup_tyvar(s, allow_unbound) {
+                Some(tv) => Ok(Type::Var(tv)),
+                None => Err(Error::UnboundTyvar(*s, ty.span)),
             },
             Con(s, args) => {
                 let args = args
@@ -231,6 +257,28 @@ impl Context {
                 .map(Type::Record),
         }
     }
+
+    fn generalize(&self, ty: Type) -> Scheme {
+        // let bound = self.bound_tyvars();
+        let mut set = HashSet::new();
+        let mut v = Vec::new();
+        ty.ftv(&mut v);
+
+        dbg!(&v);
+
+        match v.len() {
+            0 => Scheme::Mono(ty),
+            _ => {
+                let bnd = v.into_iter().filter(|v| set.insert(*v)).collect();
+                Scheme::Poly(ty, bnd)
+            }
+        }
+
+        // let replace = HashMap::new();
+        // for fv = set.difference(&bound) {
+
+        // }
+    }
 }
 
 impl Context {
@@ -244,42 +292,53 @@ impl Context {
         }
     }
 
-    fn elaborate_pat(&mut self, pat: &ast::Pat, bind: bool) -> Result<Pat, Error> {
-        use ast::PatKind::*;
-        match &pat.data {
-            App(con, p) => {
-                let (scheme, constr) = match self.lookup_value(con) {
-                    Some((scheme, IdStatus::Con(constr))) => (scheme, constr),
-                    _ => return Err(Error::NotConstructor(*con, pat.span)),
-                };
-                // if scheme.
-                let p = self.elaborate_pat(p, bind)?;
-                Ok(p)
-            }
-            Ascribe(p, ty) => {
-                let p = self.elaborate_pat(p, bind)?;
-                let ty = self.elaborate_type(ty, false)?;
-                Ok(p)
-            }
-            Const(c) => {
-                let ty = self.const_ty(*c);
-                Ok(Pat::new(PatKind::Const(*c), ty, pat.span))
-            }
-            FlatApp(pats) => {
-                let p = self.pat_precedence(pats.clone(), pat.span)?;
-                self.elaborate_pat(&p, bind)
-            }
-            List(pats) => {
-                let pats: Vec<Pat> = pats
-                    .into_iter()
-                    .map(|p| self.elaborate_pat(p, bind))
-                    .collect::<Result<_, _>>()?;
-                let tys = pats.iter().map(|p| &p.ty).collect::<Vec<&Type>>();
+    // fn elaborate_pat(&mut self, pat: &ast::Pat, bind: bool) -> Result<Pat, Error> {
+    //     use ast::PatKind::*;
+    //     match &pat.data {
+    //         App(con, p) => {
+    //             let (scheme, constr) = match self.lookup_value(con) {
+    //                 Some((scheme, IdStatus::Con(constr))) => (scheme, constr),
+    //                 _ => return Err(Error::NotConstructor(*con, pat.span)),
+    //             };
+    //             // TODO: Scheme instantiation
+    //             let p = self.elaborate_pat(p, bind)?;
+    //             Ok(p)
+    //         }
+    //         Ascribe(p, ty) => {
+    //             let p = self.elaborate_pat(p, bind)?;
+    //             let ty = self.elaborate_type(ty, false)?;
+    //             // TODO: Unify types
+    //             Ok(p)
+    //         }
+    //         Const(c) => {
+    //             let ty = self.const_ty(*c);
+    //             Ok(Pat::new(PatKind::Const(*c), ty, pat.span))
+    //         }
+    //         FlatApp(pats) => {
+    //             let p = self.pat_precedence(pats.clone(), pat.span)?;
+    //             self.elaborate_pat(&p, bind)
+    //         }
+    //         List(pats) => {
+    //             let pats: Vec<Pat> = pats
+    //                 .into_iter()
+    //                 .map(|p| self.elaborate_pat(p, bind))
+    //                 .collect::<Result<_, _>>()?;
 
-                Ok(Pat::new(PatKind::List(pats), self.fresh_ty(), pat.span))
-            }
-        }
-    }
+    //             // TODO: Unify types
+    //             let tys = pats.iter().map(|p| &p.ty).collect::<Vec<&Type>>();
+
+    //             Ok(Pat::new(PatKind::List(pats), self.fresh_ty(), pat.span))
+    //         }
+    //         Record(rows) => {
+
+    //         }
+    //         Variable(sym) => {
+
+    //         }
+    //         Wild => Ok(Pat::new(PatKind::Wild, self.fresh_ty(), pat.span)),
+
+    //     }
+    // }
 }
 
 impl Context {
@@ -310,11 +369,14 @@ impl Context {
     fn elab_decl_type(&mut self, tbs: &[ast::Typebind]) -> Result<(), Error> {
         for typebind in tbs {
             let scheme = if !typebind.tyvars.is_empty() {
-                let ty = self.with_tyvars(|f| {
-                    f.tyvars.extend(typebind.tyvars.iter().copied());
-                    f.elaborate_type(&typebind.ty, false)
-                })?;
-                Scheme::Poly(ty, typebind.tyvars.clone())
+                self.with_tyvars(|f| {
+                    for s in typebind.tyvars.iter() {
+                        let v = f.fresh_tyvar();
+                        f.tyvars.push((*s, v));
+                    }
+                    let ty = f.elaborate_type(&typebind.ty, false)?;
+                    Ok(f.generalize(ty))
+                })?
             } else {
                 Scheme::Mono(self.elaborate_type(&typebind.ty, false)?)
             };
@@ -325,27 +387,22 @@ impl Context {
 
     fn elab_decl_conbind(&mut self, db: &ast::Datatype) -> Result<(), Error> {
         let tycon = Tycon::new(db.tycon, db.tyvars.len());
-        let type_id = self.define_type(db.tycon, TypeStructure::Tycon(tycon));
 
+        // This is safe to unwrap, because we already bound it.
+        let type_id = self.lookup_typeid(&db.tycon).unwrap();
+
+        // Should be safe to unwrap here as well, since the caller has bound db.tyvars
         let tyvars: Vec<Type> = db
             .tyvars
             .iter()
-            .enumerate()
-            .map(|(idx, &name)| {
-                Type::Var(Local {
-                    name,
-                    idx: tycon.arity - idx - 1,
-                })
-            })
+            .map(|sym| Type::Var(self.lookup_tyvar(sym, false).unwrap()))
             .collect();
+
         for (tag, con) in db.constructors.iter().enumerate() {
             let res = Type::Con(tycon, tyvars.clone());
             let ty = match &con.data {
                 Some(ty) => {
-                    let dom = self.with_tyvars(|f| {
-                        f.tyvars.extend(db.tyvars.iter().copied());
-                        f.elaborate_type(ty, false)
-                    })?;
+                    let dom = self.elaborate_type(ty, false)?;
                     Type::arrow(dom, res)
                 }
                 None => res,
@@ -355,11 +412,7 @@ impl Context {
                 type_id,
                 tag: tag as u32,
             };
-            self.define_value(
-                con.label,
-                Scheme::new(ty, db.tyvars.clone()),
-                IdStatus::Con(cons),
-            );
+            self.define_value(con.label, self.generalize(ty), IdStatus::Con(cons));
         }
 
         Ok(())
@@ -374,7 +427,13 @@ impl Context {
             self.define_type(db.tycon, TypeStructure::Tycon(tycon));
         }
         for db in dbs {
-            self.elab_decl_conbind(db)?;
+            self.with_tyvars(|f| {
+                for s in &db.tyvars {
+                    let v = f.fresh_tyvar();
+                    f.tyvars.push((*s, v));
+                }
+                f.elab_decl_conbind(db)
+            })?;
         }
         Ok(())
     }
