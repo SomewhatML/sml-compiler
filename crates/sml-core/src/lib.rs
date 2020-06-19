@@ -27,7 +27,7 @@ pub enum Type {
     // Exist(usize),
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq)]
 pub struct Tycon {
     name: Symbol,
     arity: usize,
@@ -158,6 +158,17 @@ impl Type {
         Type::Con(builtin::tycons::T_ARROW, vec![a, b])
     }
 
+    pub fn de_arrow(self) -> Option<(Type, Type)> {
+        match self {
+            Type::Con(builtin::tycons::T_ARROW, mut v) => {
+                let a = v.remove(0);
+                let r = v.remove(0);
+                Some((a, r))
+            }
+            _ => None,
+        }
+    }
+
     fn ftv(&self, set: &mut Vec<TypeVar>) {
         match self {
             Type::Var(x) => {
@@ -180,5 +191,25 @@ impl Type {
 impl Pat {
     pub fn new(pat: PatKind, ty: Type, span: Span) -> Pat {
         Pat { pat, ty, span }
+    }
+}
+
+impl<T> Row<T> {
+    pub fn fmap<S, F: FnOnce(T) -> S>(self, f: F) -> Row<S> {
+        Row {
+            label: self.label,
+            span: self.span,
+            data: f(self.data),
+        }
+    }
+}
+
+impl<T, E> Row<Result<T, E>> {
+    pub fn flatten(self) -> Result<Row<T>, E> {
+        Ok(Row {
+            label: self.label,
+            span: self.span,
+            data: self.data?,
+        })
     }
 }

@@ -81,7 +81,7 @@ globals!(
     S_UNIT
 );
 
-#[derive(Copy, Clone, PartialEq, PartialOrd, Eq, Hash)]
+#[derive(Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub struct Symbol(u32);
 
 impl Symbol {

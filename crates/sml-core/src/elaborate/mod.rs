@@ -9,7 +9,7 @@ use sml_frontend::parser::precedence::{self, Fixity, Precedence, Query};
 use stack::TyVarStack;
 use std::collections::{HashMap, HashSet};
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub enum Error {
     UnboundTyvar(Symbol, Span),
     UnboundTycon(Symbol, Span),
@@ -17,6 +17,10 @@ pub enum Error {
     TyconArg(Symbol, Span, usize, usize),
     NotConstructor(Symbol, Span),
     Precedence(Span),
+    NotArrow(Symbol, Span),
+
+    CantUnify(Span, Type, Type),
+    CantUnifyTycon(Span, Tycon, Tycon),
 }
 
 /// Identifier status for the Value Environment, as defined in the Defn.
@@ -235,6 +239,55 @@ impl Context {
 }
 
 impl Context {
+    fn unify(&self, sp: Span, ty1: Type, ty2: Type) -> Result<Type, Error> {
+        match (ty1, ty2) {
+            (Type::Var(x), ty2) => Ok(ty2),
+            (ty1, Type::Var(x)) => Ok(ty1),
+            (Type::Con(tc1, a_args), Type::Con(tc2, b_args)) => {
+                if tc1 != tc2 {
+                    Err(Error::CantUnifyTycon(sp, tc1, tc2))
+                } else if a_args.len() != b_args.len() {
+                    Err(Error::CantUnify(
+                        sp,
+                        Type::Con(tc1, a_args),
+                        Type::Con(tc2, b_args),
+                    ))
+                } else {
+                    Ok(Type::Con(
+                        tc1,
+                        a_args
+                            .into_iter()
+                            .zip(b_args)
+                            .map(|(a, b)| self.unify(sp, a, b))
+                            .collect::<Result<_, _>>()?,
+                    ))
+                }
+            }
+            (Type::Record(mut r1), Type::Record(mut r2)) => {
+                r1.sort_by(|a, b| a.label.cmp(&b.label));
+                r2.sort_by(|a, b| a.label.cmp(&b.label));
+
+                let rows = r1
+                    .into_iter()
+                    .zip(r2.into_iter())
+                    .map(|(a, b)| a.fmap(|ty| self.unify(sp, ty, b.data)).flatten())
+                    .collect::<Result<_, _>>()?;
+                Ok(Type::Record(rows))
+            }
+            (a, b) => Err(Error::CantUnify(sp, a, b)),
+        }
+    }
+
+    fn unify_list(&self, sp: Span, mut tys: Vec<Type>) -> Result<Type, Error> {
+        let mut fst = tys.remove(0);
+        for ty in tys {
+            fst = self.unify(sp, ty, fst)?;
+        }
+        Ok(fst)
+    }
+}
+
+impl Context {
     fn elaborate_type(&mut self, ty: &ast::Type, allow_unbound: bool) -> Result<Type, Error> {
         use ast::TypeKind::*;
         match &ty.data {
@@ -279,11 +332,6 @@ impl Context {
                 Scheme::Poly(ty, bnd)
             }
         }
-
-        // let replace = HashMap::new();
-        // for fv = set.difference(&bound) {
-
-        // }
     }
 }
 
@@ -320,10 +368,15 @@ impl Context {
                 match self.lookup_value(con) {
                     Some((scheme, IdStatus::Con(constr))) => {
                         // TODO: Scheme instantiation
-                        let ty = scheme.instantiate();
+                        let (arg, res) = scheme
+                            .instantiate()
+                            .de_arrow()
+                            .ok_or_else(|| Error::NotArrow(*con, pat.span))?;
+
+                        let _ = self.unify(pat.span, arg, p.ty.clone())?;
                         Ok(Pat::new(
                             PatKind::App(*constr, Some(Box::new(p))),
-                            ty,
+                            res,
                             pat.span,
                         ))
                     }
@@ -331,10 +384,11 @@ impl Context {
                 }
             }
             Ascribe(p, ty) => {
-                let p = self.elaborate_pat(p, bind)?;
+                let mut p = self.elaborate_pat(p, bind)?;
                 let ty = self.elaborate_type(ty, false)?;
-                // TODO: Unify types
-                self.constraints.push(Constraint(p.ty.clone(), ty));
+
+                let ty = self.unify(pat.span, p.ty, ty)?;
+                p.ty = ty;
                 Ok(p)
             }
             Const(c) => {
@@ -352,13 +406,15 @@ impl Context {
                     .collect::<Result<_, _>>()?;
 
                 // TODO: Unify types
-                let tys = pats.iter().map(|p| &p.ty).collect::<Vec<&Type>>();
-                let fresh = self.fresh_tyvar();
-                self.constrain_list(fresh, &tys);
+                let tys = pats.iter().map(|p| &p.ty).cloned().collect::<Vec<Type>>();
+                // let fresh = self.fresh_tyvar();
+                // self.constrain_list(fresh, &tys);
+
+                let ty = self.unify_list(pat.span, tys)?;
 
                 Ok(Pat::new(
                     PatKind::List(pats),
-                    Type::Con(T_LIST, vec![Type::Var(fresh)]),
+                    Type::Con(T_LIST, vec![ty]),
                     pat.span,
                 ))
             }
