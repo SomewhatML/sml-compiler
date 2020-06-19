@@ -69,11 +69,15 @@ impl Context {
         &self,
         exprs: Vec<ast::Expr>,
         sp: Span,
-    ) -> Result<ast::Expr, Error> {
-        Precedence::run(self, exprs).map_err(|_| Error::Precedence(sp))
+    ) -> Result<ast::Expr, precedence::Error> {
+        Precedence::run(self, exprs)
     }
 
-    pub(crate) fn pat_precedence(&self, exprs: Vec<ast::Pat>, sp: Span) -> Result<ast::Pat, Error> {
-        Precedence::run(self, exprs).map_err(|_| Error::Precedence(sp))
+    pub(crate) fn pat_precedence(
+        &self,
+        exprs: Vec<ast::Pat>,
+        sp: Span,
+    ) -> Result<ast::Pat, precedence::Error> {
+        Precedence::run(self, exprs)
     }
 }

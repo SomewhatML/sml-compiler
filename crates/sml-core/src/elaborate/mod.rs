@@ -1,34 +1,22 @@
 mod prec;
 mod stack;
 
+use super::builtin::constructors::*;
 use super::builtin::tycons::*;
 use super::inference::Constraint;
 use super::*;
 use sml_frontend::ast;
 use sml_frontend::parser::precedence::{self, Fixity, Precedence, Query};
+use sml_util::diagnostics::Diagnostic;
 use stack::TyVarStack;
 use std::collections::{HashMap, HashSet};
-
-#[derive(Clone, Debug)]
-pub enum Error {
-    UnboundTyvar(Symbol, Span),
-    UnboundTycon(Symbol, Span),
-    UnboundVar(Symbol, Span),
-    TyconArg(Symbol, Span, usize, usize),
-    NotConstructor(Symbol, Span),
-    Precedence(Span),
-    NotArrow(Symbol, Span),
-
-    CantUnify(Span, Type, Type),
-    CantUnifyTycon(Span, Tycon, Tycon),
-}
 
 /// Identifier status for the Value Environment, as defined in the Defn.
 #[derive(Copy, Clone, Debug)]
 pub enum IdStatus {
     Exn(Constructor),
     Con(Constructor),
-    Var(Symbol),
+    Var,
 }
 
 /// Essentially a minimized Value Environment (VE) containing only datatype
@@ -79,7 +67,6 @@ pub struct Namespace {
 
 #[derive(Default, Debug)]
 pub struct Context {
-    tmvars: TyVarStack,
     tyvars: TyVarStack,
 
     namespaces: Vec<Namespace>,
@@ -122,19 +109,8 @@ impl Context {
     fn with_tyvars<T, F: FnMut(&mut Context) -> T>(&mut self, mut f: F) -> T {
         let n = self.tyvars.len();
         let r = f(self);
-        let to_pop = self.tmvars.len() - n;
+        let to_pop = self.tyvars.len() - n;
         self.tyvars.popn(to_pop);
-        r
-    }
-
-    /// Keep track of the term variable stack, while executing the combinator
-    /// function `f` on `self`. Any stack growth is popped off after `f`
-    /// returns.
-    fn with_tmvars<T, F: FnMut(&mut Context) -> T>(&mut self, mut f: F) -> T {
-        let n = self.tmvars.len();
-        let r = f(self);
-        let to_pop = self.tmvars.len() - n;
-        self.tmvars.popn(to_pop);
         r
     }
 
@@ -239,19 +215,23 @@ impl Context {
 }
 
 impl Context {
-    fn unify(&self, sp: Span, ty1: Type, ty2: Type) -> Result<Type, Error> {
+    fn unify(&self, sp: Span, ty1: Type, ty2: Type) -> Result<Type, Diagnostic> {
         match (ty1, ty2) {
             (Type::Var(x), ty2) => Ok(ty2),
             (ty1, Type::Var(x)) => Ok(ty1),
             (Type::Con(tc1, a_args), Type::Con(tc2, b_args)) => {
                 if tc1 != tc2 {
-                    Err(Error::CantUnifyTycon(sp, tc1, tc2))
-                } else if a_args.len() != b_args.len() {
-                    Err(Error::CantUnify(
+                    Err(Diagnostic::error(
                         sp,
-                        Type::Con(tc1, a_args),
-                        Type::Con(tc2, b_args),
+                        format!("Can't unify type constructor {:?} and {:?}", tc1, tc2),
                     ))
+                } else if a_args.len() != b_args.len() {
+                    Err(Diagnostic::error(
+                        sp,
+                        "Can't unify type constructors with different argument lengths",
+                    )
+                    .message(sp, format!("first type has arguments: {:?}", a_args))
+                    .message(sp, format!("and second type has arguments: {:?}", b_args)))
                 } else {
                     Ok(Type::Con(
                         tc1,
@@ -274,11 +254,14 @@ impl Context {
                     .collect::<Result<_, _>>()?;
                 Ok(Type::Record(rows))
             }
-            (a, b) => Err(Error::CantUnify(sp, a, b)),
+            (a, b) => Err(Diagnostic::error(
+                sp,
+                format!("Can't unify types {:?} and {:?}", a, b),
+            )),
         }
     }
 
-    fn unify_list(&self, sp: Span, mut tys: Vec<Type>) -> Result<Type, Error> {
+    fn unify_list(&self, sp: Span, mut tys: Vec<Type>) -> Result<Type, Diagnostic> {
         let mut fst = tys.remove(0);
         for ty in tys {
             fst = self.unify(sp, ty, fst)?;
@@ -288,23 +271,34 @@ impl Context {
 }
 
 impl Context {
-    fn elaborate_type(&mut self, ty: &ast::Type, allow_unbound: bool) -> Result<Type, Error> {
+    fn elaborate_type(&mut self, ty: &ast::Type, allow_unbound: bool) -> Result<Type, Diagnostic> {
         use ast::TypeKind::*;
         match &ty.data {
             Var(s) => match self.lookup_tyvar(s, allow_unbound) {
                 Some(tv) => Ok(Type::Var(tv)),
-                None => Err(Error::UnboundTyvar(*s, ty.span)),
+                None => Err(Diagnostic::error(
+                    ty.span,
+                    format!("unbound type variable {:?}", s),
+                )),
             },
             Con(s, args) => {
                 let args = args
                     .iter()
                     .map(|ty| self.elaborate_type(&ty, allow_unbound))
                     .collect::<Result<Vec<Type>, _>>()?;
-                let con = self
-                    .lookup_type(s)
-                    .ok_or(Error::UnboundTycon(*s, ty.span))?;
+                let con = self.lookup_type(s).ok_or_else(|| {
+                    Diagnostic::error(ty.span, format!("unbound type variable {:?}", s))
+                })?;
                 if con.arity() != args.len() {
-                    Err(Error::TyconArg(*s, ty.span, con.arity(), args.len()))
+                    Err(Diagnostic::error(
+                        ty.span,
+                        format!(
+                            "type constructor requires {} arguments, but {} are supplied",
+                            con.arity(),
+                            args.len()
+                        ),
+                    )
+                    .message(ty.span, format!("in type {:?}", ty)))
                 } else {
                     Ok(con.apply(args))
                 }
@@ -312,7 +306,7 @@ impl Context {
             Record(rows) => rows
                 .into_iter()
                 .map(|row| self.elab_row(|f, r| f.elaborate_type(r, allow_unbound), row))
-                .collect::<Result<Vec<Row<Type>>, Error>>()
+                .collect::<Result<Vec<Row<Type>>, _>>()
                 .map(Type::Record),
         }
     }
@@ -333,10 +327,123 @@ impl Context {
             }
         }
     }
+
+    fn instantiate(&mut self, scheme: Scheme) -> Type {
+        match scheme {
+            Scheme::Mono(ty) => ty,
+            Scheme::Poly(ty, vars) => {
+                let map = vars
+                    .into_iter()
+                    .map(|v| (v, Type::Var(self.fresh_tyvar())))
+                    .collect();
+                ty.apply(&map)
+            }
+        }
+    }
 }
 
 impl Context {
-    fn const_ty(&self, c: Const) -> Type {
+    fn elab_if(&mut self, sp: Span, e1: Expr, e2: Expr, e3: Expr) -> Result<Expr, Diagnostic> {
+        let tru = Rule {
+            pat: Pat::new(PatKind::App(C_TRUE, None), Type::bool(), e2.span),
+            expr: e2,
+        };
+        let fls = Rule {
+            pat: Pat::new(PatKind::App(C_FALSE, None), Type::bool(), e3.span),
+            expr: e3,
+        };
+
+        Ok(Expr::new(
+            ExprKind::Case(Box::new(e1), vec![tru, fls]),
+            Type::bool(),
+            sp,
+        ))
+    }
+
+    fn elab_rule(&mut self, rule: &ast::Rule, bind: bool) -> Result<Rule, Diagnostic> {
+        let pat = self.elaborate_pat(&rule.pat, bind)?;
+        let expr = self.elaborate_expr(&rule.expr)?;
+        Ok(Rule { pat, expr })
+    }
+
+    fn elaborate_expr(&mut self, expr: &ast::Expr) -> Result<Expr, Diagnostic> {
+        match &expr.data {
+            ast::ExprKind::Andalso(e1, e2) => {
+                let e1 = self.elaborate_expr(e1)?;
+                let e2 = self.elaborate_expr(e2)?;
+                self.unify(e1.span, e1.ty.clone(), Type::bool())?;
+                self.unify(e2.span, e2.ty.clone(), Type::bool())?;
+
+                let fls = Expr::new(ExprKind::Con(C_FALSE, vec![]), Type::bool(), expr.span);
+                self.elab_if(expr.span, e1, e2, fls)
+            }
+            ast::ExprKind::App(e1, e2) => {
+                let e1 = self.elaborate_expr(e1)?;
+                let e2 = self.elaborate_expr(e2)?;
+                match e1.ty.clone().de_arrow() {
+                    Some((arg, res)) => {
+                        self.unify(e2.span, arg, e2.ty.clone())?;
+                        Ok(Expr::new(
+                            ExprKind::App(Box::new(e1), Box::new(e2)),
+                            res,
+                            expr.span,
+                        ))
+                    }
+                    None => Err(Diagnostic::error(
+                        expr.span,
+                        format!("can't assign an arrow type to {:?}", e1),
+                    )),
+                }
+            }
+            ast::ExprKind::Case(scrutinee, rules) => {
+                let casee = self.elaborate_expr(scrutinee)?;
+                let rules = rules
+                    .into_iter()
+                    .map(|r| self.elab_rule(r, true))
+                    .collect::<Result<Vec<Rule>, _>>()?;
+
+                let ty = casee.ty.clone();
+                let rtys = rules
+                    .iter()
+                    .map(|r| Type::arrow(r.pat.ty.clone(), r.expr.ty.clone()))
+                    .collect::<Vec<Type>>();
+
+                let (arg, res) = self
+                    .unify_list(expr.span, rtys)?
+                    .de_arrow()
+                    .ok_or_else(|| {
+                        Diagnostic::bug(expr.span, "match rules should have arrow type!")
+                    })?;
+
+                self.unify(scrutinee.span, ty, arg)?;
+
+                Ok(Expr::new(
+                    ExprKind::Case(Box::new(casee), rules),
+                    res,
+                    expr.span,
+                ))
+            }
+            ast::ExprKind::Const(c) => {
+                let ty = self.const_ty(c);
+                Ok(Expr::new(ExprKind::Const(*c), ty, expr.span))
+            }
+            ast::ExprKind::Var(sym) => match self.lookup_value(sym) {
+                Some((scheme, ids)) => {
+                    let ty = self.instantiate(scheme.clone());
+                    Ok(Expr::new(ExprKind::Var(*sym), ty, expr.span))
+                }
+                None => Err(Diagnostic::error(
+                    expr.span,
+                    format!("unbound variable {:?}", sym),
+                )),
+            },
+            _ => Err(Diagnostic::error(expr.span, "unknown expr")),
+        }
+    }
+}
+
+impl Context {
+    fn const_ty(&self, c: &Const) -> Type {
         use super::builtin::tycons::*;
         match c {
             Const::Char(_) => Type::Con(T_CHAR, vec![]),
@@ -360,27 +467,30 @@ impl Context {
         })
     }
 
-    fn elaborate_pat(&mut self, pat: &ast::Pat, bind: bool) -> Result<Pat, Error> {
+    fn elaborate_pat(&mut self, pat: &ast::Pat, bind: bool) -> Result<Pat, Diagnostic> {
         use ast::PatKind::*;
         match &pat.data {
             App(con, p) => {
                 let p = self.elaborate_pat(p, bind)?;
-                match self.lookup_value(con) {
+                match self.lookup_value(con).cloned() {
                     Some((scheme, IdStatus::Con(constr))) => {
                         // TODO: Scheme instantiation
-                        let (arg, res) = scheme
-                            .instantiate()
-                            .de_arrow()
-                            .ok_or_else(|| Error::NotArrow(*con, pat.span))?;
+                        let (arg, res) = self.instantiate(scheme).de_arrow().ok_or_else(|| {
+                            Diagnostic::error(pat.span, "constant constructor applied to pattern")
+                                .message(p.span, format!("constructor: {:?} ", con))
+                        })?;
 
                         let _ = self.unify(pat.span, arg, p.ty.clone())?;
                         Ok(Pat::new(
-                            PatKind::App(*constr, Some(Box::new(p))),
+                            PatKind::App(constr, Some(Box::new(p))),
                             res,
                             pat.span,
                         ))
                     }
-                    _ => Err(Error::NotConstructor(*con, pat.span)),
+                    _ => Err(Diagnostic::error(
+                        pat.span,
+                        format!("Non-constructor {:?} applied to pattern {:?}", con, p),
+                    )),
                 }
             }
             Ascribe(p, ty) => {
@@ -392,11 +502,29 @@ impl Context {
                 Ok(p)
             }
             Const(c) => {
-                let ty = self.const_ty(*c);
+                let ty = self.const_ty(c);
                 Ok(Pat::new(PatKind::Const(*c), ty, pat.span))
             }
             FlatApp(pats) => {
-                let p = self.pat_precedence(pats.clone(), pat.span)?;
+                let p = match self.pat_precedence(pats.clone(), pat.span) {
+                    Ok(p) => Ok(p),
+                    Err(precedence::Error::EndsInfix) => Err(Diagnostic::error(
+                        pat.span,
+                        "application pattern ends with an infix operator",
+                    )),
+                    Err(precedence::Error::InfixInPrefix) => Err(Diagnostic::error(
+                        pat.span,
+                        "application pattern starts with an infix operator",
+                    )),
+                    Err(precedence::Error::SamePrecedence) => Err(Diagnostic::error(
+                        pat.span,
+                        "application pattern mixes operators of equal precedence",
+                    )),
+                    Err(precedence::Error::InvalidOperator) => Err(Diagnostic::error(
+                        pat.span,
+                        "application pattern doesn't contain infix operator",
+                    )),
+                }?;
                 self.elaborate_pat(&p, bind)
             }
             List(pats) => {
@@ -435,16 +563,17 @@ impl Context {
 
                 Ok(Pat::new(PatKind::Record(pats), Type::Record(tys), pat.span))
             }
-            Variable(sym) => match self.lookup_value(sym) {
-                Some((scheme, IdStatus::Con(c))) => {
-                    let ty = scheme.instantiate();
-                    Ok(Pat::new(PatKind::App(*c, None), ty, pat.span))
+            Variable(sym) => match self.lookup_value(sym).cloned() {
+                // Rule 35
+                Some((scheme, IdStatus::Exn(c))) | Some((scheme, IdStatus::Con(c))) => {
+                    let ty = self.instantiate(scheme.clone());
+                    Ok(Pat::new(PatKind::App(c, None), ty, pat.span))
                 }
-                Some(_) => Err(Error::NotConstructor(*sym, pat.span)),
-                None => {
+                _ => {
+                    // Rule 34
                     let tv = self.fresh_tyvar();
                     if bind {
-                        self.tmvars.push(*sym, tv);
+                        self.define_value(*sym, Scheme::Mono(Type::Var(tv)), IdStatus::Var);
                     }
                     Ok(Pat::new(PatKind::Var(*sym), Type::Var(tv), pat.span))
                 }
@@ -459,7 +588,12 @@ impl Context {
 }
 
 impl Context {
-    fn elab_decl_fixity(&mut self, fixity: &ast::Fixity, bp: u8, sym: Symbol) -> Result<(), Error> {
+    fn elab_decl_fixity(
+        &mut self,
+        fixity: &ast::Fixity,
+        bp: u8,
+        sym: Symbol,
+    ) -> Result<(), Diagnostic> {
         let fix = match fixity {
             ast::Fixity::Infix => Fixity::Infix(bp, bp + 1),
             ast::Fixity::Infixr => Fixity::Infix(bp + 1, bp),
@@ -469,21 +603,21 @@ impl Context {
         Ok(())
     }
 
-    fn elab_decl_local(&mut self, decls: &ast::Decl, body: &ast::Decl) -> Result<(), Error> {
+    fn elab_decl_local(&mut self, decls: &ast::Decl, body: &ast::Decl) -> Result<(), Diagnostic> {
         self.with_scope(|f| {
             f.elaborate_decl(decls)?;
             f.elaborate_decl(body)
         })
     }
 
-    fn elab_decl_seq(&mut self, decls: &[ast::Decl]) -> Result<(), Error> {
+    fn elab_decl_seq(&mut self, decls: &[ast::Decl]) -> Result<(), Diagnostic> {
         for d in decls {
             self.elaborate_decl(d)?;
         }
         Ok(())
     }
 
-    fn elab_decl_type(&mut self, tbs: &[ast::Typebind]) -> Result<(), Error> {
+    fn elab_decl_type(&mut self, tbs: &[ast::Typebind]) -> Result<(), Diagnostic> {
         for typebind in tbs {
             let scheme = if !typebind.tyvars.is_empty() {
                 self.with_tyvars(|f| {
@@ -502,7 +636,7 @@ impl Context {
         Ok(())
     }
 
-    fn elab_decl_conbind(&mut self, db: &ast::Datatype) -> Result<(), Error> {
+    fn elab_decl_conbind(&mut self, db: &ast::Datatype) -> Result<(), Diagnostic> {
         let tycon = Tycon::new(db.tycon, db.tyvars.len());
 
         // This is safe to unwrap, because we already bound it.
@@ -516,6 +650,16 @@ impl Context {
             .collect();
 
         for (tag, con) in db.constructors.iter().enumerate() {
+            if self.lookup_value(&con.label).is_some() {
+                return Err(Diagnostic::error(
+                    con.span,
+                    format!(
+                        "rebinding of data constructor {:?} is disallowed",
+                        con.label
+                    ),
+                ));
+            }
+
             let res = Type::Con(tycon, tyvars.clone());
             let ty = match &con.data {
                 Some(ty) => {
@@ -535,7 +679,7 @@ impl Context {
         Ok(())
     }
 
-    fn elab_decl_datatype(&mut self, dbs: &[ast::Datatype]) -> Result<(), Error> {
+    fn elab_decl_datatype(&mut self, dbs: &[ast::Datatype]) -> Result<(), Diagnostic> {
         // Add all of the type constructors to the environment first, so that
         // we can construct data constructor arguments (e.g. recursive/mutually
         // recursive datatypes)
@@ -555,7 +699,38 @@ impl Context {
         Ok(())
     }
 
-    pub fn elaborate_decl(&mut self, decl: &ast::Decl) -> Result<(), Error> {
+    fn elab_decl_exception(&mut self, exns: &[ast::Variant]) -> Result<(), Diagnostic> {
+        for exn in exns {
+            match &exn.data {
+                Some(ty) => {
+                    let ty = self.elaborate_type(ty, false)?;
+                    self.define_value(
+                        exn.label,
+                        Scheme::Mono(Type::arrow(ty, Type::exn())),
+                        IdStatus::Exn(Constructor {
+                            name: exn.label,
+                            type_id: TypeId(8),
+                            tag: 0,
+                        }),
+                    );
+                }
+                None => {
+                    self.define_value(
+                        exn.label,
+                        Scheme::Mono(Type::exn()),
+                        IdStatus::Exn(Constructor {
+                            name: exn.label,
+                            type_id: TypeId(8),
+                            tag: 0,
+                        }),
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn elaborate_decl(&mut self, decl: &ast::Decl) -> Result<(), Diagnostic> {
         use ast::DeclKind::*;
         match &decl.data {
             Datatype(dbs) => self.elab_decl_datatype(dbs),
@@ -563,10 +738,10 @@ impl Context {
             Function(tyvars, fbs) => unimplemented!(),
             Value(pat, expr) => {
                 dbg!(self.elaborate_pat(pat, false)?);
-
+                dbg!(self.elaborate_expr(expr)?);
                 Ok(())
             }
-            Exception(exns) => unimplemented!(),
+            Exception(exns) => self.elab_decl_exception(exns),
             Fixity(fixity, bp, sym) => self.elab_decl_fixity(fixity, *bp, *sym),
             Local(decls, body) => self.elab_decl_local(decls, body),
             Seq(decls) => self.elab_decl_seq(decls),

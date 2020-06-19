@@ -5,6 +5,7 @@ use std::fmt;
 pub enum Level {
     Warn,
     Error,
+    Bug,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -43,6 +44,15 @@ impl Diagnostic {
     pub fn warn<S: Into<String>>(span: Span, message: S) -> Diagnostic {
         Diagnostic {
             level: Level::Warn,
+            primary: Annotation::new(span, message),
+            other: Vec::new(),
+            info: Vec::new(),
+        }
+    }
+
+    pub fn bug<S: Into<String>>(span: Span, message: S) -> Diagnostic {
+        Diagnostic {
+            level: Level::Bug,
             primary: Annotation::new(span, message),
             other: Vec::new(),
             info: Vec::new(),

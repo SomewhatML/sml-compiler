@@ -1,6 +1,8 @@
 use sml_frontend::ast::Const;
 use sml_util::interner::Symbol;
 use sml_util::span::Span;
+use std::collections::HashMap;
+
 pub mod builtin;
 pub mod elaborate;
 pub mod inference;
@@ -95,7 +97,7 @@ pub struct Pat {
 #[derive(Clone, Debug)]
 pub struct Rule {
     pub pat: Pat,
-    pub exp: Expr,
+    pub expr: Expr,
 }
 
 #[derive(Clone, Debug)]
@@ -106,6 +108,12 @@ pub struct Row<T> {
     pub label: Symbol,
     pub data: T,
     pub span: Span,
+}
+
+impl Expr {
+    pub fn new(expr: ExprKind, ty: Type, span: Span) -> Expr {
+        Expr { expr, ty, span }
+    }
 }
 
 impl Tycon {
@@ -124,13 +132,6 @@ impl Scheme {
 
     pub fn apply(&self, args: Vec<Type>) -> Type {
         unimplemented!()
-    }
-
-    pub fn instantiate(&self) -> Type {
-        match self {
-            Scheme::Mono(ty) => ty.clone(),
-            Scheme::Poly(ty, _) => ty.clone(),
-        }
     }
 
     pub fn new(ty: Type, tyvars: Vec<TypeVar>) -> Scheme {
@@ -169,6 +170,14 @@ impl Type {
         }
     }
 
+    pub fn bool() -> Type {
+        Type::Con(builtin::tycons::T_BOOL, vec![])
+    }
+
+    pub fn exn() -> Type {
+        Type::Con(builtin::tycons::T_EXN, vec![])
+    }
+
     fn ftv(&self, set: &mut Vec<TypeVar>) {
         match self {
             Type::Var(x) => {
@@ -184,6 +193,20 @@ impl Type {
                     ty.ftv(set);
                 }
             }
+        }
+    }
+
+    fn apply(self, subst: &HashMap<TypeVar, Type>) -> Type {
+        match self {
+            Type::Var(x) => subst.get(&x).cloned().unwrap_or(Type::Var(x)),
+            Type::Con(tc, tys) => {
+                Type::Con(tc, tys.into_iter().map(|ty| ty.apply(subst)).collect())
+            }
+            Type::Record(rows) => Type::Record(
+                rows.into_iter()
+                    .map(|r| r.fmap(|ty| ty.apply(subst)))
+                    .collect(),
+            ),
         }
     }
 }
@@ -203,7 +226,6 @@ impl<T> Row<T> {
         }
     }
 }
-
 impl<T, E> Row<Result<T, E>> {
     pub fn flatten(self) -> Result<Row<T>, E> {
         Ok(Row {

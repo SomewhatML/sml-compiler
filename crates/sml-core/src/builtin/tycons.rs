@@ -9,7 +9,8 @@ pub const T_STRING: Tycon = Tycon::new(S_STRING, 0);
 pub const T_REF: Tycon = Tycon::new(S_REF, 1);
 pub const T_LIST: Tycon = Tycon::new(S_LIST, 1);
 pub const T_BOOL: Tycon = Tycon::new(S_BOOL, 0);
+pub const T_EXN: Tycon = Tycon::new(S_EXN, 0);
 
-pub const T_BUILTINS: [Tycon; 8] = [
-    T_ARROW, T_UNIT, T_CHAR, T_INT, T_STRING, T_REF, T_LIST, T_BOOL,
+pub const T_BUILTINS: [Tycon; 9] = [
+    T_ARROW, T_UNIT, T_CHAR, T_INT, T_STRING, T_REF, T_LIST, T_BOOL, T_EXN,
 ];

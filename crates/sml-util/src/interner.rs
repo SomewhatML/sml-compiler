@@ -74,6 +74,7 @@ globals!(
     S_REF,
     S_LIST,
     S_BOOL,
+    S_EXN,
     S_NIL,
     S_CONS,
     S_TRUE,
@@ -167,6 +168,7 @@ impl Interner {
         assert_eq!(S_REF, i.intern("ref".into()));
         assert_eq!(S_LIST, i.intern("list".into()));
         assert_eq!(S_BOOL, i.intern("bool".into()));
+        assert_eq!(S_EXN, i.intern("exn".into()));
         assert_eq!(S_NIL, i.intern("nil".into()));
         assert_eq!(S_CONS, i.intern("::".into()));
         assert_eq!(S_TRUE, i.intern("true".into()));
