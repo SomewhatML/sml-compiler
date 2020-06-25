@@ -38,4 +38,11 @@ in
   {label = x, value = (Some x) >>= fn x => x + 1 }
 end
 
+datatype bool = true | false 
+
+val x = case true 
+          of true   => 1
+           | y  => y
+        end
+
 

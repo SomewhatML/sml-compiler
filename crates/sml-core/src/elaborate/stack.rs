@@ -35,7 +35,7 @@ impl TyVarStack {
     pub fn lookup(&self, key: &Symbol) -> Option<TypeVar> {
         for (s, tv) in self.inner.iter().rev() {
             if key == s {
-                return Some(*tv);
+                return Some(tv.clone());
             }
         }
         None

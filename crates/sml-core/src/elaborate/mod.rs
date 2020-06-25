@@ -10,6 +10,7 @@ use sml_frontend::parser::precedence::{self, Fixity, Precedence, Query};
 use sml_util::diagnostics::Diagnostic;
 use stack::TyVarStack;
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 /// Identifier status for the Value Environment, as defined in the Defn.
 #[derive(Copy, Clone, Debug)]
@@ -55,7 +56,6 @@ impl TypeStructure {
         }
     }
 }
-
 /// An environment scope, that can hold a collection of type and expr bindings
 #[derive(Default, Debug)]
 pub struct Namespace {
@@ -74,7 +74,9 @@ pub struct Context {
 
     types: Vec<TypeStructure>,
     values: Vec<(Scheme, IdStatus)>,
-    exist: TypeVar,
+
+    tyvar_id: usize,
+    tyvar_rank: usize,
 
     constraints: Vec<Constraint>,
 
@@ -187,7 +189,7 @@ impl Context {
     fn lookup_tyvar(&mut self, s: &Symbol, allow_unbound: bool) -> Option<TypeVar> {
         for (sym, tv) in self.tyvars.iter().rev() {
             if sym == s {
-                return Some(*tv);
+                return Some(tv.clone());
             }
         }
         if allow_unbound {
@@ -197,33 +199,42 @@ impl Context {
         }
     }
 
-    fn bound_tyvars(&self) -> HashSet<TypeVar> {
-        self.tyvars.iter().map(|(_, v)| *v).collect()
-    }
-
     fn fresh_tyvar(&mut self) -> TypeVar {
-        let ex = self.exist;
-        self.exist.0 += 1;
-        ex
-    }
-
-    fn constrain_list(&mut self, tv: TypeVar, tys: &[&Type]) {
-        for &ty in tys {
-            self.constraints.push(Constraint(Type::Var(tv), ty.clone()));
-        }
+        let ex = self.tyvar_id;
+        self.tyvar_id += 1;
+        TypeVar::new(ex, self.tyvar_rank)
     }
 }
 
+/// Note that this can only be called once!
+fn bind(sp: Span, var: &TypeVar, ty: &Type) -> Result<(), Diagnostic> {
+    if ty.occurs_check(var) {
+        return Err(Diagnostic::error(
+            sp,
+            format!("Cyclic type detected: {:?}", ty),
+        ));
+    }
+
+    var.data.set(ty.clone()).unwrap();
+    Ok(())
+}
+
 impl Context {
-    fn unify(&self, sp: Span, ty1: Type, ty2: Type) -> Result<Type, Diagnostic> {
-        match (ty1, ty2) {
-            (Type::Var(x), ty2) => Ok(ty2),
-            (ty1, Type::Var(x)) => Ok(ty1),
-            (Type::Con(tc1, a_args), Type::Con(tc2, b_args)) => {
-                if tc1 != tc2 {
+    fn unify(&self, sp: Span, a: &Type, b: &Type) -> Result<(), Diagnostic> {
+        match (a, b) {
+            (Type::Var(a), b) => match a.ty() {
+                Some(ty) => self.unify(sp, ty, b),
+                None => bind(sp, a, b),
+            },
+            (a, Type::Var(b)) => match b.ty() {
+                Some(ty) => self.unify(sp, a, ty),
+                None => bind(sp, b, a),
+            },
+            (Type::Con(a, a_args), Type::Con(b, b_args)) => {
+                if a != b {
                     Err(Diagnostic::error(
                         sp,
-                        format!("Can't unify type constructor {:?} and {:?}", tc1, tc2),
+                        format!("Can't unify type constructor {:?} and {:?}", a, b),
                     ))
                 } else if a_args.len() != b_args.len() {
                     Err(Diagnostic::error(
@@ -233,26 +244,23 @@ impl Context {
                     .message(sp, format!("first type has arguments: {:?}", a_args))
                     .message(sp, format!("and second type has arguments: {:?}", b_args)))
                 } else {
-                    Ok(Type::Con(
-                        tc1,
-                        a_args
-                            .into_iter()
-                            .zip(b_args)
-                            .map(|(a, b)| self.unify(sp, a, b))
-                            .collect::<Result<_, _>>()?,
-                    ))
+                    for (c, d) in a_args.into_iter().zip(b_args) {
+                        self.unify(sp, c, d)?;
+                    }
+                    Ok(())
                 }
             }
-            (Type::Record(mut r1), Type::Record(mut r2)) => {
+            (Type::Record(r1), Type::Record(r2)) => {
+                let mut r1 = r1.clone();
+                let mut r2 = r2.clone();
                 r1.sort_by(|a, b| a.label.cmp(&b.label));
                 r2.sort_by(|a, b| a.label.cmp(&b.label));
 
-                let rows = r1
-                    .into_iter()
-                    .zip(r2.into_iter())
-                    .map(|(a, b)| a.fmap(|ty| self.unify(sp, ty, b.data)).flatten())
-                    .collect::<Result<_, _>>()?;
-                Ok(Type::Record(rows))
+                for (ra, rb) in r1.into_iter().zip(r2.into_iter()) {
+                    self.unify(sp, &ra.data, &rb.data)?;
+                }
+
+                Ok(())
             }
             (a, b) => Err(Diagnostic::error(
                 sp,
@@ -261,12 +269,66 @@ impl Context {
         }
     }
 
-    fn unify_list(&self, sp: Span, mut tys: Vec<Type>) -> Result<Type, Diagnostic> {
-        let mut fst = tys.remove(0);
+    // fn unify(&self, sp: Span, ty1: Type, ty2: Type) -> Result<Type, Diagnostic> {
+    //     match (ty1, ty2) {
+    //         (Type::Var(x), ty2) => Ok(ty2),
+    //         (ty1, Type::Var(x)) => Ok(ty1),
+    //         (Type::Con(tc1, a_args), Type::Con(tc2, b_args)) => {
+    //             if tc1 != tc2 {
+    //                 Err(Diagnostic::error(
+    //                     sp,
+    //                     format!("Can't unify type constructor {:?} and {:?}", tc1, tc2),
+    //                 ))
+    //             } else if a_args.len() != b_args.len() {
+    //                 Err(Diagnostic::error(
+    //                     sp,
+    //                     "Can't unify type constructors with different argument lengths",
+    //                 )
+    //                 .message(sp, format!("first type has arguments: {:?}", a_args))
+    //                 .message(sp, format!("and second type has arguments: {:?}", b_args)))
+    //             } else {
+    //                 Ok(Type::Con(
+    //                     tc1,
+    //                     a_args
+    //                         .into_iter()
+    //                         .zip(b_args)
+    //                         .map(|(a, b)| self.unify(sp, a, b))
+    //                         .collect::<Result<_, _>>()?,
+    //                 ))
+    //             }
+    //         }
+    //         (Type::Record(mut r1), Type::Record(mut r2)) => {
+    //             r1.sort_by(|a, b| a.label.cmp(&b.label));
+    //             r2.sort_by(|a, b| a.label.cmp(&b.label));
+
+    //             let rows = r1
+    //                 .into_iter()
+    //                 .zip(r2.into_iter())
+    //                 .map(|(a, b)| a.fmap(|ty| self.unify(sp, ty, b.data)).flatten())
+    //                 .collect::<Result<_, _>>()?;
+    //             Ok(Type::Record(rows))
+    //         }
+    //         (a, b) => Err(Diagnostic::error(
+    //             sp,
+    //             format!("Can't unify types {:?} and {:?}", a, b),
+    //         )),
+    //     }
+    // }
+
+    fn unify_list(&self, sp: Span, tys: &[Type]) -> Result<(), Diagnostic> {
+        let mut fst = &tys[0];
         for ty in tys {
-            fst = self.unify(sp, ty, fst)?;
+            self.unify(sp, ty, fst)?;
         }
-        Ok(fst)
+        Ok(())
+    }
+
+    fn unify_list_ref(&self, sp: Span, tys: &[&Type]) -> Result<(), Diagnostic> {
+        let mut fst = &tys[0];
+        for ty in tys {
+            self.unify(sp, ty, fst)?;
+        }
+        Ok(())
     }
 }
 
@@ -312,26 +374,17 @@ impl Context {
     }
 
     fn generalize(&self, ty: Type) -> Scheme {
-        // let bound = self.bound_tyvars();
-        let mut set = HashSet::new();
-        let mut v = Vec::new();
-        ty.ftv(&mut v);
-
-        dbg!(&v);
-
-        match v.len() {
+        let ftv = ty.ftv(self.tyvar_rank);
+        match ftv.len() {
             0 => Scheme::Mono(ty),
-            _ => {
-                let bnd = v.into_iter().filter(|v| set.insert(*v)).collect();
-                Scheme::Poly(ty, bnd)
-            }
+            _ => Scheme::Poly(ftv, ty),
         }
     }
 
     fn instantiate(&mut self, scheme: Scheme) -> Type {
         match scheme {
             Scheme::Mono(ty) => ty,
-            Scheme::Poly(ty, vars) => {
+            Scheme::Poly(vars, ty) => {
                 let map = vars
                     .into_iter()
                     .map(|v| (v, Type::Var(self.fresh_tyvar())))
@@ -371,8 +424,8 @@ impl Context {
             ast::ExprKind::Andalso(e1, e2) => {
                 let e1 = self.elaborate_expr(e1)?;
                 let e2 = self.elaborate_expr(e2)?;
-                self.unify(e1.span, e1.ty.clone(), Type::bool())?;
-                self.unify(e2.span, e2.ty.clone(), Type::bool())?;
+                self.unify(e1.span, &e1.ty, &Type::bool())?;
+                self.unify(e2.span, &e2.ty, &Type::bool())?;
 
                 let fls = Expr::new(ExprKind::Con(C_FALSE, vec![]), Type::bool(), expr.span);
                 self.elab_if(expr.span, e1, e2, fls)
@@ -382,10 +435,10 @@ impl Context {
                 let e2 = self.elaborate_expr(e2)?;
                 match e1.ty.clone().de_arrow() {
                     Some((arg, res)) => {
-                        self.unify(e2.span, arg, e2.ty.clone())?;
+                        self.unify(e2.span, arg, &e2.ty)?;
                         Ok(Expr::new(
                             ExprKind::App(Box::new(e1), Box::new(e2)),
-                            res,
+                            res.clone(),
                             expr.span,
                         ))
                     }
@@ -402,24 +455,23 @@ impl Context {
                     .map(|r| self.elab_rule(r, true))
                     .collect::<Result<Vec<Rule>, _>>()?;
 
-                let ty = casee.ty.clone();
-                let rtys = rules
+                let mut rtys = rules
                     .iter()
                     .map(|r| Type::arrow(r.pat.ty.clone(), r.expr.ty.clone()))
                     .collect::<Vec<Type>>();
 
-                let (arg, res) = self
-                    .unify_list(expr.span, rtys)?
-                    .de_arrow()
-                    .ok_or_else(|| {
-                        Diagnostic::bug(expr.span, "match rules should have arrow type!")
-                    })?;
+                self.unify_list(expr.span, &rtys);
+                let fst = rtys.remove(0);
 
-                self.unify(scrutinee.span, ty, arg)?;
+                let (arg, res) = fst.de_arrow().ok_or_else(|| {
+                    Diagnostic::bug(expr.span, "match rules should have arrow type!")
+                })?;
+
+                self.unify(scrutinee.span, &casee.ty, arg)?;
 
                 Ok(Expr::new(
                     ExprKind::Case(Box::new(casee), rules),
-                    res,
+                    res.clone(),
                     expr.span,
                 ))
             }
@@ -475,15 +527,16 @@ impl Context {
                 match self.lookup_value(con).cloned() {
                     Some((scheme, IdStatus::Con(constr))) => {
                         // TODO: Scheme instantiation
-                        let (arg, res) = self.instantiate(scheme).de_arrow().ok_or_else(|| {
+                        let inst = self.instantiate(scheme);
+                        let (arg, res) = inst.de_arrow().ok_or_else(|| {
                             Diagnostic::error(pat.span, "constant constructor applied to pattern")
                                 .message(p.span, format!("constructor: {:?} ", con))
                         })?;
 
-                        let _ = self.unify(pat.span, arg, p.ty.clone())?;
+                        let _ = self.unify(pat.span, arg, &p.ty)?;
                         Ok(Pat::new(
                             PatKind::App(constr, Some(Box::new(p))),
-                            res,
+                            res.clone(),
                             pat.span,
                         ))
                     }
@@ -496,9 +549,7 @@ impl Context {
             Ascribe(p, ty) => {
                 let mut p = self.elaborate_pat(p, bind)?;
                 let ty = self.elaborate_type(ty, false)?;
-
-                let ty = self.unify(pat.span, p.ty, ty)?;
-                p.ty = ty;
+                self.unify(pat.span, &p.ty, &ty)?;
                 Ok(p)
             }
             Const(c) => {
@@ -533,12 +584,10 @@ impl Context {
                     .map(|p| self.elaborate_pat(p, bind))
                     .collect::<Result<_, _>>()?;
 
-                // TODO: Unify types
-                let tys = pats.iter().map(|p| &p.ty).cloned().collect::<Vec<Type>>();
-                // let fresh = self.fresh_tyvar();
-                // self.constrain_list(fresh, &tys);
+                let tys = pats.iter().map(|p| &p.ty).collect::<Vec<&Type>>();
+                self.unify_list_ref(pat.span, &tys)?;
 
-                let ty = self.unify_list(pat.span, tys)?;
+                let ty = tys[0].clone();
 
                 Ok(Pat::new(
                     PatKind::List(pats),
@@ -573,7 +622,7 @@ impl Context {
                     // Rule 34
                     let tv = self.fresh_tyvar();
                     if bind {
-                        self.define_value(*sym, Scheme::Mono(Type::Var(tv)), IdStatus::Var);
+                        self.define_value(*sym, Scheme::Mono(Type::Var(tv.clone())), IdStatus::Var);
                     }
                     Ok(Pat::new(PatKind::Var(*sym), Type::Var(tv), pat.span))
                 }
