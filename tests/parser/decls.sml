@@ -1,4 +1,8 @@
 datatype 'a option = None | Some of 'a
+datatype 'a list = :: of 'a * 'a list | nil 
+infixr 3 ::
+
+val _ = 1 :: 2 :: nil
 
 datatype expr = Unit | Var of int | App of expr * expr | Abs of ty * expr
      and ty = TyUnit | TyArrow of ty * ty 

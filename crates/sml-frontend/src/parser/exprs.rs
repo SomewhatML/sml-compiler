@@ -176,7 +176,7 @@ impl<'s, 'sym> Parser<'s, 'sym> {
     fn application_expr(&mut self) -> Result<Expr, Error> {
         let span = self.current.span;
         let mut exprs = vec![self.atomic_expr()?];
-        while let Ok(e) = self.parse_expr() {
+        while let Ok(e) = self.atomic_expr() {
             exprs.push(e);
         }
         match exprs.len() {

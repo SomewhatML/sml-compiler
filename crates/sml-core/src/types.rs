@@ -1,6 +1,6 @@
 use super::*;
 use std::cell::{Cell, UnsafeCell};
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -10,7 +10,7 @@ pub struct TypeVar {
     pub data: Rc<TyVarInner<Type>>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum Type {
     Var(TypeVar),
     Con(Tycon, Vec<Type>),
@@ -71,6 +71,7 @@ impl Type {
     /// associated type variables that have a rank greated than `rank`
     pub fn ftv(&self, rank: usize) -> Vec<usize> {
         let mut set = Vec::new();
+        let mut uniq = HashSet::new();
         let mut queue = VecDeque::new();
         queue.push_back(self);
 
@@ -78,7 +79,7 @@ impl Type {
             match ty {
                 Type::Var(x) => match x.ty() {
                     None => {
-                        if x.rank() > rank {
+                        if x.rank() > rank && uniq.insert(x.id) {
                             set.push(x.id);
                         }
                     }
@@ -141,6 +142,45 @@ impl Type {
             }
             Type::Con(tc, tys) => tys.iter().any(|ty| ty.occurs_check(tyvar)),
             Type::Record(rows) => rows.iter().any(|r| r.data.occurs_check(tyvar)),
+        }
+    }
+}
+
+fn fresh_name(x: usize) -> String {
+    let last = ((x % 26) as u8 + 'a' as u8) as char;
+    (0..x / 26)
+        .map(|_| 'z')
+        .chain(std::iter::once(last))
+        .collect::<String>()
+}
+
+impl fmt::Debug for Type {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use Type::*;
+        match self {
+            Var(tv) => match tv.ty() {
+                Some(ty) => write!(f, "{:?}", ty),
+                None => write!(f, "'{}", fresh_name(tv.id)),
+            },
+            Con(tc, args) => match tc {
+                &crate::builtin::tycons::T_ARROW => write!(f, "{:?} -> {:?}", args[0], args[1]),
+                _ => write!(
+                    f,
+                    "{} {:?}",
+                    args.into_iter()
+                        .map(|x| format!("{:?}", x))
+                        .collect::<String>(),
+                    tc.name
+                ),
+            },
+            Record(rows) => write!(
+                f,
+                "{{{}}}",
+                rows.into_iter()
+                    .map(|r| format!("{:?}:{:?}", r.label, r.data))
+                    .collect::<Vec<String>>()
+                    .join(",")
+            ),
         }
     }
 }

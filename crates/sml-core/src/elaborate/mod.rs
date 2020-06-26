@@ -8,7 +8,9 @@ use super::*;
 use sml_frontend::ast;
 use sml_frontend::parser::precedence::{self, Fixity, Precedence, Query};
 use sml_util::diagnostics::Diagnostic;
+use sml_util::interner::{S_CONS, S_FALSE, S_NIL, S_REF, S_TRUE};
 use stack::TyVarStack;
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
@@ -75,7 +77,7 @@ pub struct Context {
     types: Vec<TypeStructure>,
     values: Vec<(Scheme, IdStatus)>,
 
-    tyvar_id: usize,
+    tyvar_id: Cell<usize>,
     tyvar_rank: usize,
 
     constraints: Vec<Constraint>,
@@ -103,6 +105,21 @@ impl Context {
             ctx.define_type(tc.name, TypeStructure::Tycon(*tc));
         }
 
+        // ctx.define_value(S_NIL, Scheme::Poly(vec![0], Type::Con(builtin::tycons::T_LIST, vec![Type::Var(TypeVar::new(0, 0))])), IdStatus::Con(builtin::constructors::C_NIL));
+        // ctx.define_value(S_CONS, Scheme::Poly(vec![0], Type::Con(builtin::tycons::T_LIST, vec![Type::Var(TypeVar::new(0, 0))])), IdStatus::Con(builtin::constructors::C_CONS));
+        ctx.define_value(
+            S_TRUE,
+            Scheme::Mono(Type::bool()),
+            IdStatus::Con(builtin::constructors::C_TRUE),
+        );
+        ctx.define_value(
+            S_FALSE,
+            Scheme::Mono(Type::bool()),
+            IdStatus::Con(builtin::constructors::C_FALSE),
+        );
+        ctx.elab_decl_fixity(&ast::Fixity::Infixr, 4, S_CONS)
+            .unwrap();
+        ctx.tyvar_id.set(1);
         ctx
     }
     /// Keep track of the type variable stack, while executing the combinator
@@ -199,9 +216,9 @@ impl Context {
         }
     }
 
-    fn fresh_tyvar(&mut self) -> TypeVar {
-        let ex = self.tyvar_id;
-        self.tyvar_id += 1;
+    fn fresh_tyvar(&self) -> TypeVar {
+        let ex = self.tyvar_id.get();
+        self.tyvar_id.set(ex + 1);
         TypeVar::new(ex, self.tyvar_rank)
     }
 }
@@ -316,7 +333,7 @@ impl Context {
     // }
 
     fn unify_list(&self, sp: Span, tys: &[Type]) -> Result<(), Diagnostic> {
-        let mut fst = &tys[0];
+        let fst = &tys[0];
         for ty in tys {
             self.unify(sp, ty, fst)?;
         }
@@ -324,7 +341,7 @@ impl Context {
     }
 
     fn unify_list_ref(&self, sp: Span, tys: &[&Type]) -> Result<(), Diagnostic> {
-        let mut fst = &tys[0];
+        let fst = &tys[0];
         for ty in tys {
             self.unify(sp, ty, fst)?;
         }
@@ -381,7 +398,7 @@ impl Context {
         }
     }
 
-    fn instantiate(&mut self, scheme: Scheme) -> Type {
+    fn instantiate(&self, scheme: Scheme) -> Type {
         match scheme {
             Scheme::Mono(ty) => ty,
             Scheme::Poly(vars, ty) => {
@@ -448,6 +465,28 @@ impl Context {
                     )),
                 }
             }
+            ast::ExprKind::FlatApp(exprs) => {
+                let p = match self.expr_precedence(exprs.clone(), expr.span) {
+                    Ok(p) => Ok(p),
+                    Err(precedence::Error::EndsInfix) => Err(Diagnostic::error(
+                        expr.span,
+                        "application pattern ends with an infix operator",
+                    )),
+                    Err(precedence::Error::InfixInPrefix) => Err(Diagnostic::error(
+                        expr.span,
+                        "application pattern starts with an infix operator",
+                    )),
+                    Err(precedence::Error::SamePrecedence) => Err(Diagnostic::error(
+                        expr.span,
+                        "application pattern mixes operators of equal precedence",
+                    )),
+                    Err(precedence::Error::InvalidOperator) => Err(Diagnostic::error(
+                        expr.span,
+                        "application pattern doesn't contain infix operator",
+                    )),
+                }?;
+                self.elaborate_expr(&p)
+            }
             ast::ExprKind::Case(scrutinee, rules) => {
                 let casee = self.elaborate_expr(scrutinee)?;
                 let rules = rules
@@ -460,7 +499,7 @@ impl Context {
                     .map(|r| Type::arrow(r.pat.ty.clone(), r.expr.ty.clone()))
                     .collect::<Vec<Type>>();
 
-                self.unify_list(expr.span, &rtys);
+                self.unify_list(expr.span, &rtys)?;
                 let fst = rtys.remove(0);
 
                 let (arg, res) = fst.de_arrow().ok_or_else(|| {
@@ -489,7 +528,23 @@ impl Context {
                     format!("unbound variable {:?}", sym),
                 )),
             },
-            _ => Err(Diagnostic::error(expr.span, "unknown expr")),
+            ast::ExprKind::Record(rows) => {
+                let rows = rows
+                    .into_iter()
+                    .map(|r| self.elab_row(|ec, r| ec.elaborate_expr(r), r))
+                    .collect::<Result<Vec<Row<Expr>>, _>>()?;
+                let tys = rows
+                    .iter()
+                    .cloned()
+                    .map(|r| r.fmap(|x| x.ty))
+                    .collect::<Vec<Row<Type>>>();
+                let ty = Type::Record(tys);
+                Ok(Expr::new(ExprKind::Record(rows), ty, expr.span))
+            }
+            _ => Err(Diagnostic::error(
+                expr.span,
+                format!("unknown expr {:?}", expr),
+            )),
         }
     }
 }
@@ -547,7 +602,7 @@ impl Context {
                 }
             }
             Ascribe(p, ty) => {
-                let mut p = self.elaborate_pat(p, bind)?;
+                let p = self.elaborate_pat(p, bind)?;
                 let ty = self.elaborate_type(ty, false)?;
                 self.unify(pat.span, &p.ty, &ty)?;
                 Ok(p)
@@ -675,7 +730,19 @@ impl Context {
                         f.tyvars.push(*s, v);
                     }
                     let ty = f.elaborate_type(&typebind.ty, false)?;
-                    Ok(f.generalize(ty))
+                    let s = match typebind.tyvars.len() {
+                        0 => Scheme::Mono(ty),
+                        _ => Scheme::Poly(
+                            typebind
+                                .tyvars
+                                .iter()
+                                .map(|tv| f.lookup_tyvar(tv, false).unwrap().id)
+                                .collect(),
+                            ty,
+                        ),
+                    };
+
+                    Ok(s)
                 })?
             } else {
                 Scheme::Mono(self.elaborate_type(&typebind.ty, false)?)
@@ -692,10 +759,10 @@ impl Context {
         let type_id = self.lookup_typeid(&db.tycon).unwrap();
 
         // Should be safe to unwrap here as well, since the caller has bound db.tyvars
-        let tyvars: Vec<Type> = db
+        let tyvars: Vec<TypeVar> = db
             .tyvars
             .iter()
-            .map(|sym| Type::Var(self.lookup_tyvar(sym, false).unwrap()))
+            .map(|sym| self.lookup_tyvar(sym, false).unwrap())
             .collect();
 
         for (tag, con) in db.constructors.iter().enumerate() {
@@ -709,7 +776,7 @@ impl Context {
                 ));
             }
 
-            let res = Type::Con(tycon, tyvars.clone());
+            let res = Type::Con(tycon, tyvars.iter().cloned().map(Type::Var).collect());
             let ty = match &con.data {
                 Some(ty) => {
                     let dom = self.elaborate_type(ty, false)?;
@@ -717,12 +784,19 @@ impl Context {
                 }
                 None => res,
             };
+
             let cons = Constructor {
                 name: con.label,
                 type_id,
                 tag: tag as u32,
             };
-            self.define_value(con.label, self.generalize(ty), IdStatus::Con(cons));
+
+            let s = match tyvars.len() {
+                0 => Scheme::Mono(ty),
+                _ => Scheme::Poly(tyvars.iter().map(|tv| tv.id).collect(), ty),
+            };
+
+            self.define_value(con.label, s, IdStatus::Con(cons));
         }
 
         Ok(())
@@ -786,9 +860,10 @@ impl Context {
             Type(tbs) => self.elab_decl_type(tbs),
             Function(tyvars, fbs) => unimplemented!(),
             Value(pat, expr) => {
-                dbg!(self.elaborate_pat(pat, false)?);
-                dbg!(self.elaborate_expr(expr)?);
-                Ok(())
+                let pat = self.elaborate_pat(pat, false)?;
+                let expr = self.elaborate_expr(expr)?;
+                dbg!(&expr);
+                self.unify(decl.span, &pat.ty, &expr.ty)
             }
             Exception(exns) => self.elab_decl_exception(exns),
             Fixity(fixity, bp, sym) => self.elab_decl_fixity(fixity, *bp, *sym),

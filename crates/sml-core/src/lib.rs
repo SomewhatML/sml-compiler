@@ -2,6 +2,7 @@ use sml_frontend::ast::Const;
 use sml_util::interner::Symbol;
 use sml_util::span::Span;
 use std::collections::HashMap;
+use std::fmt;
 
 pub mod builtin;
 pub mod elaborate;
@@ -20,7 +21,7 @@ pub struct Local {
     idx: usize,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum ExprKind {
     App(Box<Expr>, Box<Expr>),
     Case(Box<Expr>, Vec<Rule>),
@@ -36,7 +37,7 @@ pub enum ExprKind {
     Var(Symbol),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Expr {
     pub expr: ExprKind,
     pub ty: Type,
@@ -110,5 +111,54 @@ impl<T, E> Row<Result<T, E>> {
             span: self.span,
             data: self.data?,
         })
+    }
+}
+
+impl fmt::Debug for ExprKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use ExprKind::*;
+        match self {
+            App(e1, e2) => write!(f, "{:?} {:?}", e1, e2),
+            Case(casee, rules) => write!(
+                f,
+                "case {:?} of\n{:?}",
+                casee,
+                rules
+                    .into_iter()
+                    .map(|r| format!("| {:?} => {:?}\n", r.pat, r.expr))
+                    .collect::<String>()
+            ),
+            Con(con, tys) => write!(f, "{:?} [{:?}]", con, tys),
+            Const(c) => write!(f, "{:?}", c),
+            Handle(expr, rules) => write!(
+                f,
+                "{:?} handle {:?}",
+                expr,
+                rules
+                    .into_iter()
+                    .map(|r| format!("| {:?} => {:?}\n", r.pat, r.expr))
+                    .collect::<String>()
+            ),
+            Lambda(s, body) => write!(f, "fn {:?} => {:?}", s, body),
+            Let(decls, body) => write!(f, "let {:?} in {:?} end", decls, body),
+            List(exprs) => write!(f, "{:?}", exprs),
+            Raise(e) => write!(f, "raise {:?}", e),
+            Record(rows) => write!(
+                f,
+                "{{ {} }}",
+                rows.into_iter()
+                    .map(|r| format!("{:?}={:?}", r.label, r.data))
+                    .collect::<Vec<String>>()
+                    .join(",")
+            ),
+            Seq(exprs) => write!(f, "{:?}", exprs),
+            Var(s) => write!(f, "{:?}", s),
+        }
+    }
+}
+
+impl fmt::Debug for Expr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?} : {:?}", self.expr, self.ty)
     }
 }
