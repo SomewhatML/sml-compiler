@@ -12,7 +12,6 @@ use sml_util::interner::{S_CONS, S_FALSE, S_NIL, S_REF, S_TRUE};
 use stack::TyVarStack;
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
 
 /// Identifier status for the Value Environment, as defined in the Defn.
 #[derive(Copy, Clone, Debug)]
@@ -285,52 +284,6 @@ impl Context {
             )),
         }
     }
-
-    // fn unify(&self, sp: Span, ty1: Type, ty2: Type) -> Result<Type, Diagnostic> {
-    //     match (ty1, ty2) {
-    //         (Type::Var(x), ty2) => Ok(ty2),
-    //         (ty1, Type::Var(x)) => Ok(ty1),
-    //         (Type::Con(tc1, a_args), Type::Con(tc2, b_args)) => {
-    //             if tc1 != tc2 {
-    //                 Err(Diagnostic::error(
-    //                     sp,
-    //                     format!("Can't unify type constructor {:?} and {:?}", tc1, tc2),
-    //                 ))
-    //             } else if a_args.len() != b_args.len() {
-    //                 Err(Diagnostic::error(
-    //                     sp,
-    //                     "Can't unify type constructors with different argument lengths",
-    //                 )
-    //                 .message(sp, format!("first type has arguments: {:?}", a_args))
-    //                 .message(sp, format!("and second type has arguments: {:?}", b_args)))
-    //             } else {
-    //                 Ok(Type::Con(
-    //                     tc1,
-    //                     a_args
-    //                         .into_iter()
-    //                         .zip(b_args)
-    //                         .map(|(a, b)| self.unify(sp, a, b))
-    //                         .collect::<Result<_, _>>()?,
-    //                 ))
-    //             }
-    //         }
-    //         (Type::Record(mut r1), Type::Record(mut r2)) => {
-    //             r1.sort_by(|a, b| a.label.cmp(&b.label));
-    //             r2.sort_by(|a, b| a.label.cmp(&b.label));
-
-    //             let rows = r1
-    //                 .into_iter()
-    //                 .zip(r2.into_iter())
-    //                 .map(|(a, b)| a.fmap(|ty| self.unify(sp, ty, b.data)).flatten())
-    //                 .collect::<Result<_, _>>()?;
-    //             Ok(Type::Record(rows))
-    //         }
-    //         (a, b) => Err(Diagnostic::error(
-    //             sp,
-    //             format!("Can't unify types {:?} and {:?}", a, b),
-    //         )),
-    //     }
-    // }
 
     fn unify_list(&self, sp: Span, tys: &[Type]) -> Result<(), Diagnostic> {
         let fst = &tys[0];

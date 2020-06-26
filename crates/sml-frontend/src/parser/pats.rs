@@ -49,7 +49,7 @@ impl<'s, 'sym> Parser<'s, 'sym> {
     fn list_pattern(&mut self) -> Result<PatKind, Error> {
         self.expect(Token::LBracket)?;
         if self.bump_if(Token::RBracket) {
-            return Ok(PatKind::Const(Const::Unit));
+            return Ok(PatKind::Variable(S_NIL));
         }
         let v = self.delimited(|p| p.parse_pattern(), Token::Comma)?;
         self.expect(Token::RBracket)?;

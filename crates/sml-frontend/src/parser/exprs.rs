@@ -159,6 +159,9 @@ impl<'s, 'sym> Parser<'s, 'sym> {
             Token::LParen => self.spanned(|p| p.seq_expr()),
             Token::LBracket => self.spanned(|p| {
                 p.expect(Token::LBracket)?;
+                if p.bump_if(Token::RBracket) {
+                    return Ok(ExprKind::Var(S_NIL));
+                }
                 let xs = p
                     .delimited(|q| q.parse_expr(), Token::Comma)
                     .map(ExprKind::List)?;
