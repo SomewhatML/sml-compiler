@@ -171,6 +171,6 @@ mod test {
 
     #[test]
     fn spanned_size() {
-        assert_eq!(std::mem::size_of::<Span>(), 16);
+        assert_eq!(std::mem::size_of::<Span>(), 8);
     }
 }

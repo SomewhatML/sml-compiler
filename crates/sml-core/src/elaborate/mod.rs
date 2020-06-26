@@ -104,7 +104,14 @@ impl Context {
             ctx.define_type(tc.name, TypeStructure::Tycon(*tc));
         }
 
-        // ctx.define_value(S_NIL, Scheme::Poly(vec![0], Type::Con(builtin::tycons::T_LIST, vec![Type::Var(TypeVar::new(0, 0))])), IdStatus::Con(builtin::constructors::C_NIL));
+        ctx.define_value(
+            S_NIL,
+            Scheme::Poly(
+                vec![0],
+                Type::Con(builtin::tycons::T_LIST, vec![Type::Var(TypeVar::new(0, 0))]),
+            ),
+            IdStatus::Con(builtin::constructors::C_NIL),
+        );
         // ctx.define_value(S_CONS, Scheme::Poly(vec![0], Type::Con(builtin::tycons::T_LIST, vec![Type::Var(TypeVar::new(0, 0))])), IdStatus::Con(builtin::constructors::C_CONS));
         ctx.define_value(
             S_TRUE,
@@ -224,6 +231,11 @@ impl Context {
 
 /// Note that this can only be called once!
 fn bind(sp: Span, var: &TypeVar, ty: &Type) -> Result<(), Diagnostic> {
+    if let Type::Var(v2) = ty {
+        if v2 == var {
+            return Ok(());
+        }
+    }
     if ty.occurs_check(var) {
         return Err(Diagnostic::error(
             sp,
@@ -418,28 +430,6 @@ impl Context {
                     )),
                 }
             }
-            ast::ExprKind::FlatApp(exprs) => {
-                let p = match self.expr_precedence(exprs.clone(), expr.span) {
-                    Ok(p) => Ok(p),
-                    Err(precedence::Error::EndsInfix) => Err(Diagnostic::error(
-                        expr.span,
-                        "application pattern ends with an infix operator",
-                    )),
-                    Err(precedence::Error::InfixInPrefix) => Err(Diagnostic::error(
-                        expr.span,
-                        "application pattern starts with an infix operator",
-                    )),
-                    Err(precedence::Error::SamePrecedence) => Err(Diagnostic::error(
-                        expr.span,
-                        "application pattern mixes operators of equal precedence",
-                    )),
-                    Err(precedence::Error::InvalidOperator) => Err(Diagnostic::error(
-                        expr.span,
-                        "application pattern doesn't contain infix operator",
-                    )),
-                }?;
-                self.elaborate_expr(&p)
-            }
             ast::ExprKind::Case(scrutinee, rules) => {
                 let casee = self.elaborate_expr(scrutinee)?;
                 let rules = rules
@@ -471,16 +461,70 @@ impl Context {
                 let ty = self.const_ty(c);
                 Ok(Expr::new(ExprKind::Const(*c), ty, expr.span))
             }
-            ast::ExprKind::Var(sym) => match self.lookup_value(sym) {
-                Some((scheme, ids)) => {
-                    let ty = self.instantiate(scheme.clone());
-                    Ok(Expr::new(ExprKind::Var(*sym), ty, expr.span))
-                }
-                None => Err(Diagnostic::error(
+            ast::ExprKind::Constraint(ex, ty) => {
+                let ex = self.elaborate_expr(ex)?;
+                let ty = self.elaborate_type(ty, false)?;
+                self.unify(expr.span, &ex.ty, &ty)?;
+                Ok(ex)
+            }
+            ast::ExprKind::FlatApp(exprs) => {
+                let p = match self.expr_precedence(exprs.clone(), expr.span) {
+                    Ok(p) => Ok(p),
+                    Err(precedence::Error::EndsInfix) => Err(Diagnostic::error(
+                        expr.span,
+                        "application pattern ends with an infix operator",
+                    )),
+                    Err(precedence::Error::InfixInPrefix) => Err(Diagnostic::error(
+                        expr.span,
+                        "application pattern starts with an infix operator",
+                    )),
+                    Err(precedence::Error::SamePrecedence) => Err(Diagnostic::error(
+                        expr.span,
+                        "application pattern mixes operators of equal precedence",
+                    )),
+                    Err(precedence::Error::InvalidOperator) => Err(Diagnostic::error(
+                        expr.span,
+                        "application pattern doesn't contain infix operator",
+                    )),
+                }?;
+                self.elaborate_expr(&p)
+            }
+            ast::ExprKind::Fn(rules) => unimplemented!(),
+            ast::ExprKind::Handle(ex, rules) => {
+                let ex = self.elaborate_expr(ex)?;
+
+                let rules = rules
+                    .into_iter()
+                    .map(|r| self.elab_rule(r, true))
+                    .collect::<Result<Vec<Rule>, _>>()?;
+
+                let mut rtys = rules
+                    .iter()
+                    .map(|r| Type::arrow(r.pat.ty.clone(), r.expr.ty.clone()))
+                    .collect::<Vec<Type>>();
+
+                self.unify_list(expr.span, &rtys)?;
+                let fst = rtys.remove(0);
+
+                let (arg, res) = fst.de_arrow().ok_or_else(|| {
+                    Diagnostic::bug(expr.span, "match rules should have arrow type!")
+                })?;
+
+                self.unify(expr.span, &ex.ty, res)?;
+                self.unify(expr.span, arg, &Type::exn())?;
+
+                Ok(Expr::new(
+                    ExprKind::Handle(Box::new(ex), rules),
+                    res.clone(),
                     expr.span,
-                    format!("unbound variable {:?}", sym),
-                )),
-            },
+                ))
+            }
+            ast::ExprKind::Raise(expr) => {
+                let ty = Type::Var(self.fresh_tyvar());
+                let ex = self.elaborate_expr(expr)?;
+                self.unify(expr.span, &ex.ty, &Type::exn())?;
+                Ok(Expr::new(ExprKind::Raise(Box::new(ex)), ty, expr.span))
+            }
             ast::ExprKind::Record(rows) => {
                 let rows = rows
                     .into_iter()
@@ -494,6 +538,16 @@ impl Context {
                 let ty = Type::Record(tys);
                 Ok(Expr::new(ExprKind::Record(rows), ty, expr.span))
             }
+            ast::ExprKind::Var(sym) => match self.lookup_value(sym) {
+                Some((scheme, ids)) => {
+                    let ty = self.instantiate(scheme.clone());
+                    Ok(Expr::new(ExprKind::Var(*sym), ty, expr.span))
+                }
+                None => Err(Diagnostic::error(
+                    expr.span,
+                    format!("unbound variable {:?}", sym),
+                )),
+            },
             _ => Err(Diagnostic::error(
                 expr.span,
                 format!("unknown expr {:?}", expr),
