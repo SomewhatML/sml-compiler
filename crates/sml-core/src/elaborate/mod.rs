@@ -401,6 +401,22 @@ impl Context {
         Ok(Rule { pat, expr })
     }
 
+    fn elab_rules(&mut self, sp: Span, rules: &[ast::Rule]) -> Result<(Vec<Rule>, Type), Diagnostic> {
+        let rules = rules
+            .into_iter()
+            .map(|r| self.elab_rule(r, true))
+            .collect::<Result<Vec<Rule>, _>>()?;
+
+        let mut rtys = rules
+            .iter()
+            .map(|r| Type::arrow(r.pat.ty.clone(), r.expr.ty.clone()))
+            .collect::<Vec<Type>>();
+
+        self.unify_list(sp, &rtys)?;
+        let fst = rtys.remove(0);
+        Ok((rules, fst))
+    }
+
     fn elaborate_expr(&mut self, expr: &ast::Expr) -> Result<Expr, Diagnostic> {
         match &expr.data {
             ast::ExprKind::Andalso(e1, e2) => {
@@ -432,20 +448,10 @@ impl Context {
             }
             ast::ExprKind::Case(scrutinee, rules) => {
                 let casee = self.elaborate_expr(scrutinee)?;
-                let rules = rules
-                    .into_iter()
-                    .map(|r| self.elab_rule(r, true))
-                    .collect::<Result<Vec<Rule>, _>>()?;
 
-                let mut rtys = rules
-                    .iter()
-                    .map(|r| Type::arrow(r.pat.ty.clone(), r.expr.ty.clone()))
-                    .collect::<Vec<Type>>();
+                let (rules, ty) = self.elab_rules(expr.span, rules)?;
 
-                self.unify_list(expr.span, &rtys)?;
-                let fst = rtys.remove(0);
-
-                let (arg, res) = fst.de_arrow().ok_or_else(|| {
+                let (arg, res) = ty.de_arrow().ok_or_else(|| {
                     Diagnostic::bug(expr.span, "match rules should have arrow type!")
                 })?;
 
@@ -489,24 +495,16 @@ impl Context {
                 }?;
                 self.elaborate_expr(&p)
             }
-            ast::ExprKind::Fn(rules) => unimplemented!(),
+            ast::ExprKind::Fn(rules) => {
+                // let (rules, ty) = self.elab_rules(expr.span, rules)?;
+                unimplemented!()
+
+            }
             ast::ExprKind::Handle(ex, rules) => {
                 let ex = self.elaborate_expr(ex)?;
+                let (rules, ty) = self.elab_rules(expr.span, rules)?;
 
-                let rules = rules
-                    .into_iter()
-                    .map(|r| self.elab_rule(r, true))
-                    .collect::<Result<Vec<Rule>, _>>()?;
-
-                let mut rtys = rules
-                    .iter()
-                    .map(|r| Type::arrow(r.pat.ty.clone(), r.expr.ty.clone()))
-                    .collect::<Vec<Type>>();
-
-                self.unify_list(expr.span, &rtys)?;
-                let fst = rtys.remove(0);
-
-                let (arg, res) = fst.de_arrow().ok_or_else(|| {
+                let (arg, res) = ty.de_arrow().ok_or_else(|| {
                     Diagnostic::bug(expr.span, "match rules should have arrow type!")
                 })?;
 
