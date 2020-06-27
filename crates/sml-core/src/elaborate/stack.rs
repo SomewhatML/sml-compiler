@@ -1,18 +1,18 @@
 use super::*;
 
 #[derive(Default, Debug, Clone)]
-pub struct TyVarStack {
-    inner: Vec<(Symbol, TypeVar)>,
+pub struct Stack<T> {
+    inner: Vec<(Symbol, T)>,
 }
 
-impl TyVarStack {
+impl<T> Stack<T> {
     #[inline]
-    pub fn push(&mut self, sym: Symbol, tv: TypeVar) {
+    pub fn push(&mut self, sym: Symbol, tv: T) {
         self.inner.push((sym, tv));
     }
 
     #[inline]
-    pub fn pop(&mut self) -> Option<(Symbol, TypeVar)> {
+    pub fn pop(&mut self) -> Option<(Symbol, T)> {
         self.inner.pop()
     }
 
@@ -28,22 +28,22 @@ impl TyVarStack {
         self.inner.len()
     }
 
-    pub fn iter(&self) -> std::slice::Iter<(Symbol, TypeVar)> {
+    pub fn iter(&self) -> std::slice::Iter<(Symbol, T)> {
         self.inner.iter()
     }
 
-    pub fn lookup(&self, key: &Symbol) -> Option<TypeVar> {
+    pub fn lookup(&self, key: &Symbol) -> Option<&T> {
         for (s, tv) in self.inner.iter().rev() {
             if key == s {
-                return Some(tv.clone());
+                return Some(tv);
             }
         }
         None
     }
 }
 
-impl Extend<(Symbol, TypeVar)> for TyVarStack {
-    fn extend<I: IntoIterator<Item = (Symbol, TypeVar)>>(&mut self, iter: I) {
+impl<T> Extend<(Symbol, T)> for Stack<T> {
+    fn extend<I: IntoIterator<Item = (Symbol, T)>>(&mut self, iter: I) {
         for elem in iter {
             self.inner.push(elem);
         }

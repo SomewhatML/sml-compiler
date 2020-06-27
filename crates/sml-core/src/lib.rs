@@ -12,14 +12,9 @@ use types::{Constructor, Scheme, Tycon, Type, TypeVar};
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, PartialOrd, Eq, Hash)]
 pub struct TypeId(pub u32);
+
 #[derive(Copy, Clone, Debug, Default, PartialEq, PartialOrd, Eq, Hash)]
 pub struct ExprId(pub u32);
-
-#[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
-pub struct Local {
-    name: Symbol,
-    idx: usize,
-}
 
 #[derive(Clone)]
 pub enum ExprKind {

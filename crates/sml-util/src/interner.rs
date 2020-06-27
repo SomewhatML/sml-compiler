@@ -10,7 +10,7 @@ macro_rules! globals {
         pub const S_TOTAL_GLOBALS: u32 = $idx - 1;
     };
     (@step $idx:expr, $it:ident, $($rest:ident,)*) => {
-        pub const $it: Symbol = Symbol($idx);
+        pub const $it: Symbol = Symbol::Interned($idx);
         globals!(@step $idx+1u32, $($rest,)*);
     };
     ($($name:ident),+) => {
@@ -83,20 +83,30 @@ globals!(
 );
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
-pub struct Symbol(u32);
+pub enum Symbol {
+    Interned(u32),
+    Gensym(u32),
+    Tuple(u32),
+}
 
 impl Symbol {
     pub const fn dummy() -> Self {
-        Symbol(std::u32::MAX)
+        Symbol::Gensym(std::u32::MAX)
     }
 
-    pub const fn builtin(self) -> bool {
-        self.0 <= S_TOTAL_GLOBALS
+    pub const fn gensym(n: u32) -> Symbol {
+        Symbol::Gensym(n)
     }
 
-    pub const fn tuple_field(idx: u32) -> Self {
-        // Hopefully we never are close to this many unique symbols...
-        Self(idx | 0x8000_0000)
+    pub fn builtin(self) -> bool {
+        match self {
+            Symbol::Interned(n) if n <= S_TOTAL_GLOBALS => true,
+            _ => false,
+        }
+    }
+
+    pub const fn tuple_field(idx: u32) -> Symbol {
+        Symbol::Tuple(idx)
     }
 }
 
@@ -174,7 +184,7 @@ impl Interner {
         assert_eq!(S_TRUE, i.intern("true".into()));
         assert_eq!(S_FALSE, i.intern("false".into()));
         assert_eq!(S_UNIT, i.intern("unit".into()));
-        assert_eq!(S_TOTAL_GLOBALS, S_UNIT.0);
+        // assert_eq!(S_TOTAL_GLOBALS, S_UNIT.0);
         i
     }
 
@@ -183,29 +193,41 @@ impl Interner {
             return *sym;
         }
 
-        let sym = Symbol(self.strings.len() as u32);
+        let sym = Symbol::Interned(self.strings.len() as u32);
         self.strings.push(s.clone());
         self.symbols.insert(s, sym);
         sym
     }
 
     pub fn get(&self, symbol: Symbol) -> Option<&str> {
-        self.strings.get(symbol.0 as usize).map(|s| s.as_ref())
+        match symbol {
+            Symbol::Interned(n) => self.strings.get(n as usize).map(|s| s.as_ref()),
+            _ => None,
+        }
     }
+}
+
+fn fresh_name(x: u32) -> String {
+    let last = ((x % 26) as u8 + 'a' as u8) as char;
+    (0..x / 26)
+        .map(|_| 'z')
+        .chain(std::iter::once(last))
+        .collect::<String>()
 }
 
 impl std::fmt::Debug for Symbol {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        if (self.0 & 0x8000_0000) != 0 {
-            return write!(f, "{}", self.0 & !0x8000_0000);
+        match self {
+            Symbol::Gensym(n) => return write!(f, "{}", fresh_name(*n)),
+            Symbol::Tuple(n) => return write!(f, "{}", n),
+            Symbol::Interned(n) => INTERNER.with(|i| match i.try_borrow() {
+                Ok(b) => match b.get(*self) {
+                    Some(s) => write!(f, "{}", s),
+                    None => write!(f, "?"),
+                },
+                Err(_) => write!(f, "{}", n),
+            }),
         }
-        INTERNER.with(|i| match i.try_borrow() {
-            Ok(b) => match b.get(*self) {
-                Some(s) => write!(f, "{}", s),
-                None => write!(f, "?"),
-            },
-            Err(_) => write!(f, "{}", self.0),
-        })
     }
 }
 

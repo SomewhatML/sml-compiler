@@ -10,7 +10,7 @@ pub struct Location {
 }
 
 impl Location {
-    pub fn new(line: u16, col: u16, abs: u32) -> Location {
+    pub const fn new(line: u16, col: u16, abs: u32) -> Location {
         Location { line, col }
     }
 }
@@ -132,6 +132,14 @@ impl Span {
             col: 0,
             // abs: 0,
         };
+        Span {
+            start: max,
+            end: max,
+        }
+    }
+
+    pub const fn dummy() -> Span {
+        let max = Location::new(std::u16::MAX, std::u16::MAX, 0);
         Span {
             start: max,
             end: max,

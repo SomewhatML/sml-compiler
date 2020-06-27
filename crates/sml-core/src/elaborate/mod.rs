@@ -9,7 +9,7 @@ use sml_frontend::ast;
 use sml_frontend::parser::precedence::{self, Fixity, Precedence, Query};
 use sml_util::diagnostics::Diagnostic;
 use sml_util::interner::{S_CONS, S_FALSE, S_NIL, S_REF, S_TRUE};
-use stack::TyVarStack;
+use stack::Stack;
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 
@@ -68,19 +68,25 @@ pub struct Namespace {
 
 #[derive(Default, Debug)]
 pub struct Context {
-    tyvars: TyVarStack,
+    // stacks for alpha-renaming
+    tyvars: Stack<TypeVar>,
 
     namespaces: Vec<Namespace>,
     current: usize,
 
+    // All types live here, indexed by `TypeId`
     types: Vec<TypeStructure>,
+    // All values live here, indexed by `ExprId`
     values: Vec<(Scheme, IdStatus)>,
 
+    // Generation of fresh type variables
     tyvar_id: Cell<usize>,
     tyvar_rank: usize,
 
-    constraints: Vec<Constraint>,
+    // Generation of fresh value variables
+    var_id: Cell<u32>,
 
+    // Exported top-level decls saved here
     decls: Vec<Decl>,
 }
 
@@ -160,9 +166,9 @@ impl Context {
         id
     }
 
-    fn define_value(&mut self, sym: Symbol, scheme: Scheme, is: IdStatus) -> ExprId {
+    fn define_value(&mut self, sym: Symbol, scheme: Scheme, status: IdStatus) -> ExprId {
         let id = ExprId(self.values.len() as u32);
-        self.values.push((scheme, is));
+        self.values.push((scheme, status));
         self.namespaces[self.current].values.insert(sym, id);
         id
     }
@@ -227,6 +233,12 @@ impl Context {
         self.tyvar_id.set(ex + 1);
         TypeVar::new(ex, self.tyvar_rank)
     }
+
+    fn fresh_var(&self) -> Symbol {
+        let ex = self.var_id.get();
+        self.var_id.set(ex + 1);
+        Symbol::Gensym(ex)
+    }
 }
 
 /// Note that this can only be called once!
@@ -262,7 +274,10 @@ impl Context {
                 if a != b {
                     Err(Diagnostic::error(
                         sp,
-                        format!("Can't unify type constructor {:?} and {:?}", a, b),
+                        format!(
+                            "Can't unify type constructors {:?} and {:?}",
+                            a.name, b.name
+                        ),
                     ))
                 } else if a_args.len() != b_args.len() {
                     Err(Diagnostic::error(
@@ -500,8 +515,22 @@ impl Context {
                 self.elaborate_expr(&p)
             }
             ast::ExprKind::Fn(rules) => {
-                // let (rules, ty) = self.elab_rules(expr.span, rules)?;
-                unimplemented!()
+                let (rules, ty) = self.elab_rules(expr.span, rules)?;
+
+                let (arg, res) = ty.de_arrow().ok_or_else(|| {
+                    Diagnostic::bug(expr.span, "match rules should have arrow type!")
+                })?;
+
+                let gensym = self.fresh_var();
+                let sym = Expr::new(ExprKind::Var(gensym), arg.clone(), Span::dummy());
+
+                let case = Expr::new(ExprKind::Case(Box::new(sym), rules), res.clone(), expr.span);
+
+                Ok(Expr::new(
+                    ExprKind::Lambda(gensym, Box::new(case)),
+                    ty,
+                    expr.span,
+                ))
             }
             ast::ExprKind::Handle(ex, rules) => {
                 let ex = self.elaborate_expr(ex)?;
@@ -906,8 +935,8 @@ impl Context {
             Type(tbs) => self.elab_decl_type(tbs),
             Function(tyvars, fbs) => unimplemented!(),
             Value(pat, expr) => {
-                let pat = self.elaborate_pat(pat, false)?;
                 let expr = self.elaborate_expr(expr)?;
+                let pat = self.elaborate_pat(pat, true)?;
                 dbg!(&expr);
                 self.unify(decl.span, &pat.ty, &expr.ty)
             }
