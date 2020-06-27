@@ -173,6 +173,7 @@ impl Interner {
         assert_eq!(S_CONS, i.intern("::".into()));
         assert_eq!(S_TRUE, i.intern("true".into()));
         assert_eq!(S_FALSE, i.intern("false".into()));
+        assert_eq!(S_UNIT, i.intern("unit".into()));
         assert_eq!(S_TOTAL_GLOBALS, S_UNIT.0);
         i
     }

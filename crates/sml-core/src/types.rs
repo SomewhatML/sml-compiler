@@ -66,6 +66,10 @@ impl Type {
     pub fn exn() -> Type {
         Type::Con(builtin::tycons::T_EXN, vec![])
     }
+    /// Create a unit type
+    pub fn unit() -> Type {
+        Type::Con(builtin::tycons::T_UNIT, vec![])
+    }
 
     /// Perform a breadth-first traversal of a type, collecting it's
     /// associated type variables that have a rank greated than `rank`

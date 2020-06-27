@@ -401,7 +401,11 @@ impl Context {
         Ok(Rule { pat, expr })
     }
 
-    fn elab_rules(&mut self, sp: Span, rules: &[ast::Rule]) -> Result<(Vec<Rule>, Type), Diagnostic> {
+    fn elab_rules(
+        &mut self,
+        sp: Span,
+        rules: &[ast::Rule],
+    ) -> Result<(Vec<Rule>, Type), Diagnostic> {
         let rules = rules
             .into_iter()
             .map(|r| self.elab_rule(r, true))
@@ -498,7 +502,6 @@ impl Context {
             ast::ExprKind::Fn(rules) => {
                 // let (rules, ty) = self.elab_rules(expr.span, rules)?;
                 unimplemented!()
-
             }
             ast::ExprKind::Handle(ex, rules) => {
                 let ex = self.elaborate_expr(ex)?;
@@ -516,6 +519,31 @@ impl Context {
                     res.clone(),
                     expr.span,
                 ))
+            }
+            ast::ExprKind::Let(decls, body) => self.with_scope(|f| {
+                for decl in decls {
+                    f.elaborate_decl(decl)?;
+                }
+                f.elaborate_expr(body)
+            }),
+            ast::ExprKind::List(exprs) => {
+                let exprs = exprs
+                    .into_iter()
+                    .map(|ex| self.elaborate_expr(ex))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let tys = exprs.iter().map(|ex| &ex.ty).collect::<Vec<&Type>>();
+                self.unify_list_ref(expr.span, &tys)?;
+                let ty = tys[0].clone();
+                Ok(Expr::new(ExprKind::List(exprs), ty, expr.span))
+            }
+            ast::ExprKind::Orelse(e1, e2) => {
+                let e1 = self.elaborate_expr(e1)?;
+                let e2 = self.elaborate_expr(e2)?;
+                self.unify(e1.span, &e1.ty, &Type::bool())?;
+                self.unify(e2.span, &e2.ty, &Type::bool())?;
+
+                let tru = Expr::new(ExprKind::Con(C_TRUE, vec![]), Type::bool(), expr.span);
+                self.elab_if(expr.span, e1, tru, e2)
             }
             ast::ExprKind::Raise(expr) => {
                 let ty = Type::Var(self.fresh_tyvar());
@@ -535,6 +563,19 @@ impl Context {
                     .collect::<Vec<Row<Type>>>();
                 let ty = Type::Record(tys);
                 Ok(Expr::new(ExprKind::Record(rows), ty, expr.span))
+            }
+            ast::ExprKind::Selector(s) => unimplemented!(),
+            ast::ExprKind::Seq(exprs) => {
+                let exprs = exprs
+                    .into_iter()
+                    .map(|ex| self.elaborate_expr(ex))
+                    .collect::<Result<Vec<_>, _>>()?;
+                // exprs.len() >= 2, but we'll use saturating_sub just to be safe
+                for ex in &exprs[..exprs.len().saturating_sub(2)] {
+                    self.unify(ex.span, &ex.ty, &Type::unit())?;
+                }
+                let ty = exprs.last().unwrap().ty.clone();
+                Ok(Expr::new(ExprKind::Seq(exprs), ty, expr.span))
             }
             ast::ExprKind::Var(sym) => match self.lookup_value(sym) {
                 Some((scheme, ids)) => {
