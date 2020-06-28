@@ -72,7 +72,7 @@ impl Type {
     }
 
     /// Perform a breadth-first traversal of a type, collecting it's
-    /// associated type variables that have a rank greated than `rank`
+    /// associated type variables that have a rank greater than `rank`
     pub fn ftv(&self, rank: usize) -> Vec<usize> {
         let mut set = Vec::new();
         let mut uniq = HashSet::new();
@@ -84,6 +84,41 @@ impl Type {
                 Type::Var(x) => match x.ty() {
                     None => {
                         if x.rank() > rank && uniq.insert(x.id) {
+                            set.push(x.id);
+                        }
+                    }
+                    Some(link) => {
+                        queue.push_back(link);
+                    }
+                },
+                Type::Con(_, tys) => {
+                    for ty in tys {
+                        queue.push_back(ty);
+                    }
+                }
+                Type::Record(rows) => {
+                    for row in rows {
+                        queue.push_back(&row.data);
+                    }
+                }
+            }
+        }
+        set
+    }
+
+    /// Perform a breadth-first traversal of a type, collecting it's
+    /// associated type variables that have a rank greater than `rank`
+    pub fn ftv_no_rank(&self) -> Vec<usize> {
+        let mut set = Vec::new();
+        let mut uniq = HashSet::new();
+        let mut queue = VecDeque::new();
+        queue.push_back(self);
+
+        while let Some(ty) = queue.pop_front() {
+            match ty {
+                Type::Var(x) => match x.ty() {
+                    None => {
+                        if uniq.insert(x.id) {
                             set.push(x.id);
                         }
                     }
