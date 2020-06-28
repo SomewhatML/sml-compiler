@@ -113,15 +113,36 @@ impl Context {
             ctx.define_type(tc.name, TypeStructure::Tycon(*tc));
         }
 
+        let nil = Type::Var(ctx.fresh_tyvar());
+
         ctx.define_value(
             S_NIL,
-            Scheme::Poly(
-                vec![0],
-                Type::Con(builtin::tycons::T_LIST, vec![Type::Var(TypeVar::new(0, 0))]),
-            ),
+            Scheme::Poly(vec![0], Type::Con(builtin::tycons::T_LIST, vec![nil])),
             IdStatus::Con(builtin::constructors::C_NIL),
         );
-        // ctx.define_value(S_CONS, Scheme::Poly(vec![0], Type::Con(builtin::tycons::T_LIST, vec![Type::Var(TypeVar::new(0, 0))])), IdStatus::Con(builtin::constructors::C_CONS));
+
+        let cons = Type::Var(ctx.fresh_tyvar());
+        let crec = Type::Record(vec![
+            Row {
+                label: Symbol::tuple_field(1),
+                data: cons.clone(),
+                span: Span::dummy(),
+            },
+            Row {
+                label: Symbol::tuple_field(1),
+                data: Type::Con(builtin::tycons::T_LIST, vec![cons.clone()]),
+                span: Span::dummy(),
+            },
+        ]);
+        ctx.define_value(
+            S_CONS,
+            Scheme::Poly(
+                vec![0],
+                Type::arrow(crec, Type::Con(builtin::tycons::T_LIST, vec![cons])),
+            ),
+            IdStatus::Con(builtin::constructors::C_CONS),
+        );
+
         ctx.define_value(
             S_TRUE,
             Scheme::Mono(Type::bool()),
@@ -132,9 +153,18 @@ impl Context {
             Scheme::Mono(Type::bool()),
             IdStatus::Con(builtin::constructors::C_FALSE),
         );
+
+        let reff = Type::Var(ctx.fresh_tyvar());
+        ctx.define_value(
+            S_REF,
+            Scheme::Poly(
+                vec![0],
+                Type::arrow(reff.clone(), Type::Con(builtin::tycons::T_REF, vec![reff])),
+            ),
+            IdStatus::Con(builtin::constructors::C_REF),
+        );
         ctx.elab_decl_fixity(&ast::Fixity::Infixr, 4, S_CONS)
             .unwrap();
-        ctx.tyvar_id.set(1);
         ctx
     }
     /// Keep track of the type variable stack, while executing the combinator

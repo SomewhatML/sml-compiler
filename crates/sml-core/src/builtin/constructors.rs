@@ -28,3 +28,9 @@ pub const C_FALSE: Constructor = Constructor {
     type_id: TypeId(7),
     tag: 1,
 };
+
+pub const C_REF: Constructor = Constructor {
+    name: S_REF,
+    type_id: TypeId(5),
+    tag: 0,
+};
