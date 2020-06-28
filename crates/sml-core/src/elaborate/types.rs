@@ -21,6 +21,12 @@ fn bind(sp: Span, var: &TypeVar, ty: &Type) -> Result<(), Diagnostic> {
 impl Context {
     pub fn unify(&self, sp: Span, a: &Type, b: &Type) -> Result<(), Diagnostic> {
         match (a, b) {
+            (Type::Var(a1), Type::Var(b1)) => match (a1.ty(), b1.ty()) {
+                (Some(a), Some(b)) => self.unify(sp, a, b),
+                (Some(a), None) => self.unify(sp, a, b),
+                (None, Some(b)) => self.unify(sp, a, b),
+                (None, None) => bind(sp, a1, b),
+            },
             (Type::Var(a), b) => match a.ty() {
                 Some(ty) => self.unify(sp, ty, b),
                 None => bind(sp, a, b),

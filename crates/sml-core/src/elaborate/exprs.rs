@@ -176,7 +176,21 @@ impl Context {
                 for decl in decls {
                     f.elaborate_decl(decl)?;
                 }
-                f.elaborate_expr(body)
+                let decls = decls
+                    .into_iter()
+                    .map(|decl| {
+                        f.elaborate_decl(decl)?;
+                        Ok(Decl::Empty)
+                    })
+                    .collect::<Result<Vec<Decl>, _>>()?;
+
+                let body = f.elaborate_expr(body)?;
+                let ty = body.ty.clone();
+                Ok(Expr::new(
+                    ExprKind::Let(decls, Box::new(body)),
+                    ty,
+                    expr.span,
+                ))
             }),
             ast::ExprKind::List(exprs) => {
                 let exprs = exprs

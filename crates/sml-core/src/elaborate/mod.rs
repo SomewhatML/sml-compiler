@@ -445,15 +445,17 @@ impl Context {
             ast::DeclKind::Value(pat, expr) => {
                 let expr = self.elaborate_expr(expr)?;
                 let (pat, bindings) = self.elaborate_pat(pat, false)?;
-                self.unify(decl.span, &pat.ty, &expr.ty)?;
 
+                // println!("try to unify {:#?} {:#?}", pat.ty, expr.ty);
+                self.unify(decl.span, &pat.ty, &expr.ty)?;
                 for pats::Binding { var, tv } in bindings {
                     let sch = self.generalize(Type::Var(tv));
                     println!("bind {:?} : {:?}", var, sch);
                     self.define_value(var, sch, IdStatus::Var);
                 }
+                dbg!(&expr);
+
                 Ok(())
-                // dbg!(&expr);
             }
             ast::DeclKind::Exception(exns) => self.elab_decl_exception(exns),
             ast::DeclKind::Fixity(fixity, bp, sym) => self.elab_decl_fixity(fixity, *bp, *sym),

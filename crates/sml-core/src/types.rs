@@ -175,7 +175,6 @@ impl Type {
                         // println!("promoting type var {:?} {}->{}", x, x.rank(), min_rank);
                         x.data.set_rank(min_rank);
                     }
-
                     x.id == tyvar.id
                 }
             }

@@ -39,7 +39,7 @@ pub struct Expr {
     pub span: Span,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum PatKind {
     /// Constructor application
     App(Constructor, Option<Box<Pat>>),
@@ -69,7 +69,9 @@ pub struct Rule {
 }
 
 #[derive(Clone, Debug)]
-pub enum Decl {}
+pub enum Decl {
+    Empty,
+}
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub struct Row<T> {
@@ -134,7 +136,7 @@ impl fmt::Debug for ExprKind {
                     .map(|r| format!("| {:?} => {:?}\n", r.pat, r.expr))
                     .collect::<String>()
             ),
-            Lambda(s, body) => write!(f, "fn {:?} => {:?}", s, body),
+            Lambda(s, body) => write!(f, "fn {:?} => {:#?}", s, body),
             Let(decls, body) => write!(f, "let {:?} in {:?} end", decls, body),
             List(exprs) => write!(f, "{:?}", exprs),
             Raise(e) => write!(f, "raise {:?}", e),
@@ -148,6 +150,28 @@ impl fmt::Debug for ExprKind {
             ),
             Seq(exprs) => write!(f, "{:?}", exprs),
             Var(s) => write!(f, "{:?}", s),
+        }
+    }
+}
+
+impl fmt::Debug for PatKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use PatKind::*;
+        match self {
+            App(e1, e2) => write!(f, "{:?} {:?}", e1, e2),
+            // Con(con, tys) => write!(f, "{:?} [{:?}]", con, tys),
+            Const(c) => write!(f, "{:?}", c),
+            Record(rows) => write!(
+                f,
+                "{{ {} }}",
+                rows.into_iter()
+                    .map(|r| format!("{:?}={:?}", r.label, r.data))
+                    .collect::<Vec<String>>()
+                    .join(",")
+            ),
+            List(exprs) => write!(f, "{:?}", exprs),
+            Var(s) => write!(f, "{:?}", s),
+            Wild => write!(f, "_"),
         }
     }
 }
