@@ -133,6 +133,7 @@ impl<'s, 'sym> Lexer<'s, 'sym> {
             S_OP => Token::Op,
             S_OPEN => Token::Open,
             S_ORELSE => Token::Orelse,
+            S_PRIM => Token::Primitive,
             S_RAISE => Token::Raise,
             S_REC => Token::Rec,
             S_THEN => Token::Then,

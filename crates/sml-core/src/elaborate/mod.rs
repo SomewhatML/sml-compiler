@@ -179,8 +179,8 @@ impl Context {
     }
 
     /// Handle namespacing. The method creates a new child namespace, enters it
-    /// and then calls `f`. After `f` has returned, the current scope is returned
-    /// to it's previous value
+    /// and then calls `f`. After `f` has returned, the current scope is
+    /// returned to it's previous value
     fn with_scope<T, F: FnMut(&mut Context) -> T>(&mut self, mut f: F) -> T {
         let prev = self.current;
         let next = self.namespaces.len();

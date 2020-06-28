@@ -50,6 +50,7 @@ pub enum Token {
     Op,
     Open,
     Orelse,
+    Primitive,
     Raise,
     Rec,
     Then,

@@ -31,8 +31,15 @@ pub enum Fixity {
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct Primitive {
+    pub sym: Symbol,
+    pub ty: Type,
+}
+
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub enum DeclKind {
-    /// If `N` > 1, then we have potentially mutually recursive datatype definitions
+    /// If `N` > 1, then we have potentially mutually recursive datatype
+    /// definitions
     Datatype(Vec<Datatype>),
     /// If `N` > 1, then we have mutually rec. type defs
     Type(Vec<Typebind>),
@@ -57,8 +64,8 @@ pub enum TypeKind {
     Con(Symbol, Vec<Type>),
     /// Record type
     Record(Vec<Row<Type>>),
-    // Universally quantified type
-    // Univ(Symbol, Box<Type>),
+    /* Universally quantified type
+     * Univ(Symbol, Box<Type>), */
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
@@ -75,6 +82,7 @@ pub enum ExprKind {
     Let(Vec<Decl>, Box<Expr>),
     List(Vec<Expr>),
     Orelse(Box<Expr>, Box<Expr>),
+    Primitive(Primitive),
     Raise(Box<Expr>),
     Record(Vec<Row<Expr>>),
     Selector(Symbol),
@@ -134,8 +142,8 @@ pub type Pat = Spanned<PatKind>;
 pub type Variant = Row<Option<Type>>;
 pub type Fun = Spanned<Vec<FnBinding>>;
 
-/// Interestingly, MLton immediately desugars tuples during parsing, rather than during elaboration.
-/// We do the same
+/// Interestingly, MLton immediately desugars tuples during parsing, rather than
+/// during elaboration. We do the same
 pub fn make_record(v: Vec<Expr>) -> ExprKind {
     ExprKind::Record(
         v.into_iter()

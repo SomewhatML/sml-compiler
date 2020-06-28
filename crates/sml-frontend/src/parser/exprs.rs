@@ -139,6 +139,21 @@ impl<'s, 'sym> Parser<'s, 'sym> {
         }
     }
 
+    fn primitive(&mut self) -> Result<ExprKind, Error> {
+        self.expect(Token::Primitive)?;
+        match self.current() {
+            Token::Const(Const::String(sym)) => {
+                self.bump();
+                self.expect(Token::Colon)?;
+                let ty = self.parse_type()?;
+                Ok(ExprKind::Primitive(Primitive { sym, ty }))
+            }
+            _ => self.error(ErrorKind::ExpectedToken(Token::Const(Const::String(
+                Symbol::dummy(),
+            )))),
+        }
+    }
+
     /// atexp ::=   constant
     ///             id
     ///             { [label = exp] }
@@ -152,6 +167,7 @@ impl<'s, 'sym> Parser<'s, 'sym> {
             Token::Id(_) | Token::IdS(_) => {
                 self.expect_id().map(|e| Expr::new(ExprKind::Var(e), span))
             }
+            Token::Primitive => self.spanned(|p| p.primitive()),
             Token::Let => self.spanned(|p| p.let_binding()),
             Token::Selector => self.spanned(|p| p.selector()),
             Token::Const(_) => self.constant().map(|l| Expr::new(ExprKind::Const(l), span)),

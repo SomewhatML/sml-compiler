@@ -44,6 +44,7 @@ globals!(
     S_OP,
     S_OPEN,
     S_ORELSE,
+    S_PRIM,
     S_RAISE,
     S_REC,
     S_THEN,
@@ -148,6 +149,7 @@ impl Interner {
         assert_eq!(S_OP, i.intern("op".into()));
         assert_eq!(S_OPEN, i.intern("open".into()));
         assert_eq!(S_ORELSE, i.intern("orelse".into()));
+        assert_eq!(S_PRIM, i.intern("primitive".into()));
         assert_eq!(S_RAISE, i.intern("raise".into()));
         assert_eq!(S_REC, i.intern("rec".into()));
         assert_eq!(S_THEN, i.intern("then".into()));
