@@ -72,21 +72,6 @@ impl Context {
                     Type::Var(f),
                     expr.span,
                 ))
-
-                // match e1.ty.clone().de_arrow() {
-                //     Some((arg, res)) => {
-                //         self.unify(e2.span, arg, &e2.ty)?;
-                //         Ok(Expr::new(
-                //             ExprKind::App(Box::new(e1), Box::new(e2)),
-                //             res.clone(),
-                //             expr.span,
-                //         ))
-                //     }
-                //     None => Err(Diagnostic::error(
-                //         expr.span,
-                //         format!("can't assign an arrow type to {:?}", e1),
-                //     )),
-                // }
             }
             ast::ExprKind::Case(scrutinee, rules) => {
                 let casee = self.elaborate_expr(scrutinee)?;
@@ -172,6 +157,29 @@ impl Context {
                     expr.span,
                 ))
             }
+            ast::ExprKind::If(e1, e2, e3) => {
+                let e1 = self.elaborate_expr(e1)?;
+                let e2 = self.elaborate_expr(e2)?;
+                let e3 = self.elaborate_expr(e3)?;
+                self.unify(e1.span, &e1.ty, &Type::bool())?;
+                self.unify(expr.span, &e2.ty, &e3.ty)?;
+
+                let ty = e2.ty.clone();
+                let tru = Rule {
+                    pat: Pat::new(PatKind::App(C_TRUE, None), Type::bool(), e2.span),
+                    expr: e2,
+                };
+                let fls = Rule {
+                    pat: Pat::new(PatKind::App(C_FALSE, None), Type::bool(), e3.span),
+                    expr: e3,
+                };
+
+                Ok(Expr::new(
+                    ExprKind::Case(Box::new(e1), vec![tru, fls]),
+                    ty,
+                    expr.span,
+                ))
+            }
             ast::ExprKind::Let(decls, body) => self.with_scope(|f| {
                 for decl in decls {
                     f.elaborate_decl(decl)?;
@@ -230,7 +238,23 @@ impl Context {
                 let ty = Type::Record(tys);
                 Ok(Expr::new(ExprKind::Record(rows), ty, expr.span))
             }
-            ast::ExprKind::Selector(s) => unimplemented!(),
+            ast::ExprKind::Selector(s) => {
+                let row = ast::Row {
+                    label: *s,
+                    data: ast::Pat::new(ast::PatKind::Variable(*s), Span::dummy()),
+                    span: Span::dummy(),
+                };
+                let pat = ast::Pat::new(ast::PatKind::Record(vec![row]), Span::dummy());
+                let inner = ast::Expr::new(ast::ExprKind::Var(*s), Span::dummy());
+                self.elaborate_expr(&ast::Expr::new(
+                    ast::ExprKind::Fn(vec![ast::Rule {
+                        pat,
+                        expr: inner,
+                        span: expr.span,
+                    }]),
+                    expr.span,
+                ))
+            }
             ast::ExprKind::Seq(exprs) => {
                 let exprs = exprs
                     .into_iter()

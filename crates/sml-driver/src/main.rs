@@ -1,4 +1,6 @@
+use sml_core::elaborate::Context;
 use sml_frontend::parser::Parser;
+use sml_util::diagnostics::Diagnostic;
 use sml_util::interner::*;
 use std::env;
 use std::io::prelude::*;
@@ -37,7 +39,7 @@ fn main() {
         return;
     }
 
-    let mut ctx = sml_core::elaborate::Context::new();
+    let mut ctx = Context::new();
     println!("SimpleML (c) 2020");
     loop {
         let mut buffer = String::new();
@@ -55,12 +57,10 @@ fn main() {
         match res {
             Ok(d) => {
                 println!("{:?}", d);
-                ctx.elaborate_decl(&d).unwrap();
-                // dbg!(&ctx);
-                // let elab1 = ctx.elab_program(d);
-                // let inlined = hir::inline(&elab1);
-                // println!("====> {:?}", &elab1);
-                // ctx.dump();
+                match ctx.elaborate_decl(&d) {
+                    Ok(_) => println!("Ok"),
+                    Err(diag) => println!("{:?}", diag),
+                }
             }
             Err(e) => {
                 println!("[err] {:?}: {:?}", e.to_diagnostic(), diags);

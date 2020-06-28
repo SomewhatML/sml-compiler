@@ -118,11 +118,11 @@ impl fmt::Debug for ExprKind {
             App(e1, e2) => write!(f, "{:?} {:?}", e1, e2),
             Case(casee, rules) => write!(
                 f,
-                "case {:?} of\n{:?}",
+                "case {:?} of\n{}",
                 casee,
                 rules
                     .into_iter()
-                    .map(|r| format!("| {:?} => {:?}\n", r.pat, r.expr))
+                    .map(|r| format!("| {:?} => {:?}\n", r.pat.pat, r.expr))
                     .collect::<String>()
             ),
             Con(con, tys) => write!(f, "{:?} [{:?}]", con, tys),
