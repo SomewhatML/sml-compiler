@@ -167,7 +167,7 @@ impl Type {
         match &self {
             Type::Var(x) => {
                 if let Some(info) = x.ty() {
-                    info.occurs_check(x)
+                    info.occurs_check(tyvar)
                 } else {
                     let curr = x.rank();
                     let min_rank = curr.min(tyvar.rank());
