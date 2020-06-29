@@ -16,7 +16,7 @@ impl Context {
             .map(|p| (p, bindings))
     }
 
-    fn elaborate_pat_inner(
+    pub(crate) fn elaborate_pat_inner(
         &mut self,
         pat: &ast::Pat,
         bind: bool,

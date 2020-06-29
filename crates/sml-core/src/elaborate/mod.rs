@@ -179,7 +179,7 @@ impl Context {
     /// Handle namespacing. The method creates a new child namespace, enters it
     /// and then calls `f`. After `f` has returned, the current scope is
     /// returned to it's previous value
-    fn with_scope<T, F: FnMut(&mut Context) -> T>(&mut self, mut f: F) -> T {
+    fn with_scope<T, F: FnOnce(&mut Context) -> T>(&mut self, f: F) -> T {
         let prev = self.current;
         let next = self.namespaces.len();
         self.namespaces.push(Namespace::with_parent(prev));
@@ -476,23 +476,70 @@ impl Context {
             .collect::<Vec<Type>>();
         let res_ty = Type::Var(self.fresh_tyvar());
 
+        let mut rules = Vec::new();
         for clause in fbs {
+            if let Some(ty) = &clause.res_ty {
+                let t = self.elaborate_type(&ty, false)?;
+                self.unify(ty.span, &res_ty, &t).map_err(|diag| {
+                    diag.message(clause.span, format!("function clause with result constraint of different type: expected {:?}, got {:?}", &res_ty, &t)) 
+                })?;
+            }
+
+            let mut pats = Vec::new();
+            let mut bindings = Vec::new();
             for (idx, pat) in clause.pats.iter().enumerate() {
-                let (pat, binds) = self.elaborate_pat(pat, false)?;
+                let pat = self.elaborate_pat_inner(pat, false, &mut bindings)?;
                 self.unify(pat.span, &arg_tys[idx], &pat.ty).map_err(|diag| {
                     diag.message(clause.span, format!("function clause with argument of different type: expected {:?}, got {:?}", &arg_tys[0], &pat.ty)) 
                 })?;
+                pats.push(pat);
             }
-            match &clause.res_ty {
-                Some(ty) => {
-                    let t = self.elaborate_type(&ty, false)?;
-                    self.unify(ty.span, &res_ty, &t).map_err(|diag| {
-                        diag.message(clause.span, format!("function clause with result constraint of different type: expected {:?}, got {:?}", &res_ty, &t)) 
-                    })?;
+
+            let expr = self.with_scope(move |ctx| {
+                for pats::Binding { var, tv } in bindings {
+                    ctx.define_value(var, Scheme::Mono(Type::Var(tv)), IdStatus::Var);
                 }
-                None => {}
-            }
+                ctx.elaborate_expr(&clause.expr)
+            })?;
+
+            self.unify(expr.span, &res_ty, &expr.ty).map_err(|diag| {
+                diag.message(
+                    clause.span,
+                    format!(
+                        "function clause with body of different type: expected {:?}, got {:?}",
+                        &res_ty, &expr.ty
+                    ),
+                )
+            })?;
+
+            let pat = match pats.len() {
+                1 => pats.remove(0),
+                _ => {
+                    let mut rows = Vec::new();
+                    let mut tys = Vec::new();
+                    let mut sp = pats[0].span;
+                    for (idx, pat) in pats.into_iter().enumerate() {
+                        sp += pat.span;
+                        tys.push(Row {
+                            label: Symbol::tuple_field(idx as u32 + 1),
+                            data: pat.ty.clone(),
+                            span: pat.span,
+                        });
+                        rows.push(Row {
+                            label: Symbol::tuple_field(idx as u32 + 1),
+                            span: pat.span,
+                            data: pat,
+                        });
+                    }
+                    Pat::new(PatKind::Record(rows), Type::Record(tys), sp)
+                }
+            };
+
+            let rule = Rule { pat, expr };
+            rules.push(rule);
         }
+
+        dbg!(rules);
 
         let ty = arg_tys
             .into_iter()
