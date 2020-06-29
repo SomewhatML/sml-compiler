@@ -59,7 +59,7 @@ impl Context {
                 Ok(Pat::new(PatKind::Const(*c), ty, pat.span))
             }
             FlatApp(pats) => {
-                let p = match self.pat_precedence(pats.clone(), pat.span) {
+                let p = match self.pat_precedence(pats.clone()) {
                     Ok(p) => Ok(p),
                     Err(precedence::Error::EndsInfix) => Err(Diagnostic::error(
                         pat.span,

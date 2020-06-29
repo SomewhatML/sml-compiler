@@ -178,7 +178,7 @@ impl Type {
                     x.id == tyvar.id
                 }
             }
-            Type::Con(tc, tys) => tys.iter().any(|ty| ty.occurs_check(tyvar)),
+            Type::Con(_, tys) => tys.iter().any(|ty| ty.occurs_check(tyvar)),
             Type::Record(rows) => rows.iter().any(|r| r.data.occurs_check(tyvar)),
         }
     }

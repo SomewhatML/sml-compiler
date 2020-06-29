@@ -6,7 +6,6 @@ use std::fmt;
 
 pub mod builtin;
 pub mod elaborate;
-pub mod inference;
 pub mod types;
 use types::{Constructor, Scheme, Tycon, Type, TypeVar};
 

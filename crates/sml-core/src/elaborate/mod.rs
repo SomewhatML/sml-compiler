@@ -1,18 +1,15 @@
 mod exprs;
 mod pats;
 mod prec;
-mod stack;
 mod types;
 
 use super::builtin::constructors::*;
 use super::builtin::tycons::*;
-use super::inference::Constraint;
 use super::*;
 use sml_frontend::ast;
-use sml_frontend::parser::precedence::{self, Fixity, Precedence, Query};
+use sml_frontend::parser::precedence::{self, Fixity};
 use sml_util::diagnostics::Diagnostic;
 use sml_util::interner::{S_CONS, S_FALSE, S_NIL, S_REF, S_TRUE};
-use stack::Stack;
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 
@@ -72,7 +69,7 @@ pub struct Namespace {
 #[derive(Default, Debug)]
 pub struct Context {
     // stacks for alpha-renaming
-    tyvars: Stack<TypeVar>,
+    tyvars: Vec<(Symbol, TypeVar)>,
 
     namespaces: Vec<Namespace>,
     current: usize,
@@ -173,8 +170,9 @@ impl Context {
     fn with_tyvars<T, F: FnMut(&mut Context) -> T>(&mut self, mut f: F) -> T {
         let n = self.tyvars.len();
         let r = f(self);
-        let to_pop = self.tyvars.len() - n;
-        self.tyvars.popn(to_pop);
+        while self.tyvars.len() != n {
+            self.tyvars.pop();
+        }
         r
     }
 
@@ -341,7 +339,7 @@ impl Context {
                 self.with_tyvars(|f| {
                     for s in typebind.tyvars.iter() {
                         let v = f.fresh_tyvar();
-                        f.tyvars.push(*s, v);
+                        f.tyvars.push((*s, v));
                     }
                     let ty = f.elaborate_type(&typebind.ty, false)?;
                     let s = match typebind.tyvars.len() {
@@ -428,7 +426,7 @@ impl Context {
             self.with_tyvars(|f| {
                 for s in &db.tyvars {
                     let v = f.fresh_tyvar();
-                    f.tyvars.push(*s, v);
+                    f.tyvars.push((*s, v));
                 }
                 f.elab_decl_conbind(db)
             })?;

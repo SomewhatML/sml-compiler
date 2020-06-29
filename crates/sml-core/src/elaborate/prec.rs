@@ -68,7 +68,6 @@ impl Context {
     pub(crate) fn expr_precedence(
         &self,
         exprs: Vec<ast::Expr>,
-        sp: Span,
     ) -> Result<ast::Expr, precedence::Error> {
         Precedence::run(self, exprs)
     }
@@ -76,7 +75,6 @@ impl Context {
     pub(crate) fn pat_precedence(
         &self,
         exprs: Vec<ast::Pat>,
-        sp: Span,
     ) -> Result<ast::Pat, precedence::Error> {
         Precedence::run(self, exprs)
     }

@@ -10,7 +10,7 @@ pub struct Location {
 }
 
 impl Location {
-    pub const fn new(line: u16, col: u16, abs: u32) -> Location {
+    pub const fn new(line: u16, col: u16, _abs: u32) -> Location {
         Location { line, col }
     }
 }

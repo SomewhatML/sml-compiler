@@ -1,6 +1,5 @@
 use sml_core::elaborate::Context;
 use sml_frontend::parser::Parser;
-use sml_util::diagnostics::Diagnostic;
 use sml_util::interner::*;
 use std::env;
 use std::io::prelude::*;
@@ -25,7 +24,7 @@ fn main() {
             });
 
             match res {
-                Ok(d) => {
+                Ok(_) => {
                     println!("{} us", micros);
                     // if !diags.is_empty() {
                     //     println!("[err] {:?}", diags);

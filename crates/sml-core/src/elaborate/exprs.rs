@@ -101,7 +101,7 @@ impl Context {
                 Ok(ex)
             }
             ast::ExprKind::FlatApp(exprs) => {
-                let p = match self.expr_precedence(exprs.clone(), expr.span) {
+                let p = match self.expr_precedence(exprs.clone()) {
                     Ok(p) => Ok(p),
                     Err(precedence::Error::EndsInfix) => Err(Diagnostic::error(
                         expr.span,
@@ -268,7 +268,7 @@ impl Context {
                 Ok(Expr::new(ExprKind::Seq(exprs), ty, expr.span))
             }
             ast::ExprKind::Var(sym) => match self.lookup_value(sym) {
-                Some((scheme, ids)) => {
+                Some((scheme, _)) => {
                     let ty = self.instantiate(scheme.clone());
                     Ok(Expr::new(ExprKind::Var(*sym), ty, expr.span))
                 }
