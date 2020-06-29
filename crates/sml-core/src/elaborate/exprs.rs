@@ -207,7 +207,7 @@ impl Context {
                     .collect::<Result<Vec<_>, _>>()?;
                 let tys = exprs.iter().map(|ex| &ex.ty).collect::<Vec<&Type>>();
                 self.unify_list_ref(expr.span, &tys)?;
-                let ty = tys[0].clone();
+                let ty = Type::Con(builtin::tycons::T_LIST, vec![tys[0].clone()]);
                 Ok(Expr::new(ExprKind::List(exprs), ty, expr.span))
             }
             ast::ExprKind::Orelse(e1, e2) => {
@@ -218,6 +218,12 @@ impl Context {
 
                 let tru = Expr::new(ExprKind::Con(C_TRUE, vec![]), Type::bool(), expr.span);
                 self.elab_if(expr.span, e1, tru, e2)
+            }
+            ast::ExprKind::Primitive(prim) => {
+                let name = prim.sym;
+                let ty = self.elaborate_type(&prim.ty, false)?;
+
+                Ok(Expr::new(ExprKind::Primitive(name), ty, expr.span))
             }
             ast::ExprKind::Raise(expr) => {
                 let ty = Type::Var(self.fresh_tyvar());

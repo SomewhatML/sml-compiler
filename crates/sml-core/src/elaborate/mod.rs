@@ -253,7 +253,9 @@ impl Context {
             }
         }
         if allow_unbound {
-            Some(self.fresh_tyvar())
+            let v = self.fresh_tyvar();
+            self.tyvars.push((*s, v.clone()));
+            Some(v)
         } else {
             None
         }
@@ -301,6 +303,24 @@ impl Context {
             ptr: Some(self.current),
         }
     }
+}
+
+/// A partially elaborated Vec<ast::FnBinding>
+struct PartialFun<'s> {
+    name: Symbol,
+    clauses: Vec<PartialFnBinding<'s>>,
+    arity: usize,
+    arg_tys: Vec<Type>,
+    res_ty: Type,
+    ty: Type,
+}
+
+/// A partially elaborated ast::FnBinding
+struct PartialFnBinding<'s> {
+    expr: &'s ast::Expr,
+    pats: Vec<Pat>,
+    bindings: Vec<pats::Binding>,
+    span: Span,
 }
 
 impl Context {
@@ -466,17 +486,18 @@ impl Context {
     }
 
     /// Perform initial elaboration on a function binding, enough to build up an environment
-    fn elab_decl_fnbind_ty(
+    fn elab_decl_fnbind_ty<'s>(
         &mut self,
-        args: usize,
-        fbs: &[ast::FnBinding],
-    ) -> Result<(), Diagnostic> {
-        let mut arg_tys = (0..args)
+        name: Symbol,
+        arity: usize,
+        fbs: &'s [ast::FnBinding],
+    ) -> Result<PartialFun<'s>, Diagnostic> {
+        let arg_tys = (0..arity)
             .map(|_| Type::Var(self.fresh_tyvar()))
             .collect::<Vec<Type>>();
         let res_ty = Type::Var(self.fresh_tyvar());
 
-        let mut rules = Vec::new();
+        let mut clauses = Vec::new();
         for clause in fbs {
             if let Some(ty) = &clause.res_ty {
                 let t = self.elaborate_type(&ty, false)?;
@@ -494,17 +515,56 @@ impl Context {
                 })?;
                 pats.push(pat);
             }
+            clauses.push(PartialFnBinding {
+                expr: &clause.expr,
+                pats,
+                bindings,
+                span: clause.span,
+            })
+        }
 
+        let ty = arg_tys
+            .iter()
+            .rev()
+            .cloned()
+            .fold(res_ty.clone(), |acc, arg| Type::arrow(arg, acc));
+
+        Ok(PartialFun {
+            name,
+            clauses,
+            arity,
+            arg_tys,
+            res_ty,
+            ty,
+        })
+    }
+
+    fn elab_decl_fnbind(&mut self, fun: PartialFun) -> Result<(), Diagnostic> {
+        let PartialFun {
+            clauses,
+            res_ty,
+            arg_tys,
+            arity,
+            ..
+        } = fun;
+        let mut rules = Vec::new();
+        for PartialFnBinding {
+            mut pats,
+            expr,
+            bindings,
+            span,
+        } in clauses
+        {
             let expr = self.with_scope(move |ctx| {
                 for pats::Binding { var, tv } in bindings {
                     ctx.define_value(var, Scheme::Mono(Type::Var(tv)), IdStatus::Var);
                 }
-                ctx.elaborate_expr(&clause.expr)
+                ctx.elaborate_expr(&expr)
             })?;
 
             self.unify(expr.span, &res_ty, &expr.ty).map_err(|diag| {
                 diag.message(
-                    clause.span,
+                    span,
                     format!(
                         "function clause with body of different type: expected {:?}, got {:?}",
                         &res_ty, &expr.ty
@@ -539,17 +599,59 @@ impl Context {
             rules.push(rule);
         }
 
-        dbg!(rules);
+        // Now generate fresh argument names for our function, so we can curry
+        let fresh_args = arg_tys
+            .iter()
+            .rev()
+            .cloned()
+            .map(|ty| (self.fresh_var(), ty))
+            .collect::<Vec<(Symbol, Type)>>();
 
-        let ty = arg_tys
+        let (rho, tau): (Vec<Row<Expr>>, Vec<Row<Type>>) = fresh_args
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(idx, (sym, ty))| {
+                (
+                    Row {
+                        label: Symbol::tuple_field(idx as u32 + 1),
+                        data: Expr::new(ExprKind::Var(sym), ty.clone(), Span::dummy()),
+                        span: Span::dummy(),
+                    },
+                    Row {
+                        label: Symbol::tuple_field(idx as u32 + 1),
+                        data: ty,
+                        span: Span::dummy(),
+                    },
+                )
+            })
+            .unzip();
+        let scrutinee = Expr::new(ExprKind::Record(rho), Type::Record(tau), Span::dummy());
+        let case = Expr::new(
+            ExprKind::Case(Box::new(scrutinee), rules),
+            res_ty.clone(),
+            Span::dummy(),
+        );
+
+        let (expr, ty) = fresh_args
             .into_iter()
-            .fold(res_ty, |acc, arg| Type::arrow(arg, acc));
-        dbg!(ty);
+            .fold((case, res_ty), |(expr, rty), (arg, ty)| {
+                (
+                    Expr::new(
+                        ExprKind::Lambda(arg, Box::new(expr)),
+                        Type::arrow(ty.clone(), rty.clone()),
+                        Span::dummy(),
+                    ),
+                    Type::arrow(ty, rty),
+                )
+            });
+        println!("{:?}\nty: {:?}", expr, ty);
         Ok(())
     }
 
-    fn elab_decl_fun(&mut self, tyvars: &[Symbol], fbs: &[ast::Fun]) -> Result<(), Diagnostic> {
+    fn elab_decl_fun(&mut self, fbs: &[ast::Fun]) -> Result<(), Diagnostic> {
         let mut names = Vec::new();
+        let mut info = Vec::new();
         // Check to make sure all of the function clauses are consistent within each binding group
         for f in fbs {
             let n = f[0].name;
@@ -575,16 +677,31 @@ impl Context {
                 }
             }
             names.push(n);
-            self.elab_decl_fnbind_ty(a, f)?;
+            // self.elab_decl_fnbind(a, f)?;
+            info.push(self.elab_decl_fnbind_ty(n, a, f)?);
+        }
+
+        // self.with_scope(|ctx| {
+        for fns in &info {
+            self.define_value(fns.name, self.generalize(fns.ty.clone()), IdStatus::Var);
+        }
+        for fns in info {
+            self.elab_decl_fnbind(fns)?;
         }
         Ok(())
+        // })
     }
 
     pub fn elaborate_decl(&mut self, decl: &ast::Decl) -> Result<(), Diagnostic> {
         match &decl.data {
             ast::DeclKind::Datatype(dbs) => self.elab_decl_datatype(dbs),
             ast::DeclKind::Type(tbs) => self.elab_decl_type(tbs),
-            ast::DeclKind::Function(tyvars, fbs) => self.elab_decl_fun(tyvars, fbs),
+            ast::DeclKind::Function(tyvars, fbs) => self.with_tyvars(|ctx| {
+                for sym in tyvars {
+                    ctx.tyvars.push((*sym, ctx.fresh_tyvar()));
+                }
+                ctx.elab_decl_fun(fbs)
+            }),
             ast::DeclKind::Value(pat, expr) => {
                 let expr = self.elaborate_expr(expr)?;
                 let (pat, bindings) = self.elaborate_pat(pat, false)?;

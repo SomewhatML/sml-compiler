@@ -25,6 +25,7 @@ pub enum ExprKind {
     Lambda(Symbol, Box<Expr>),
     Let(Vec<Decl>, Box<Expr>),
     List(Vec<Expr>),
+    Primitive(Symbol),
     Raise(Box<Expr>),
     Record(Vec<Row<Expr>>),
     Seq(Vec<Expr>),
@@ -138,6 +139,7 @@ impl fmt::Debug for ExprKind {
             Lambda(s, body) => write!(f, "fn {:?} => {:#?}", s, body),
             Let(decls, body) => write!(f, "let {:?} in {:?} end", decls, body),
             List(exprs) => write!(f, "{:?}", exprs),
+            Primitive(sym) => write!(f, "primitive {:?}", sym),
             Raise(e) => write!(f, "raise {:?}", e),
             Record(rows) => write!(
                 f,
@@ -177,6 +179,6 @@ impl fmt::Debug for PatKind {
 
 impl fmt::Debug for Expr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?} : {:?}", self.expr, self.ty)
+        write!(f, "[{:?} : {:?}]", self.expr, self.ty)
     }
 }

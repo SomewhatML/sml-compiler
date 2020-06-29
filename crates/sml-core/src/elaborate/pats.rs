@@ -50,7 +50,7 @@ impl Context {
             }
             Ascribe(p, ty) => {
                 let p = self.elaborate_pat_inner(p, bind, bindings)?;
-                let ty = self.elaborate_type(ty, false)?;
+                let ty = self.elaborate_type(ty, true)?;
                 self.unify(pat.span, &p.ty, &ty)?;
                 Ok(p)
             }
