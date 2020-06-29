@@ -465,11 +465,79 @@ impl Context {
         Ok(())
     }
 
+    /// Perform initial elaboration on a function binding, enough to build up an environment
+    fn elab_decl_fnbind_ty(
+        &mut self,
+        args: usize,
+        fbs: &[ast::FnBinding],
+    ) -> Result<(), Diagnostic> {
+        let mut arg_tys = (0..args)
+            .map(|_| Type::Var(self.fresh_tyvar()))
+            .collect::<Vec<Type>>();
+        let res_ty = Type::Var(self.fresh_tyvar());
+
+        for clause in fbs {
+            for (idx, pat) in clause.pats.iter().enumerate() {
+                let (pat, binds) = self.elaborate_pat(pat, false)?;
+                self.unify(pat.span, &arg_tys[idx], &pat.ty).map_err(|diag| {
+                    diag.message(clause.span, format!("function clause with argument of different type: expected {:?}, got {:?}", &arg_tys[0], &pat.ty)) 
+                })?;
+            }
+            match &clause.res_ty {
+                Some(ty) => {
+                    let t = self.elaborate_type(&ty, false)?;
+                    self.unify(ty.span, &res_ty, &t).map_err(|diag| {
+                        diag.message(clause.span, format!("function clause with result constraint of different type: expected {:?}, got {:?}", &res_ty, &t)) 
+                    })?;
+                }
+                None => {}
+            }
+        }
+
+        let ty = arg_tys
+            .into_iter()
+            .fold(res_ty, |acc, arg| Type::arrow(arg, acc));
+        dbg!(ty);
+        Ok(())
+    }
+
+    fn elab_decl_fun(&mut self, tyvars: &[Symbol], fbs: &[ast::Fun]) -> Result<(), Diagnostic> {
+        let mut names = Vec::new();
+        // Check to make sure all of the function clauses are consistent within each binding group
+        for f in fbs {
+            let n = f[0].name;
+            let a = f[0].pats.len();
+            for fb in f.iter() {
+                if n != fb.name {
+                    return Err(Diagnostic::error(
+                        fb.span,
+                        format!(
+                            "function clause with a different name; expected: {:?}, found {:?}",
+                            n, fb.name
+                        ),
+                    ));
+                }
+                if a != fb.pats.len() {
+                    return Err(Diagnostic::error(
+                        fb.span,
+                        format!(
+                            "function clause with a different number of args; expected: {:?}, found {:?}",
+                            a, fb.pats.len()
+                        )
+                    ));
+                }
+            }
+            names.push(n);
+            self.elab_decl_fnbind_ty(a, f)?;
+        }
+        Ok(())
+    }
+
     pub fn elaborate_decl(&mut self, decl: &ast::Decl) -> Result<(), Diagnostic> {
         match &decl.data {
             ast::DeclKind::Datatype(dbs) => self.elab_decl_datatype(dbs),
             ast::DeclKind::Type(tbs) => self.elab_decl_type(tbs),
-            ast::DeclKind::Function(tyvars, fbs) => unimplemented!(),
+            ast::DeclKind::Function(tyvars, fbs) => self.elab_decl_fun(tyvars, fbs),
             ast::DeclKind::Value(pat, expr) => {
                 let expr = self.elaborate_expr(expr)?;
                 let (pat, bindings) = self.elaborate_pat(pat, false)?;

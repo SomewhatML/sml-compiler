@@ -118,6 +118,7 @@ pub struct FnBinding {
     pub pats: Vec<Pat>,
     pub res_ty: Option<Type>,
     pub expr: Expr,
+    pub span: Span,
 }
 
 /// Rule of a case expression

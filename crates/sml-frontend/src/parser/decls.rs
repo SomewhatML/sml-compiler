@@ -54,6 +54,7 @@ impl<'s, 'sym> Parser<'s, 'sym> {
     }
 
     fn parse_fun_binding(&mut self) -> Result<FnBinding, Error> {
+        let mut span = self.current.span;
         let name = self.once(|p| p.expect_id(), "id required for function binding")?;
         let pats = self.plus(|p| p.atomic_pattern(), None)?;
         let res_ty = if self.bump_if(Token::Colon) {
@@ -64,11 +65,13 @@ impl<'s, 'sym> Parser<'s, 'sym> {
         };
         self.expect(Token::Equals)?;
         let expr = self.once(|p| p.parse_expr(), "missing expression in function!")?;
+        span += self.prev;
         Ok(FnBinding {
             name,
             pats,
             expr,
             res_ty,
+            span,
         })
     }
 
