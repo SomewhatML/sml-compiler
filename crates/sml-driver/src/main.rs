@@ -9,7 +9,7 @@ fn main() {
     let args = env::args();
     if args.len() > 1 {
         for f in args.skip(1) {
-            println!("reading {}", f);
+            // println!("reading {}", f);
             let file = std::fs::read_to_string(&f).unwrap();
             let (res, diags, micros) = INTERNER.with(|i| {
                 let x = &mut i.borrow_mut();
@@ -24,8 +24,22 @@ fn main() {
             });
 
             match res {
-                Ok(_) => {
-                    println!("{} us", micros);
+                Ok(d) => {
+                    println!("parsing {} us", micros);
+                    let mut ctx = Context::new();
+                    let start = Instant::now();
+                    match ctx.elaborate_decl(&d) {
+                        Ok(_) => {
+                            let stop = start.elapsed().as_micros();
+                            println!("elaboration {} us", stop);
+                        },
+                        Err(e) => {
+                            println!("[err] {:?}", e);
+
+                        }
+                    }
+
+
                     // if !diags.is_empty() {
                     //     println!("[err] {:?}", diags);
                     // }

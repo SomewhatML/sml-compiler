@@ -94,8 +94,8 @@ impl fmt::Debug for Diagnostic {
             "\n{:?}: {} starting at line {}, col {}\n{}",
             self.level,
             self.primary.info,
-            self.primary.span.start.line,
-            self.primary.span.start.col,
+            self.primary.span.start.line + 1,
+            self.primary.span.start.col + 1,
             self.other
                 .iter()
                 .map(|a| a.info.clone())

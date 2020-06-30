@@ -712,7 +712,7 @@ impl Context {
             });
 
         // Rebind with final type
-        self.define_value(fun.name, self.generalize(ty), IdStatus::Var);
+        self.define_value(fun.name, self.generalize(Type::arrow(t.clone(), ty)), IdStatus::Var);
 
         Ok(Lambda {
             arg: a,

@@ -20,7 +20,7 @@ fn bind(sp: Span, var: &TypeVar, ty: &Type) -> Result<(), Diagnostic> {
 
 impl Context {
     pub fn unify(&self, sp: Span, a: &Type, b: &Type) -> Result<(), Diagnostic> {
-        println!("unify [{:?}] [{:?}]", a, b);
+        // println!("unify [{:?}] [{:?}]", a, b);
         match (a, b) {
             (Type::Var(a1), Type::Var(b1)) => match (a1.ty(), b1.ty()) {
                 (Some(a), Some(b)) => self.unify(sp, a, b),
@@ -99,7 +99,7 @@ impl Context {
         for ns in self.namespace_iter() {
             for (sym, id) in &ns.values {
                 let (sch, _) = &self[*id];
-                println!("bound: {:?} {:?}", sym, sch);
+                // println!("bound: {:?} {:?}", sym, sch);
                 let var = match sch {
                     Scheme::Mono(ty) => ty.ftv_no_rank(),
                     Scheme::Poly(_, ty) => ty.ftv_no_rank(),

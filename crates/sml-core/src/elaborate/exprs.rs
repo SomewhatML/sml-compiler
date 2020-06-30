@@ -278,7 +278,7 @@ impl Context {
             ast::ExprKind::Var(sym) => match self.lookup_value(sym) {
                 Some((scheme, _)) => {
                     let ty = self.instantiate(scheme.clone());
-                    println!("inst {:?} [{:?}] -> {:?}", sym, scheme, ty);
+                    // println!("inst {:?} [{:?}] -> {:?}", sym, scheme, ty);
                     Ok(Expr::new(ExprKind::Var(*sym), ty, expr.span))
                 }
                 None => Err(Diagnostic::error(
