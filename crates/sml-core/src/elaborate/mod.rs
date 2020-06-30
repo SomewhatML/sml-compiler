@@ -783,8 +783,8 @@ impl Context {
                 info.push(ctx.elab_decl_fnbind_ty(n, a, f)?);
             }
             for fns in &info {
-                let sch = ctx.generalize(fns.ty.clone());
-                ctx.define_value(fns.name, sch, IdStatus::Var);
+                // let sch = ctx.generalize(fns.ty.clone());
+                ctx.define_value(fns.name, Scheme::Mono(fns.ty.clone()), IdStatus::Var);
             }
 
             elab.push(Decl::Fun(vars.clone(), info.into_iter().map(|fun| ctx.elab_decl_fnbind(fun)).collect::<Result<Vec<Lambda>, _>>()?));

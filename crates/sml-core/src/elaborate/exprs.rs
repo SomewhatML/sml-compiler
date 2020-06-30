@@ -185,9 +185,6 @@ impl Context {
                 ))
             }
             ast::ExprKind::Let(decls, body) => self.with_scope(|ctx| {
-                for decl in decls {
-                    ctx.elaborate_decl(decl)?;
-                }
                 let mut elab = Vec::new();
 
                 for decl in decls {
