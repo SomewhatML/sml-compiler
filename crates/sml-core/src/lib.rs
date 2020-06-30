@@ -116,6 +116,7 @@ impl Expr {
             ExprKind::Const(_) => true,
             ExprKind::Lambda(_) => true,
             ExprKind::Var(_) => true,
+            ExprKind::Primitive(_) => true,
             ExprKind::Record(rows) => rows.iter().all(|r| r.data.non_expansive()),
             ExprKind::List(exprs) => exprs.iter().all(|r| r.non_expansive()),
             _ => false,
