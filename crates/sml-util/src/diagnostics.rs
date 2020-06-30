@@ -85,6 +85,63 @@ impl Diagnostic {
         }
         range
     }
+
+    // pub fn code_format(src: &str, diag: Diagnostic) {
+    //     // let lines = diag.ot
+    //     //     .iter()
+    //     //     .map(|(_, sp)| sp.start.line)
+    //     //     .collect::<std::collections::HashSet<_>>();
+    //     let srcl = src.lines().collect::<Vec<&str>>();
+
+    //     let mut msgs = diag.other.clone();
+    //     msgs.insert(0, diag.primary.clone());
+
+    //     for line in diag.lines() {
+    //         println!("| {} {}", line + 1, &srcl[line as usize]);
+    //         for anno in &msgs {
+    //             if anno.span.start.line != line {
+    //                 continue;
+    //             }
+    //             let empty = (0..anno.span.start.col + 3).map(|_| ' ').collect::<String>();
+    //             let tilde = (1..anno.span.end.col.saturating_sub(anno.span.start.col))
+    //                 .map(|_| '~')
+    //                 .collect::<String>();
+    //             println!("{}^{}^ --- {}", empty, tilde, anno.info);
+    //         }
+    //     }
+    // }
+
+    pub fn report(mut self, source: &str) -> String {
+        let lines = source.lines().collect::<Vec<&str>>();
+
+        let mut output = format!("{:?}\n", self.level);
+        self.other.insert(0, self.primary);
+        for anno in self.other {
+            if anno.span == Span::dummy() {
+                output.push_str(&anno.info);
+                output.push('\n');
+            } else {
+                let range = std::ops::Range {
+                    start: anno.span.start.line.saturating_sub(1),
+                    end: anno.span.end.line + 1,
+                };
+                let width = anno.span.end.line.to_string().len();
+                for l in range {
+                    output.push_str(&format!("{:>.*} | {}\n", width, l + 1, lines[l as usize]));
+                    if l == anno.span.start.line {
+                        let empty = (0..anno.span.start.col + 3 + width as u16)
+                            .map(|_| ' ')
+                            .collect::<String>();
+                        let tilde = (1..anno.span.end.col.saturating_sub(anno.span.start.col))
+                            .map(|_| '~')
+                            .collect::<String>();
+                        output.push_str(&format!("{}^{}^ {}\n", empty, tilde, anno.info))
+                    }
+                }
+            }
+        }
+        output
+    }
 }
 
 impl fmt::Debug for Diagnostic {

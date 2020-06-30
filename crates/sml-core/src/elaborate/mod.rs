@@ -129,7 +129,7 @@ impl Context {
                 span: Span::dummy(),
             },
             Row {
-                label: Symbol::tuple_field(1),
+                label: Symbol::tuple_field(2),
                 data: Type::Con(builtin::tycons::T_LIST, vec![Type::Var(cons.clone())]),
                 span: Span::dummy(),
             },

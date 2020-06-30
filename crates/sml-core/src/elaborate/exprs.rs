@@ -66,7 +66,11 @@ impl Context {
                     expr.span,
                     &e1.ty,
                     &Type::arrow(e2.ty.clone(), Type::Var(f.clone())),
-                )?;
+                )
+                .map_err(|diag| {
+                    diag.message(e1.span, format!("'{:?}' has type {:?}", e1, e1.ty))
+                        .message(e2.span, format!("'{:?}' has type {:?}", e2, e2.ty))
+                })?;
                 Ok(Expr::new(
                     ExprKind::App(Box::new(e1), Box::new(e2)),
                     Type::Var(f),

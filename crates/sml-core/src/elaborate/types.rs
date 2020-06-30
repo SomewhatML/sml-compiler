@@ -50,8 +50,8 @@ impl Context {
                         sp,
                         "Can't unify type constructors with different argument lengths",
                     )
-                    .message(sp, format!("first type has arguments: {:?}", a_args))
-                    .message(sp, format!("and second type has arguments: {:?}", b_args)))
+                    .message(sp, format!("{:?} has arguments: {:?}", a, a_args))
+                    .message(sp, format!("and {:?} has arguments: {:?}", b, b_args)))
                 } else {
                     for (c, d) in a_args.into_iter().zip(b_args) {
                         self.unify(sp, c, d)?;
@@ -66,7 +66,24 @@ impl Context {
                 r2.sort_by(|a, b| a.label.cmp(&b.label));
 
                 for (ra, rb) in r1.into_iter().zip(r2.into_iter()) {
-                    self.unify(sp, &ra.data, &rb.data)?;
+                    if ra.label != rb.label {
+                        return Err(Diagnostic::error(sp, "Can't unify record types")
+                            .message(ra.span, format!("label '{:?}' from type {:?}", ra.label, a))
+                            .message(
+                                rb.span,
+                                format!("doesn't match label '{:?}' from type {:?}", rb.label, b),
+                            ));
+                    }
+                    self.unify(sp, &ra.data, &rb.data).map_err(|diag| {
+                        diag.message(
+                            ra.span,
+                            format!("field '{:?}' has type {:?}", ra.label, ra.data),
+                        )
+                        .message(
+                            rb.span,
+                            format!("field '{:?}' has type {:?}", rb.label, rb.data),
+                        )
+                    })?;
                 }
 
                 Ok(())

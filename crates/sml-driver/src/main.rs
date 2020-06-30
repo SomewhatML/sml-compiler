@@ -70,11 +70,11 @@ fn main() {
                 println!("{:?}", d);
                 match ctx.elaborate_decl(&d) {
                     Ok(d) => println!("Ok {:?}", d),
-                    Err(diag) => println!("{:?}", diag),
+                    Err(diag) => println!("{}", diag.report(&buffer)),
                 }
             }
             Err(e) => {
-                println!("[err] {:?}: {:?}", e.to_diagnostic(), diags);
+                println!("[err] {:?}: {:?}", e.to_diagnostic().report(&buffer), diags);
             }
         }
     }
