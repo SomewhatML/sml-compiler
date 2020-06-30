@@ -132,10 +132,14 @@ impl Context {
                 let gensym = self.fresh_var();
                 let sym = Expr::new(ExprKind::Var(gensym), arg.clone(), Span::dummy());
 
-                let case = Expr::new(ExprKind::Case(Box::new(sym), rules), res.clone(), expr.span);
+                let body = Expr::new(ExprKind::Case(Box::new(sym), rules), res.clone(), expr.span);
 
                 Ok(Expr::new(
-                    ExprKind::Lambda(gensym, Box::new(case)),
+                    ExprKind::Lambda(Box::new(Lambda {
+                        arg: gensym,
+                        ty: arg.clone(),
+                        body,
+                    })),
                     ty,
                     expr.span,
                 ))
@@ -180,22 +184,20 @@ impl Context {
                     expr.span,
                 ))
             }
-            ast::ExprKind::Let(decls, body) => self.with_scope(|f| {
+            ast::ExprKind::Let(decls, body) => self.with_scope(|ctx| {
                 for decl in decls {
-                    f.elaborate_decl(decl)?;
+                    ctx.elaborate_decl(decl)?;
                 }
-                let decls = decls
-                    .into_iter()
-                    .map(|decl| {
-                        f.elaborate_decl(decl)?;
-                        Ok(Decl::Empty)
-                    })
-                    .collect::<Result<Vec<Decl>, _>>()?;
+                let mut elab = Vec::new();
 
-                let body = f.elaborate_expr(body)?;
+                for decl in decls {
+                    ctx.elaborate_decl_inner(decl, &mut elab)?;
+                }
+
+                let body = ctx.elaborate_expr(body)?;
                 let ty = body.ty.clone();
                 Ok(Expr::new(
-                    ExprKind::Let(decls, Box::new(body)),
+                    ExprKind::Let(elab, Box::new(body)),
                     ty,
                     expr.span,
                 ))

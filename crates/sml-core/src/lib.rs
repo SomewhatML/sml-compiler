@@ -22,7 +22,7 @@ pub enum ExprKind {
     Con(Constructor, Vec<Type>),
     Const(Const),
     Handle(Box<Expr>, Vec<Rule>),
-    Lambda(Symbol, Box<Expr>),
+    Lambda(Box<Lambda>),
     Let(Vec<Decl>, Box<Expr>),
     List(Vec<Expr>),
     Primitive(Symbol),
@@ -37,6 +37,13 @@ pub struct Expr {
     pub expr: ExprKind,
     pub ty: Type,
     pub span: Span,
+}
+
+#[derive(Clone)]
+pub struct Lambda {
+    pub arg: Symbol,
+    pub ty: Type,
+    pub body: Expr,
 }
 
 #[derive(Clone)]
@@ -69,8 +76,25 @@ pub struct Rule {
 }
 
 #[derive(Clone, Debug)]
+pub struct Datatype {
+    tycon: Tycon,
+    tyvars: Vec<usize>,
+    constructors: Vec<(Constructor, Option<Type>)>,
+}
+
+// #[derive(Clone, Debug)]
+// pub struct ValueBinding {
+//     tyvars: Vec<usize>,
+//     vbs: Vec<Rule>,
+//     rvbs: Vec<Lambda>,
+// }
+
+#[derive(Clone, Debug)]
 pub enum Decl {
-    Empty,
+    Datatype(Datatype),
+    Fun(Vec<usize>, Vec<Lambda>),
+    Val(Rule),
+    Exn(Constructor, Option<Type>),
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
@@ -136,7 +160,7 @@ impl fmt::Debug for ExprKind {
                     .map(|r| format!("| {:?} => {:?}\n", r.pat, r.expr))
                     .collect::<String>()
             ),
-            Lambda(s, body) => write!(f, "fn {:?} => {:#?}", s, body),
+            Lambda(lam) => write!(f, "{:?}", lam),
             Let(decls, body) => write!(f, "let {:?} in {:?} end", decls, body),
             List(exprs) => write!(f, "{:?}", exprs),
             Primitive(sym) => write!(f, "primitive {:?}", sym),
@@ -180,5 +204,11 @@ impl fmt::Debug for PatKind {
 impl fmt::Debug for Expr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "[{:?} : {:?}]", self.expr, self.ty)
+    }
+}
+
+impl fmt::Debug for Lambda {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "fn {:?} => {:?}", self.arg, self.body)
     }
 }

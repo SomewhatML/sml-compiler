@@ -57,7 +57,7 @@ fn main() {
             Ok(d) => {
                 println!("{:?}", d);
                 match ctx.elaborate_decl(&d) {
-                    Ok(_) => println!("Ok"),
+                    Ok(d) => println!("Ok {:?}", d),
                     Err(diag) => println!("{:?}", diag),
                 }
             }
