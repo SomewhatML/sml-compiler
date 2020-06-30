@@ -4,7 +4,12 @@ use TypeKind::*;
 
 impl<'s, 'sym> Parser<'s, 'sym> {
     pub(crate) fn type_var_seq(&mut self) -> Result<Vec<Symbol>, Error> {
-        if self.bump_if(Token::LParen) {
+        if self.current() == Token::LParen {
+            if let Some(Token::Apostrophe) = self.tokens.peek().map(|t| t.data) {
+                self.bump();
+            } else {
+                return Ok(Vec::new());
+            }
             let ret = self.delimited(|p| p.type_var(), Token::Comma)?;
             self.expect(Token::RParen)?;
             return Ok(ret);

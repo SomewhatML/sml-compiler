@@ -213,6 +213,17 @@ impl Context {
         id
     }
 
+    fn unbind_value(&mut self, sym: Symbol) {
+        // self.values.push((scheme, status));
+        // self.namespaces[self.current].values.insert(sym, id);
+        let id = self.namespaces[self.current]
+            .values
+            .get(&sym)
+            .expect("error: redefine_value");
+        let s = Scheme::Mono(Type::Var(self.fresh_tyvar()));
+        std::mem::replace(&mut self.values[id.0 as usize].0, s);
+    }
+
     /// Starting from the current [`Namespace`], search for a bound name.
     /// If it's not found, then recursively search parent namespaces
     fn lookup_infix(&self, s: &Symbol) -> Option<Fixity> {
@@ -711,8 +722,13 @@ impl Context {
                 )
             });
 
-        // Rebind with final type
-        self.define_value(fun.name, self.generalize(Type::arrow(t.clone(), ty)), IdStatus::Var);
+        // Rebind with final type. Unbind so that generalization happens properly
+        self.unbind_value(fun.name);
+        self.define_value(
+            fun.name,
+            self.generalize(Type::arrow(t.clone(), ty)),
+            IdStatus::Var,
+        );
 
         Ok(Lambda {
             arg: a,
@@ -778,22 +794,32 @@ impl Context {
 
     fn elab_decl_val(
         &mut self,
+        tyvars: &[Symbol],
         pat: &ast::Pat,
         expr: &ast::Expr,
         elab: &mut Vec<Decl>,
     ) -> Result<(), Diagnostic> {
-        let expr = self.elaborate_expr(expr)?;
-        let (pat, bindings) = self.elaborate_pat(pat, false)?;
+        self.with_tyvars(|ctx| {
+            for tyvar in tyvars {
+                ctx.tyvars.push((*tyvar, ctx.fresh_tyvar()));
+            }
+            let expr = ctx.elaborate_expr(expr)?;
+            let (pat, bindings) = ctx.elaborate_pat(pat, false)?;
 
-        self.unify(expr.span, &pat.ty, &expr.ty)?;
-        for pats::Binding { var, tv } in bindings {
-            let sch = self.generalize(Type::Var(tv));
-            self.define_value(var, sch, IdStatus::Var);
-        }
+            let non_expansive = expr.non_expansive();
+            ctx.unify(expr.span, &pat.ty, &expr.ty)?;
+            for pats::Binding { var, tv } in bindings {
+                let sch = match non_expansive {
+                    true => ctx.generalize(Type::Var(tv)),
+                    false => Scheme::Mono(Type::Var(tv)),
+                };
+                ctx.define_value(var, sch, IdStatus::Var);
+            }
 
-        elab.push(Decl::Val(Rule { pat, expr }));
+            elab.push(Decl::Val(Rule { pat, expr }));
 
-        Ok(())
+            Ok(())
+        })
     }
 
     pub fn elaborate_decl_inner(
@@ -801,12 +827,12 @@ impl Context {
         decl: &ast::Decl,
         elab: &mut Vec<Decl>,
     ) -> Result<(), Diagnostic> {
+        self.tyvar_rank += 1;
         match &decl.data {
             ast::DeclKind::Datatype(dbs) => self.elab_decl_datatype(dbs, elab),
             ast::DeclKind::Type(tbs) => self.elab_decl_type(tbs, elab),
             ast::DeclKind::Function(tyvars, fbs) => self.elab_decl_fun(tyvars, fbs, elab),
-
-            ast::DeclKind::Value(pat, expr) => self.elab_decl_val(pat, expr, elab),
+            ast::DeclKind::Value(tyvars, pat, expr) => self.elab_decl_val(tyvars, pat, expr, elab),
             ast::DeclKind::Exception(exns) => self.elab_decl_exception(exns, elab),
             ast::DeclKind::Fixity(fixity, bp, sym) => self.elab_decl_fixity(fixity, *bp, *sym),
             ast::DeclKind::Local(decls, body) => self.elab_decl_local(decls, body, elab),

@@ -47,10 +47,11 @@ impl<'s, 'sym> Parser<'s, 'sym> {
 
     fn parse_decl_val(&mut self) -> Result<DeclKind, Error> {
         self.expect(Token::Val)?;
+        let tyvars = self.type_var_seq()?;
         let pat = self.parse_pattern()?;
         self.expect(Token::Equals)?;
         let expr = self.parse_expr()?;
-        Ok(DeclKind::Value(pat, expr))
+        Ok(DeclKind::Value(tyvars, pat, expr))
     }
 
     fn parse_fun_binding(&mut self) -> Result<FnBinding, Error> {

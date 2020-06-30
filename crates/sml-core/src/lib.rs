@@ -108,6 +108,19 @@ impl Expr {
     pub fn new(expr: ExprKind, ty: Type, span: Span) -> Expr {
         Expr { expr, ty, span }
     }
+
+    pub fn non_expansive(&self) -> bool {
+        match &self.expr {
+            ExprKind::Con(builtin::constructors::C_REF, _) => false,
+            ExprKind::Con(_, _) => true,
+            ExprKind::Const(_) => true,
+            ExprKind::Lambda(_) => true,
+            ExprKind::Var(_) => true,
+            ExprKind::Record(rows) => rows.iter().all(|r| r.data.non_expansive()),
+            ExprKind::List(exprs) => exprs.iter().all(|r| r.non_expansive()),
+            _ => false,
+        }
+    }
 }
 
 impl Pat {

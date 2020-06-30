@@ -48,7 +48,7 @@ pub enum DeclKind {
     ///             ...
     ///      and    fnbindingsN
     Function(Vec<Symbol>, Vec<Fun>),
-    Value(Pat, Expr),
+    Value(Vec<Symbol>, Pat, Expr),
     Exception(Vec<Variant>),
     Fixity(Fixity, u8, Symbol),
     Local(Box<Decl>, Box<Decl>),

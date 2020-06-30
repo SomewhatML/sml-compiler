@@ -172,7 +172,7 @@ impl Type {
                     let curr = x.rank();
                     let min_rank = curr.min(tyvar.rank());
                     if min_rank < curr {
-                        // println!("promoting type var {:?} {}->{}", x, x.rank(), min_rank);
+                        println!("promoting type var {:?} {}->{}", x, x.rank(), min_rank);
                         x.data.set_rank(min_rank);
                     }
                     x.id == tyvar.id

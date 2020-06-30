@@ -16,16 +16,4 @@ infix 6 >>=
 val x = Some 10;
 val y = x >>= (fn x => Some (x + 1))
 
-val x = let
-    val x = 10;
-    val y = let
-      val q = 10;
-      fun map nil     f = nil
-        | map (x::xs) f = (f x :: map xs f);
-        
-    in
-      y
-    end
-in
-  {label = x, value = (Some x) >>= (fn x => Some(x + 1)) }
-end
+fun f m = let val y = m; val x = y true in x end

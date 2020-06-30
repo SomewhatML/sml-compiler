@@ -32,13 +32,11 @@ fn main() {
                         Ok(_) => {
                             let stop = start.elapsed().as_micros();
                             println!("elaboration {} us", stop);
-                        },
+                        }
                         Err(e) => {
                             println!("[err] {:?}", e);
-
                         }
                     }
-
 
                     // if !diags.is_empty() {
                     //     println!("[err] {:?}", diags);
