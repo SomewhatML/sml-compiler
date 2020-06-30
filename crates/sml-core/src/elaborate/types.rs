@@ -20,6 +20,7 @@ fn bind(sp: Span, var: &TypeVar, ty: &Type) -> Result<(), Diagnostic> {
 
 impl Context {
     pub fn unify(&self, sp: Span, a: &Type, b: &Type) -> Result<(), Diagnostic> {
+        println!("unify [{:?}] [{:?}]", a, b);
         match (a, b) {
             (Type::Var(a1), Type::Var(b1)) => match (a1.ty(), b1.ty()) {
                 (Some(a), Some(b)) => self.unify(sp, a, b),
@@ -124,7 +125,6 @@ impl Context {
     }
 
     pub fn instantiate(&self, scheme: Scheme) -> Type {
-        println!("inst {:?}", scheme);
         match scheme {
             Scheme::Mono(ty) => ty,
             Scheme::Poly(vars, ty) => {

@@ -110,32 +110,38 @@ impl Context {
             ctx.define_type(tc.name, TypeStructure::Tycon(*tc));
         }
 
-        let nil = Type::Var(ctx.fresh_tyvar());
+        let nil = ctx.fresh_tyvar();
 
         ctx.define_value(
             S_NIL,
-            Scheme::Poly(vec![0], Type::Con(builtin::tycons::T_LIST, vec![nil])),
+            Scheme::Poly(
+                vec![nil.id],
+                Type::Con(builtin::tycons::T_LIST, vec![Type::Var(nil)]),
+            ),
             IdStatus::Con(builtin::constructors::C_NIL),
         );
 
-        let cons = Type::Var(ctx.fresh_tyvar());
+        let cons = ctx.fresh_tyvar();
         let crec = Type::Record(vec![
             Row {
                 label: Symbol::tuple_field(1),
-                data: cons.clone(),
+                data: Type::Var(cons.clone()),
                 span: Span::dummy(),
             },
             Row {
                 label: Symbol::tuple_field(1),
-                data: Type::Con(builtin::tycons::T_LIST, vec![cons.clone()]),
+                data: Type::Con(builtin::tycons::T_LIST, vec![Type::Var(cons.clone())]),
                 span: Span::dummy(),
             },
         ]);
         ctx.define_value(
             S_CONS,
             Scheme::Poly(
-                vec![0],
-                Type::arrow(crec, Type::Con(builtin::tycons::T_LIST, vec![cons])),
+                vec![cons.id],
+                Type::arrow(
+                    crec,
+                    Type::Con(builtin::tycons::T_LIST, vec![Type::Var(cons)]),
+                ),
             ),
             IdStatus::Con(builtin::constructors::C_CONS),
         );
@@ -151,12 +157,15 @@ impl Context {
             IdStatus::Con(builtin::constructors::C_FALSE),
         );
 
-        let reff = Type::Var(ctx.fresh_tyvar());
+        let reff = ctx.fresh_tyvar();
         ctx.define_value(
             S_REF,
             Scheme::Poly(
-                vec![0],
-                Type::arrow(reff.clone(), Type::Con(builtin::tycons::T_REF, vec![reff])),
+                vec![reff.id],
+                Type::arrow(
+                    Type::Var(reff.clone()),
+                    Type::Con(builtin::tycons::T_REF, vec![Type::Var(reff)]),
+                ),
             ),
             IdStatus::Con(builtin::constructors::C_REF),
         );
@@ -544,7 +553,6 @@ impl Context {
             clauses,
             res_ty,
             arg_tys,
-            arity,
             ..
         } = fun;
         let mut rules = Vec::new();
@@ -557,6 +565,8 @@ impl Context {
         {
             let expr = self.with_scope(move |ctx| {
                 for pats::Binding { var, tv } in bindings {
+                    println!("defining fun params {:?} {:?}", var, Type::Var(tv.clone()));
+
                     ctx.define_value(var, Scheme::Mono(Type::Var(tv)), IdStatus::Var);
                 }
                 ctx.elaborate_expr(&expr)
@@ -683,7 +693,10 @@ impl Context {
 
         // self.with_scope(|ctx| {
         for fns in &info {
-            self.define_value(fns.name, self.generalize(fns.ty.clone()), IdStatus::Var);
+            // dbg!(&fns.ty);
+            let sch = self.generalize(fns.ty.clone());
+            dbg!(&sch);
+            self.define_value(fns.name, sch, IdStatus::Var);
         }
         for fns in info {
             self.elab_decl_fnbind(fns)?;
@@ -721,7 +734,6 @@ impl Context {
             ast::DeclKind::Fixity(fixity, bp, sym) => self.elab_decl_fixity(fixity, *bp, *sym),
             ast::DeclKind::Local(decls, body) => self.elab_decl_local(decls, body),
             ast::DeclKind::Seq(decls) => self.elab_decl_seq(decls),
-            ast::DeclKind::Do(expr) => unimplemented!(),
         }
     }
 }

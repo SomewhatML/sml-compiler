@@ -53,7 +53,6 @@ pub enum DeclKind {
     Fixity(Fixity, u8, Symbol),
     Local(Box<Decl>, Box<Decl>),
     Seq(Vec<Decl>),
-    Do(Box<Expr>),
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
