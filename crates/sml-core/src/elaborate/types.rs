@@ -154,6 +154,24 @@ impl Context {
         }
     }
 
+    pub fn check_type_names(&self, sp: Span, ty: &Type) -> Result<(), Diagnostic> {
+        let mut names = Vec::new();
+        ty.visit(|f| match f {
+            Type::Con(tc, _) => names.push(*tc),
+            _ => {}
+        });
+
+        for tycon in names {
+            if self.lookup_type(&tycon.name).is_none() {
+                return Err(Diagnostic::error(
+                    sp,
+                    format!("type {:?} escapes inner scope!", tycon.name),
+                ));
+            }
+        }
+        Ok(())
+    }
+
     pub fn elaborate_type(
         &mut self,
         ty: &ast::Type,

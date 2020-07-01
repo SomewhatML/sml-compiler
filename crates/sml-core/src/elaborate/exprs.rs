@@ -188,21 +188,22 @@ impl Context {
                     expr.span,
                 ))
             }
-            ast::ExprKind::Let(decls, body) => self.with_scope(|ctx| {
+            ast::ExprKind::Let(decls, body) => {
                 let mut elab = Vec::new();
-
-                for decl in decls {
-                    ctx.elaborate_decl_inner(decl, &mut elab)?;
-                }
-
-                let body = ctx.elaborate_expr(body)?;
+                let body = self.with_scope(|ctx| {
+                    for decl in decls {
+                        ctx.elaborate_decl_inner(decl, &mut elab)?;
+                    }
+                    ctx.elaborate_expr(body)
+                })?;
                 let ty = body.ty.clone();
+                self.check_type_names(body.span, &ty)?;
                 Ok(Expr::new(
                     ExprKind::Let(elab, Box::new(body)),
                     ty,
                     expr.span,
                 ))
-            }),
+            }
             ast::ExprKind::List(exprs) => {
                 let exprs = exprs
                     .into_iter()

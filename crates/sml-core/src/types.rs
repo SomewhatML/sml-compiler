@@ -71,6 +71,33 @@ impl Type {
         Type::Con(builtin::tycons::T_UNIT, vec![])
     }
 
+    /// Pre-order BFS
+    pub fn visit<F: FnMut(&Type)>(&self, mut f: F) {
+        let mut queue = VecDeque::new();
+        queue.push_back(self);
+
+        while let Some(ty) = queue.pop_front() {
+            f(ty);
+            match ty {
+                Type::Var(x) => {
+                    if let Some(link) = x.ty() {
+                        queue.push_back(link);
+                    }
+                }
+                Type::Con(_, tys) => {
+                    for ty in tys {
+                        queue.push_back(ty);
+                    }
+                }
+                Type::Record(rows) => {
+                    for row in rows {
+                        queue.push_back(&row.data);
+                    }
+                }
+            }
+        }
+    }
+
     /// Perform a breadth-first traversal of a type, collecting it's
     /// associated type variables that have a rank greater than `rank`
     pub fn ftv(&self, rank: usize) -> Vec<usize> {
