@@ -26,20 +26,17 @@ fn main() {
             match res {
                 Ok(d) => {
                     println!("parsing {} us", micros);
-                    let mut ctx = Context::new();
                     let start = Instant::now();
-                    match ctx.elaborate_decl(&d) {
-                        Ok(_) => {
-                            let stop = start.elapsed().as_micros();
-                            println!("elaboration {} us", stop);
-                        }
-                        Err(e) => {
-                            println!("[err] {:?}", e);
-                        }
-                    }
+
+                    let (decls, diags) = sml_core::elaborate::check_and_elaborate(&d);
+                    let stop = start.elapsed().as_micros();
+
+                    println!("elaboration {} us w/ {} errors", stop, diags.len());
 
                     // if !diags.is_empty() {
-                    //     println!("[err] {:?}", diags);
+                    //     for diag in diags {
+                    //         println!("Elaboration {}", diag.report(&file));
+                    //     }
                     // }
                 }
                 Err(e) => {
@@ -67,10 +64,20 @@ fn main() {
 
         match res {
             Ok(d) => {
-                println!("{:?}", d);
-                match ctx.elaborate_decl(&d) {
-                    Ok(d) => println!("Ok {:?}", d),
-                    Err(diag) => println!("{}", diag.report(&buffer)),
+                // println!("{:?}", d);
+                let mut check = sml_core::check::Check::default();
+                check.check_decl(&d);
+                for d in check.diags {
+                    println!("Syntax Checking {}", d.report(&buffer));
+                }
+
+                let decls = ctx.elaborate_decl(&d);
+                println!("{:#?}", decls);
+                if !ctx.diags.is_empty() {
+                    let diags = std::mem::replace(&mut ctx.diags, Vec::new());
+                    for diag in diags {
+                        println!("Elaboration {}", diag.report(&buffer));
+                    }
                 }
             }
             Err(e) => {

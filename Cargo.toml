@@ -5,3 +5,7 @@ members = [
     "crates/sml-frontend",
     "crates/sml-util",
 ]
+
+
+[profile.release]
+lto = true

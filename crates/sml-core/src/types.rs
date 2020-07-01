@@ -196,12 +196,12 @@ impl Type {
                 if let Some(info) = x.ty() {
                     info.occurs_check(tyvar)
                 } else {
-                    let curr = x.rank();
-                    let min_rank = curr.min(tyvar.rank());
-                    if min_rank < curr {
-                        println!("promoting type var {:?} {}->{}", x, x.rank(), min_rank);
-                        x.data.set_rank(min_rank);
-                    }
+                    // let curr = x.rank();
+                    // let min_rank = curr.min(tyvar.rank());
+                    // if min_rank < curr {
+                    //     // println!("promoting type var {:?} {}->{}", x, x.rank(), min_rank);
+                    //     x.data.set_rank(min_rank);
+                    // }
                     x.id == tyvar.id
                 }
             }

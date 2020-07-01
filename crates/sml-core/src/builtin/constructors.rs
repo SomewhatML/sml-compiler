@@ -34,3 +34,5 @@ pub const C_REF: Constructor = Constructor {
     type_id: TypeId(5),
     tag: 0,
 };
+
+pub const C_BUILTINS: [Constructor; 5] = [C_NIL, C_CONS, C_TRUE, C_FALSE, C_REF];

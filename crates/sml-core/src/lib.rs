@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::fmt;
 
 pub mod builtin;
+pub mod check;
 pub mod elaborate;
 pub mod types;
 use types::{Constructor, Scheme, Tycon, Type, TypeVar};
