@@ -176,7 +176,25 @@ impl Check {
         }
     }
 
-    fn check_datatype(&mut self, datbinds: &[Datatype]) {}
+    fn check_datatype(&mut self, datbinds: &[Datatype]) {
+        for db in datbinds {
+            // check for duplicate tyvar or constructors
+            self.check_tyvars(db.span, &db.tyvars);
+            self.check_rows(&db.constructors, |_, _| ());
+
+            for con in &db.constructors {
+                if BUILTIN_CONSTRUCTORS.contains(&con.label) {
+                    self.diags.push(Diagnostic::error(
+                        con.span,
+                        format!(
+                            "builtin data constructor '{:?}' cannot be rebound",
+                            con.label
+                        ),
+                    ));
+                }
+            }
+        }
+    }
 
     fn check_variants(&mut self, datbinds: &[Variant]) {}
 

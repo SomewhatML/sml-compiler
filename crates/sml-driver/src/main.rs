@@ -73,6 +73,13 @@ fn main() {
 
                 let decls = ctx.elaborate_decl(&d);
                 println!("{:#?}", decls);
+
+                if !diags.is_empty() {
+                    for diag in diags {
+                        println!("Parse {}", diag.report(&buffer));
+                    }
+                }
+
                 if !ctx.diags.is_empty() {
                     let diags = std::mem::replace(&mut ctx.diags, Vec::new());
                     for diag in diags {
@@ -81,7 +88,12 @@ fn main() {
                 }
             }
             Err(e) => {
-                println!("[err] {:?}: {:?}", e.to_diagnostic().report(&buffer), diags);
+                println!("Parse {}", e.to_diagnostic().report(&buffer));
+                if !diags.is_empty() {
+                    for diag in diags {
+                        println!("Parse {}", diag.report(&buffer));
+                    }
+                }
             }
         }
     }

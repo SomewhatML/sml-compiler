@@ -11,7 +11,7 @@ impl<'s, 'sym> Parser<'s, 'sym> {
     fn record_row(&mut self) -> Result<Row<Expr>, Error> {
         let mut span = self.current.span;
         let label = self.expect_id()?;
-        self.expect(Token::Equals)?;
+        self.expect_try_recover(Token::Equals);
         let data = self.once(|p| p.parse_expr(), "missing expr in record row")?;
         span += self.prev;
         Ok(Row { label, data, span })
@@ -20,7 +20,7 @@ impl<'s, 'sym> Parser<'s, 'sym> {
     fn record_expr(&mut self) -> Result<ExprKind, Error> {
         self.expect(Token::LBrace)?;
         let fields = self.delimited(|p| p.record_row(), Token::Comma)?;
-        self.expect(Token::RBrace)?;
+        self.expect_try_recover(Token::RBrace);
         Ok(ExprKind::Record(fields))
     }
 
@@ -34,9 +34,9 @@ impl<'s, 'sym> Parser<'s, 'sym> {
             },
             None,
         )?;
-        self.expect(Token::In)?;
+        self.expect_try_recover(Token::In);
         let t2 = self.once(|p| p.parse_expr(), "let body required")?;
-        self.expect(Token::End)?;
+        self.expect_try_recover(Token::End);
         Ok(ExprKind::Let(decls, Box::new(t2)))
     }
 
@@ -58,7 +58,7 @@ impl<'s, 'sym> Parser<'s, 'sym> {
         self.expect(Token::Of)?;
         self.bump_if(Token::Bar);
         let arms = self.delimited(|p| p.case_arm(), Token::Bar)?;
-        self.expect(Token::End)?;
+        self.expect_try_recover(Token::End);
         Ok(ExprKind::Case(Box::new(expr), arms))
     }
 
@@ -102,7 +102,7 @@ impl<'s, 'sym> Parser<'s, 'sym> {
             Token::Semi => Token::Semi,
             Token::Comma => Token::Comma,
             _ => {
-                self.expect(Token::RParen)?;
+                self.expect_try_recover(Token::RParen);
                 return Ok(first.data);
             }
         };
@@ -181,7 +181,7 @@ impl<'s, 'sym> Parser<'s, 'sym> {
                 let xs = p
                     .delimited(|q| q.parse_expr(), Token::Comma)
                     .map(ExprKind::List)?;
-                p.expect(Token::RBracket)?;
+                p.expect_try_recover(Token::RBracket);
 
                 Ok(xs)
             }),

@@ -28,14 +28,17 @@ impl<'s, 'sym> Parser<'s, 'sym> {
     }
 
     fn datatype(&mut self) -> Result<Datatype, Error> {
+        let mut span = self.current.span;
         let tyvars = self.type_var_seq()?;
         let tycon = self.expect_id()?;
         self.expect(Token::Equals)?;
         let constructors = self.delimited(|p| p.variant(), Token::Bar)?;
+        span += self.prev;
         Ok(Datatype {
             tycon,
             tyvars,
             constructors,
+            span,
         })
     }
 
@@ -125,13 +128,13 @@ impl<'s, 'sym> Parser<'s, 'sym> {
             Token::Infix | Token::Infixr | Token::Nonfix => self.spanned(|p| p.fixity()),
             Token::EOF => self.error(ErrorKind::EOF),
             _ => {
-                self.diags.push(Diagnostic::error(
-                    self.current.span,
-                    format!(
-                        "expected a top-level declaration, found token {:?}",
-                        self.current()
-                    ),
-                ));
+                // self.diags.push(Diagnostic::error(
+                //     self.current.span,
+                //     format!(
+                //         "expected a top-level declaration, found token {:?}",
+                //         self.current()
+                //     ),
+                // ));
                 self.error(ErrorKind::ExpectedDecl)
             }
         }

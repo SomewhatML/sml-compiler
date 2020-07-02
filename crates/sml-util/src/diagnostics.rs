@@ -125,7 +125,7 @@ impl Diagnostic {
                     start: anno.span.start.line.saturating_sub(1),
                     end: anno.span.end.line + 1,
                 };
-                let width = anno.span.end.line.to_string().len();
+                let width = (1 + anno.span.end.line).to_string().len();
                 for l in range {
                     output.push_str(&format!("{:>.*} | {}\n", width, l + 1, lines[l as usize]));
                     if l == anno.span.start.line {

@@ -9,7 +9,7 @@ impl<'s, 'sym> Parser<'s, 'sym> {
             return Ok(PatKind::Const(Const::Unit));
         }
         let mut v = self.star(|p| p.parse_pattern(), Some(Token::Comma));
-        self.expect(Token::RParen)?;
+        self.expect_try_recover(Token::RParen);
         match v.len() {
             1 => Ok(v.pop().unwrap().data),
             _ => Ok(make_record_pat(v)),
@@ -42,7 +42,7 @@ impl<'s, 'sym> Parser<'s, 'sym> {
             return Ok(PatKind::Const(Const::Unit));
         }
         let v = self.delimited(|p| p.row_pattern(), Token::Comma)?;
-        self.expect(Token::RBrace)?;
+        self.expect_try_recover(Token::RBrace);
         Ok(PatKind::Record(v))
     }
 
@@ -52,7 +52,7 @@ impl<'s, 'sym> Parser<'s, 'sym> {
             return Ok(PatKind::Variable(S_NIL));
         }
         let v = self.delimited(|p| p.parse_pattern(), Token::Comma)?;
-        self.expect(Token::RBracket)?;
+        self.expect_try_recover(Token::RBracket);
         Ok(PatKind::List(v))
     }
 

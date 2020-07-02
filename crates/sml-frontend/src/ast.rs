@@ -14,6 +14,7 @@ pub struct Datatype {
     pub tycon: Symbol,
     pub tyvars: Vec<Symbol>,
     pub constructors: Vec<Variant>,
+    pub span: Span,
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]

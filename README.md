@@ -1,9 +1,22 @@
 # sml-compiler
 
-This is a WIP compiler targeting the core term language of Standard ML '97 (i.e. no structures/signatures). The goal is to first get a source -> machine code pipeline working, then perhaps go back and add in the ML module system.
+A zero-dependency, tutorial implementation of a compiler for a modified dialect (no module system) of Standard ML. I do not make any guarantees about the correctness of the compiler (although obviously I prefer it to be correct), as this is mostly meant as an educational exercise.
 
 We take an approach similar to MLton, where we will be performing whole-program compilation and monomorphization
 
+## Roadmap
+
+- [X] Parser
+- [X] Syntax checking
+- [X] Elaboration and type reconstruction
+- [ ] Match compilation
+- [ ] Monomorphization
+- [ ] SSA transformation
+- [ ] Optimization passes
+- [ ] Native code generation
+
+
+### Compilation speeds
 
 Current speeds as of 6/30/2020:
 

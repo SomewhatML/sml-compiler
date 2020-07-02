@@ -124,6 +124,23 @@ impl<'s, 'sym> Parser<'s, 'sym> {
         }
     }
 
+    /// Bump the current token if it equals `kind`, otherwise emit a diagnostic
+    /// and continue.
+    ///
+    /// This is for use in terminals after we have already bumped at least 1
+    /// token off of the lexer
+    fn expect_try_recover(&mut self, kind: Token) {
+        if self.current() == kind {
+            self.bump();
+        } else {
+            self.diags.push(diag!(
+                Span::new(self.prev.end, self.current.span.start),
+                "Inserting token {:?}",
+                kind
+            ));
+        }
+    }
+
     fn expect_id(&mut self) -> Result<Symbol, Error> {
         match self.current() {
             Token::Id(s) | Token::IdS(s) => {
