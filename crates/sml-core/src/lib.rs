@@ -63,7 +63,7 @@ pub enum PatKind {
     Wild,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Pat {
     pub pat: PatKind,
     pub ty: Type,
@@ -219,6 +219,12 @@ impl fmt::Debug for PatKind {
 impl fmt::Debug for Expr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "[{:?} : {:?}]", self.expr, self.ty)
+    }
+}
+
+impl fmt::Debug for Pat {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self.pat)
     }
 }
 

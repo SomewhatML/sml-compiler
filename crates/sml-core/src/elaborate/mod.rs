@@ -247,17 +247,7 @@ impl Context {
         }
     }
 
-    fn lookup_type(&self, sym: &Symbol) -> Option<&TypeStructure> {
-        let mut ptr = &self.namespaces[self.current];
-        loop {
-            match ptr.types.get(sym) {
-                Some(idx) => return Some(&self[*idx]),
-                None => ptr = &self.namespaces[ptr.parent?],
-            }
-        }
-    }
-
-    fn lookup_typeid(&self, sym: &Symbol) -> Option<TypeId> {
+    fn lookup_type_id(&self, sym: &Symbol) -> Option<TypeId> {
         let mut ptr = &self.namespaces[self.current];
         loop {
             match ptr.types.get(sym) {
@@ -265,6 +255,10 @@ impl Context {
                 None => ptr = &self.namespaces[ptr.parent?],
             }
         }
+    }
+
+    fn lookup_type(&self, sym: &Symbol) -> Option<&TypeStructure> {
+        Some(&self[self.lookup_type_id(sym)?])
     }
 
     fn lookup_value(&self, sym: &Symbol) -> Option<&(Scheme, IdStatus)> {
@@ -411,7 +405,7 @@ impl Context {
         let tycon = Tycon::new(db.tycon, db.tyvars.len());
 
         // This is safe to unwrap, because we already bound it.
-        let type_id = self.lookup_typeid(&db.tycon).unwrap();
+        let type_id = self.lookup_type_id(&db.tycon).unwrap();
 
         // Should be safe to unwrap here as well, since the caller has bound db.tyvars
         let tyvars: Vec<TypeVar> = db
@@ -595,7 +589,7 @@ impl Context {
             });
 
             // Unify function clause body with result type
-            self.unify(expr.span, &res_ty, &expr.ty);
+            self.unify(span, &res_ty, &expr.ty);
             // .map_err(|diag| {
             //     diag.message(
             //         span,
@@ -672,6 +666,8 @@ impl Context {
                 Expr::new(ExprKind::Record(rho), Type::Record(tau), Span::dummy())
             }
         };
+
+        self.build_decision_tree(&scrutinee, &rules);
 
         let case = Expr::new(
             ExprKind::Case(Box::new(scrutinee), rules),

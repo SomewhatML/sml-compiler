@@ -66,6 +66,17 @@ impl Context {
                 r1.sort_by(|a, b| a.label.cmp(&b.label));
                 r2.sort_by(|a, b| a.label.cmp(&b.label));
 
+                if r1.len() != r2.len() {
+                    return self.diags.push(
+                        Diagnostic::error(
+                            sp,
+                            "Can't unify record types with different number of fields",
+                        )
+                        .message(sp, format!("type {:?}", a))
+                        .message(sp, format!("type {:?}", b)),
+                    );
+                }
+
                 for (ra, rb) in r1.into_iter().zip(r2.into_iter()) {
                     if ra.label != rb.label {
                         return self.diags.push(
