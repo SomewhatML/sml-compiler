@@ -6,6 +6,11 @@ use std::io::prelude::*;
 use std::time::Instant;
 
 fn main() {
+
+    let owned_arena = sml_core::arenas::OwnedCoreArena::new();
+    let borrow = owned_arena.borrow();
+
+
     let args = env::args();
     if args.len() > 1 {
         for f in args.skip(1) {
@@ -28,7 +33,7 @@ fn main() {
                     println!("parsing {} us", micros);
                     let start = Instant::now();
 
-                    let (decls, diags) = sml_core::elaborate::check_and_elaborate(&d);
+                    let (decls, diags) = sml_core::elaborate::check_and_elaborate(&borrow, &d);
                     let stop = start.elapsed().as_micros();
 
                     println!("elaboration {} us w/ {} errors", stop, diags.len());
@@ -47,7 +52,7 @@ fn main() {
         return;
     }
 
-    let mut ctx = Context::new();
+    let mut ctx = Context::new(&borrow);
     println!("SimpleML (c) 2020");
     loop {
         let mut buffer = String::new();

@@ -1,20 +1,20 @@
+use super::arenas::TypeArena;
 use super::*;
-use std::cell::{Cell, UnsafeCell};
-use std::collections::{HashSet, VecDeque};
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::cell::Cell;
+use std::collections::{HashSet, VecDeque};
 
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct TypeVar {
+pub struct TypeVar<'ar> {
     pub id: usize,
-    pub data: Rc<TyVarInner<Type>>,
+    pub data: Rc<Cell<Option<&'ar Type<'ar>>>>,
 }
 
 #[derive(Clone, PartialEq)]
-pub enum Type {
-    Var(TypeVar),
-    Con(Tycon, Vec<Type>),
-    Record(Vec<Row<Type>>),
+pub enum Type<'ar> {
+    Var(&'ar TypeVar<'ar>),
+    Con(Tycon, Vec<&'ar Type<'ar>>),
+    Record(Vec<Row<&'ar Type<'ar>>>),
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq)]
@@ -30,22 +30,24 @@ pub struct Constructor {
     pub tag: u32,
 }
 
-#[derive(Clone, Debug)]
-pub enum Scheme {
-    Mono(Type),
-    Poly(Vec<usize>, Type),
+#[derive(Clone)]
+pub enum Scheme<'ar> {
+    Mono(&'ar Type<'ar>),
+    Poly(Vec<usize>, &'ar Type<'ar>),
 }
 
-impl Type {
-    /// Create a new 'arrow' type
-    pub fn arrow(a: Type, b: Type) -> Type {
-        Type::Con(builtin::tycons::T_ARROW, vec![a, b])
+impl<'ar> Type<'ar> {
+    pub fn as_tyvar(&self) -> &TypeVar<'ar> {
+        match self {
+            Type::Var(tv) => tv,
+            _ => panic!("internal compiler error: Type::as_tyvar"),
+        }
     }
 
     /// 'de-arrow' an arrow type, returning the argument and result type
-    pub fn de_arrow(&self) -> Option<(&Type, &Type)> {
+    pub fn de_arrow(&self) -> Option<(&'_ Type<'ar>, &'_ Type<'ar>)> {
         match self {
-            Type::Con(builtin::tycons::T_ARROW, v) => Some((&v[0], &v[1])),
+            Type::Con(builtin::tycons::T_ARROW, v) => Some((v[0], v[1])),
             Type::Var(tv) => {
                 if let Some(ty) = tv.ty() {
                     ty.de_arrow()
@@ -57,22 +59,8 @@ impl Type {
         }
     }
 
-    /// Create a boolean type
-    pub fn bool() -> Type {
-        Type::Con(builtin::tycons::T_BOOL, vec![])
-    }
-
-    /// Create an exception type
-    pub fn exn() -> Type {
-        Type::Con(builtin::tycons::T_EXN, vec![])
-    }
-    /// Create a unit type
-    pub fn unit() -> Type {
-        Type::Con(builtin::tycons::T_UNIT, vec![])
-    }
-
     /// Pre-order BFS
-    pub fn visit<F: FnMut(&Type)>(&self, mut f: F) {
+    pub fn visit<F: FnMut(&Type<'ar>)>(&self, mut f: F) {
         let mut queue = VecDeque::new();
         queue.push_back(self);
 
@@ -100,42 +88,7 @@ impl Type {
 
     /// Perform a breadth-first traversal of a type, collecting it's
     /// associated type variables that have a rank greater than `rank`
-    pub fn ftv(&self, rank: usize) -> Vec<usize> {
-        let mut set = Vec::new();
-        let mut uniq = HashSet::new();
-        let mut queue = VecDeque::new();
-        queue.push_back(self);
-
-        while let Some(ty) = queue.pop_front() {
-            match ty {
-                Type::Var(x) => match x.ty() {
-                    None => {
-                        if x.rank() > rank && uniq.insert(x.id) {
-                            set.push(x.id);
-                        }
-                    }
-                    Some(link) => {
-                        queue.push_back(link);
-                    }
-                },
-                Type::Con(_, tys) => {
-                    for ty in tys {
-                        queue.push_back(ty);
-                    }
-                }
-                Type::Record(rows) => {
-                    for row in rows {
-                        queue.push_back(&row.data);
-                    }
-                }
-            }
-        }
-        set
-    }
-
-    /// Perform a breadth-first traversal of a type, collecting it's
-    /// associated type variables that have a rank greater than `rank`
-    pub fn ftv_no_rank(&self) -> Vec<usize> {
+    pub fn ftv(&self) -> Vec<usize> {
         let mut set = Vec::new();
         let mut uniq = HashSet::new();
         let mut queue = VecDeque::new();
@@ -169,20 +122,31 @@ impl Type {
     }
 
     /// Apply a substitution to a type
-    pub fn apply(self, map: &HashMap<usize, Type>) -> Type {
+    pub fn apply(
+        &'ar self,
+        arena: &'ar TypeArena<'ar>,
+        map: &HashMap<usize, &'ar Type<'ar>>,
+    ) -> &'ar Type<'ar> {
         match self {
             Type::Var(x) => match x.ty() {
-                Some(ty) => ty.clone().apply(map),
-                None => map.get(&x.id).cloned().unwrap_or(Type::Var(x)),
+                Some(ty) => ty.apply(arena, map),
+                None => {
+                    match map.get(&x.id) {
+                        Some(ty) => ty,
+                        None => self
+                    }
+                    // map.get(&x.id).copied().unwrap_or(self),
+                }
             },
-            Type::Con(tc, vars) => {
-                Type::Con(tc, vars.into_iter().map(|ty| ty.apply(map)).collect())
-            }
-            Type::Record(rows) => Type::Record(
+            Type::Con(tc, vars) => arena.alloc(Type::Con(
+                *tc,
+                vars.into_iter().map(|ty| ty.apply(arena, map)).collect(),
+            )),
+            Type::Record(rows) => arena.alloc(Type::Record(
                 rows.into_iter()
-                    .map(|r| r.fmap(|ty| ty.apply(map)))
+                    .map(|r| r.fmap(|ty| ty.apply(arena, map)))
                     .collect(),
-            ),
+            )),
         }
     }
 
@@ -219,7 +183,7 @@ fn fresh_name(x: usize) -> String {
         .collect::<String>()
 }
 
-impl fmt::Debug for Type {
+impl<'ar> fmt::Debug for Type<'ar> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use Type::*;
         match self {
@@ -256,7 +220,7 @@ impl Tycon {
     }
 }
 
-impl Scheme {
+impl<'ar> Scheme<'ar> {
     pub fn arity(&self) -> usize {
         match self {
             Scheme::Mono(_) => 0,
@@ -264,9 +228,9 @@ impl Scheme {
         }
     }
 
-    pub fn apply(&self, args: Vec<Type>) -> Type {
+    pub fn apply(&self, arena: &'ar TypeArena<'ar>, args: Vec<&'ar Type<'ar>>) -> &'ar Type<'ar> {
         match self {
-            Scheme::Mono(ty) => ty.clone(),
+            Scheme::Mono(ty) => ty,
             Scheme::Poly(vars, ty) => {
                 if vars.len() > args.len() {
                     unimplemented!()
@@ -275,8 +239,8 @@ impl Scheme {
                         .iter()
                         .copied()
                         .zip(args.into_iter())
-                        .collect::<HashMap<usize, Type>>();
-                    ty.clone().apply(&map)
+                        .collect::<HashMap<usize, &'ar Type<'ar>>>();
+                    ty.apply(arena, &map)
                 } else {
                     panic!("internal compiler error, not checking scheme arity")
                 }
@@ -284,7 +248,7 @@ impl Scheme {
         }
     }
 
-    pub fn new(ty: Type, tyvars: Vec<usize>) -> Scheme {
+    pub fn new(ty: &'ar Type<'ar>, tyvars: Vec<usize>) -> Scheme<'ar> {
         match tyvars.len() {
             0 => Scheme::Mono(ty),
             _ => Scheme::Poly(tyvars, ty),
@@ -292,109 +256,22 @@ impl Scheme {
     }
 }
 
-impl TypeVar {
-    pub fn new(id: usize, rank: usize) -> TypeVar {
-        let data = Rc::new(TyVarInner::with_rank(rank));
+impl<'ar> TypeVar<'ar> {
+    pub fn new(id: usize) -> TypeVar<'ar> {
+        let data = Rc::new(Cell::new(None));
         TypeVar { id, data }
     }
 
-    pub fn ty(&self) -> Option<&Type> {
+    pub fn ty(&self) -> Option<&'ar Type<'ar>> {
         self.data.get()
     }
-
-    pub fn rank(&self) -> usize {
-        self.data.rank.get()
-    }
 }
 
-// #[derive(PartialOrd, Eq, Hash)]
-pub struct TyVarInner<T> {
-    inner: UnsafeCell<Option<T>>,
-    rank: Cell<usize>,
-    init: AtomicBool,
-}
-
-impl<T> Default for TyVarInner<T> {
-    fn default() -> Self {
-        TyVarInner {
-            inner: UnsafeCell::new(None),
-            rank: Cell::new(0),
-            init: false.into(),
+impl<'ar> fmt::Debug for Scheme<'ar> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Scheme::Poly(tys, ty) => write!(f, "∀{}. ({:?})", tys.into_iter().map(|x| fresh_name(*x)).collect::<Vec<String>>().join(","), ty),
+            Scheme::Mono(ty) => write!(f, "{:?}", ty),
         }
-    }
-}
-
-impl<T: PartialEq> PartialEq for TyVarInner<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.get() == other.get()
-    }
-}
-
-impl<T: std::fmt::Debug> std::fmt::Debug for TyVarInner<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}#{}", self.get(), self.get_rank())
-    }
-}
-
-impl<T> TyVarInner<T> {
-    pub fn with_rank(rank: usize) -> Self {
-        TyVarInner {
-            inner: UnsafeCell::new(None),
-            rank: Cell::new(rank),
-            init: false.into(),
-        }
-    }
-
-    pub fn set(&self, data: T) -> Result<(), T> {
-        if !self.init.compare_and_swap(false, true, Ordering::Acquire) {
-            unsafe {
-                let ptr = &mut *self.inner.get();
-                *ptr = Some(data);
-            }
-            Ok(())
-        } else {
-            Err(data)
-        }
-    }
-
-    pub fn get(&self) -> Option<&T> {
-        if !self.init.compare_and_swap(false, false, Ordering::Release) {
-            None
-        } else {
-            unsafe { &*self.inner.get() }.as_ref()
-        }
-    }
-
-    pub fn set_rank(&self, rank: usize) {
-        self.rank.set(rank)
-    }
-
-    pub fn get_rank(&self) -> usize {
-        self.rank.get()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn smoke() {
-        let cell = TyVarInner::default();
-        assert_eq!(cell.get(), None);
-        assert_eq!(cell.set(10), Ok(()));
-        assert_eq!(cell.set(12), Err(12));
-        assert_eq!(cell.get(), Some(&10));
-    }
-
-    #[test]
-    fn smoke_shared() {
-        let cell = Rc::new(TyVarInner::default());
-        let rc1 = cell.clone();
-        let rc2 = cell.clone();
-
-        assert_eq!(rc2.get(), None);
-        rc1.set(12).unwrap();
-        assert_eq!(rc2.get(), Some(&12));
-        assert_eq!(rc2.set(10), Err(10));
     }
 }
