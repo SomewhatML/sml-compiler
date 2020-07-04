@@ -329,7 +329,8 @@ impl<'ar> Context<'ar> {
     /// Note that this can only be called once!
     fn bind(&mut self, sp: Span, var: &'ar TypeVar<'ar>, ty: &'ar Type<'ar>) {
         if let Type::Var(v2) = ty {
-            if *v2 == var {
+            // TODO: Ensure that testing on id alone is ok - I believe it should be
+            if v2.id == var.id {
                 return;
             }
         }

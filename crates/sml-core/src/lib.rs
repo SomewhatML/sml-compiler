@@ -20,7 +20,6 @@ pub struct TypeId(pub u32);
 #[derive(Copy, Clone, Debug, Default, PartialEq, PartialOrd, Eq, Hash)]
 pub struct ExprId(pub u32);
 
-// #[derive(Clone)]
 pub enum ExprKind<'ar> {
     App(Expr<'ar>, Expr<'ar>),
     Case(Expr<'ar>, Vec<Rule<'ar>>),
@@ -44,14 +43,13 @@ pub struct Expr<'ar> {
     pub span: Span,
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct Lambda<'ar> {
     pub arg: Symbol,
     pub ty: &'ar Type<'ar>,
     pub body: Expr<'ar>,
 }
 
-#[derive(Clone)]
 pub enum PatKind<'ar> {
     /// Constructor application
     App(Constructor, Option<Pat<'ar>>),
@@ -67,14 +65,14 @@ pub enum PatKind<'ar> {
     Wild,
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct Pat<'ar> {
     pub pat: &'ar PatKind<'ar>,
     pub ty: &'ar Type<'ar>,
     pub span: Span,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub struct Rule<'ar> {
     pub pat: Pat<'ar>,
     pub expr: Expr<'ar>,

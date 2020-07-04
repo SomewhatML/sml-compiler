@@ -4,13 +4,11 @@ use std::cell::Cell;
 use std::collections::{HashSet, VecDeque};
 use std::rc::Rc;
 
-#[derive(Clone, Debug, Default, PartialEq)]
 pub struct TypeVar<'ar> {
     pub id: usize,
     pub data: Cell<Option<&'ar Type<'ar>>>,
 }
 
-#[derive(Clone, PartialEq)]
 pub enum Type<'ar> {
     Var(&'ar TypeVar<'ar>),
     Con(Tycon, Vec<&'ar Type<'ar>>),
