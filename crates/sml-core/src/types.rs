@@ -1,13 +1,13 @@
 use super::arenas::TypeArena;
 use super::*;
-use std::rc::Rc;
 use std::cell::Cell;
 use std::collections::{HashSet, VecDeque};
+use std::rc::Rc;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TypeVar<'ar> {
     pub id: usize,
-    pub data: Rc<Cell<Option<&'ar Type<'ar>>>>,
+    pub data: Cell<Option<&'ar Type<'ar>>>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -133,7 +133,7 @@ impl<'ar> Type<'ar> {
                 None => {
                     match map.get(&x.id) {
                         Some(ty) => ty,
-                        None => self
+                        None => self,
                     }
                     // map.get(&x.id).copied().unwrap_or(self),
                 }
@@ -258,7 +258,7 @@ impl<'ar> Scheme<'ar> {
 
 impl<'ar> TypeVar<'ar> {
     pub fn new(id: usize) -> TypeVar<'ar> {
-        let data = Rc::new(Cell::new(None));
+        let data = Cell::new(None);
         TypeVar { id, data }
     }
 
@@ -270,7 +270,15 @@ impl<'ar> TypeVar<'ar> {
 impl<'ar> fmt::Debug for Scheme<'ar> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Scheme::Poly(tys, ty) => write!(f, "∀{}. ({:?})", tys.into_iter().map(|x| fresh_name(*x)).collect::<Vec<String>>().join(","), ty),
+            Scheme::Poly(tys, ty) => write!(
+                f,
+                "∀{}. ({:?})",
+                tys.into_iter()
+                    .map(|x| fresh_name(*x))
+                    .collect::<Vec<String>>()
+                    .join(","),
+                ty
+            ),
             Scheme::Mono(ty) => write!(f, "{:?}", ty),
         }
     }

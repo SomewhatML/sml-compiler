@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::mem;
 
-const PAGE_SIZE: usize = 8192*8;
+const PAGE_SIZE: usize = 8192 * 8;
 
 pub struct Arena<T> {
     chunks: RefCell<Chunks<T>>,
@@ -82,7 +82,7 @@ mod test {
     fn alloc_expr() {
         let a = Arena::new();
         assert_eq!(mem::size_of::<Expr>(), 24);
-        assert_eq!(a.capacity(), 4096 / 24);
+        assert_eq!(a.capacity(), PAGE_SIZE / 24);
         let e1 = a.alloc(Expr::Var(0));
         let e2 = a.alloc(Expr::Abs(e1));
         let e3 = a.alloc(Expr::App(e2, e2));

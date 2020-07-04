@@ -28,7 +28,6 @@ impl<'arena> OwnedCoreArena<'arena> {
     }
 }
 
-
 pub struct CoreArena<'ar> {
     pub types: TypeArena<'ar>,
     pub exprs: ExprArena<'ar>,
@@ -153,8 +152,7 @@ impl<'ar> TypeArena<'ar> {
         self.types.alloc(ty)
     }
 
-
-    pub fn fresh_var(&self) -> &'ar Type<'ar> {        
+    pub fn fresh_var(&self) -> &'ar Type<'ar> {
         let tvar = self.fresh_type_var();
         self.types.alloc(Type::Var(tvar))
     }

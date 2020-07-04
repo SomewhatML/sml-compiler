@@ -24,10 +24,7 @@ pub fn populate_context<'arena>(ctx: &mut elaborate::Context<'arena>) {
     define_constructor(
         ctx,
         constructors::C_NIL,
-        Scheme::Poly(
-            vec![nil.as_tyvar().id],
-            ctx.arena.types.list(nil),
-        ),
+        Scheme::Poly(vec![nil.as_tyvar().id], ctx.arena.types.list(nil)),
     );
 
     let cons = ctx.arena.types.fresh_var();

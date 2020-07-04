@@ -1098,7 +1098,6 @@ impl<'ar> Context<'ar> {
     }
 }
 
-
 impl<'ar> Context<'ar> {
     fn elab_decl_fixity(&mut self, fixity: &ast::Fixity, bp: u8, sym: Symbol) {
         let fix = match fixity {
@@ -1382,7 +1381,11 @@ impl<'ar> Context<'ar> {
                             data: pat,
                         });
                     }
-                    Pat::new(self.arena.pats.alloc(PatKind::Record(rows)), self.arena.types.alloc(Type::Record(tys)), sp)
+                    Pat::new(
+                        self.arena.pats.alloc(PatKind::Record(rows)),
+                        self.arena.types.alloc(Type::Record(tys)),
+                        sp,
+                    )
                 }
             };
 
@@ -1402,11 +1405,27 @@ impl<'ar> Context<'ar> {
         let scrutinee = match arity {
             1 => {
                 let (sym, ty) = &fresh_args[0];
-                Expr::new(self.arena.exprs.alloc(ExprKind::Var(*sym)), ty, Span::dummy())
+                Expr::new(
+                    self.arena.exprs.alloc(ExprKind::Var(*sym)),
+                    ty,
+                    Span::dummy(),
+                )
             }
             _ => {
-                let tau = self.arena.types.tuple(fresh_args.iter().copied().map(|(_, ty)| *ty));
-                let rho = self.arena.exprs.tuple(fresh_args.iter().copied().map(|(sym, ty)| Expr::new(self.arena.exprs.alloc(ExprKind::Var(sym)), ty, Span::dummy())));
+                let tau = self
+                    .arena
+                    .types
+                    .tuple(fresh_args.iter().copied().map(|(_, ty)| *ty));
+                let rho = self
+                    .arena
+                    .exprs
+                    .tuple(fresh_args.iter().copied().map(|(sym, ty)| {
+                        Expr::new(
+                            self.arena.exprs.alloc(ExprKind::Var(sym)),
+                            ty,
+                            Span::dummy(),
+                        )
+                    }));
                 Expr::new(rho, tau, Span::dummy())
             }
         };
@@ -1444,11 +1463,7 @@ impl<'ar> Context<'ar> {
         let sch = self.generalize(ty);
         // println!("generalizing {:?} {:?}", fun.name, sch);
 
-        self.define_value(
-            fun.name,
-            sch,
-            IdStatus::Var,
-        );
+        self.define_value(fun.name, sch, IdStatus::Var);
 
         Lambda {
             arg: a,
@@ -1533,7 +1548,6 @@ impl<'ar> Context<'ar> {
         elab
     }
 }
-
 
 impl<'ar> Query<ast::Pat> for &Context<'ar> {
     fn fixity(&self, t: &ast::Pat) -> Fixity {

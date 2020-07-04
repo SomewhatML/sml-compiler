@@ -6,10 +6,8 @@ use std::io::prelude::*;
 use std::time::Instant;
 
 fn main() {
-
     let owned_arena = sml_core::arenas::OwnedCoreArena::new();
     let borrow = owned_arena.borrow();
-
 
     let args = env::args();
     if args.len() > 1 {
