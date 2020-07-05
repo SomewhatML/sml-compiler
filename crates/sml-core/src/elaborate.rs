@@ -582,9 +582,12 @@ impl<'ar> Context<'ar> {
             expr: e3,
         };
 
+        self.unify(e1.span, e1.ty, self.arena.types.bool());
+        self.unify(e1.span, e2.ty, e3.ty);
+
         Expr::new(
             self.arena.exprs.alloc(ExprKind::Case(e1, vec![tru, fls])),
-            self.arena.types.bool(),
+            e2.ty,
             sp,
         )
     }
@@ -622,9 +625,6 @@ impl<'ar> Context<'ar> {
             ast::ExprKind::Andalso(e1, e2) => {
                 let e1 = self.elaborate_expr(e1);
                 let e2 = self.elaborate_expr(e2);
-                self.unify(e1.span, &e1.ty, &self.arena.types.bool());
-                self.unify(e2.span, &e2.ty, &self.arena.types.bool());
-
                 let fls = Expr::new(
                     self.arena
                         .exprs
@@ -777,8 +777,6 @@ impl<'ar> Context<'ar> {
                 let e1 = self.elaborate_expr(e1);
                 let e2 = self.elaborate_expr(e2);
                 let e3 = self.elaborate_expr(e3);
-                self.unify(e1.span, e1.ty, self.arena.types.bool());
-                self.unify(expr.span, e2.ty, e3.ty);
                 self.elab_if(expr.span, e1, e2, e3)
             }
             ast::ExprKind::Let(decls, body) => {
@@ -811,8 +809,6 @@ impl<'ar> Context<'ar> {
             ast::ExprKind::Orelse(e1, e2) => {
                 let e1 = self.elaborate_expr(e1);
                 let e2 = self.elaborate_expr(e2);
-                self.unify(e1.span, e1.ty, self.arena.types.bool());
-                self.unify(e2.span, e2.ty, self.arena.types.bool());
 
                 let tru = Expr::new(
                     self.arena

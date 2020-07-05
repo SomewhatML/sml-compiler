@@ -13,10 +13,10 @@ pub struct OwnedCoreArena<'arena> {
 impl<'arena> OwnedCoreArena<'arena> {
     pub fn new() -> OwnedCoreArena<'arena> {
         OwnedCoreArena {
-            types: Arena::new(),
-            vars: Arena::new(),
-            exprs: Arena::new(),
-            pats: Arena::new(),
+            types: Arena::with_capacity(4096),
+            vars: Arena::with_capacity(4096),
+            exprs: Arena::with_capacity(4096),
+            pats: Arena::with_capacity(4096),
         }
     }
     pub fn borrow(&'arena self) -> CoreArena<'arena> {
