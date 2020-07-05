@@ -273,7 +273,7 @@ impl<'ar> Context<'ar> {
     fn lookup_tyvar(&mut self, s: &Symbol, allow_unbound: bool) -> Option<&'ar TypeVar<'ar>> {
         for (sym, tv) in self.tyvars.iter().rev() {
             if sym == s {
-                return Some(tv.clone());
+                return Some(tv);
             }
         }
         if allow_unbound {
@@ -326,7 +326,7 @@ impl<'ar> Context<'ar> {
 }
 
 impl<'ar> Context<'ar> {
-    /// Note that this can only be called once!
+    /// Note that this can only be called once per type variable!
     fn bind(&mut self, sp: Span, var: &'ar TypeVar<'ar>, ty: &'ar Type<'ar>) {
         if let Type::Var(v2) = ty {
             // TODO: Ensure that testing on id alone is ok - I believe it should be
@@ -446,12 +446,12 @@ impl<'ar> Context<'ar> {
         }
     }
 
+    /// TODO: Perform rank-based type generalization
     fn bound_ty_slow(&self) -> HashSet<usize> {
         let mut set = HashSet::new();
         for ns in self.namespace_iter() {
-            for (sym, id) in &ns.values {
+            for (_, id) in &ns.values {
                 let (sch, _) = &self.values[id.0 as usize];
-                // println!("{:?} : {:?}", sym, sch);
                 let var = match sch {
                     Scheme::Mono(ty) => ty.ftv(),
                     Scheme::Poly(_, ty) => ty.ftv(),
@@ -463,14 +463,12 @@ impl<'ar> Context<'ar> {
     }
 
     pub fn generalize(&self, ty: &'ar Type<'ar>) -> Scheme<'ar> {
-        // let ftv = ty.ftv(self.tyvar_rank);
         let bound = self.bound_ty_slow();
         let ftv = ty
             .ftv()
             .drain(..)
             .filter(|x| !bound.contains(x))
             .collect::<Vec<usize>>();
-        // println!("generalize {:?} {:?}", ty, ftv);
         match ftv.len() {
             0 => Scheme::Mono(ty),
             _ => Scheme::Poly(ftv, ty),
@@ -707,15 +705,7 @@ impl<'ar> Context<'ar> {
                                 ))
                             }
                         }
-
-                        // attempt error recovery
-                        // let fst = exprs[0].clone();
-                        // exprs[1..].iter().cloned().fold(fst, |acc, expr| {
-                        //     ast::Expr::new(
-                        //         ast::ExprKind::App(Box::new(acc), Box::new(expr)),
-                        //         Span::dummy(),
-                        //     )
-                        // })
+                        // Return a dummy variable so that we can continue elaboration
                         ast::Expr::new(
                             ast::ExprKind::Var(self.arena.exprs.allocate_id()),
                             Span::dummy(),
@@ -789,33 +779,7 @@ impl<'ar> Context<'ar> {
                 let e3 = self.elaborate_expr(e3);
                 self.unify(e1.span, e1.ty, self.arena.types.bool());
                 self.unify(expr.span, e2.ty, e3.ty);
-
-                let tru = Rule {
-                    pat: Pat::new(
-                        self.arena
-                            .pats
-                            .alloc(PatKind::App(constructors::C_TRUE, None)),
-                        self.arena.types.bool(),
-                        e2.span,
-                    ),
-                    expr: e2,
-                };
-                let fls = Rule {
-                    pat: Pat::new(
-                        self.arena
-                            .pats
-                            .alloc(PatKind::App(constructors::C_FALSE, None)),
-                        self.arena.types.bool(),
-                        e3.span,
-                    ),
-                    expr: e3,
-                };
-
-                Expr::new(
-                    self.arena.exprs.alloc(ExprKind::Case(e1, vec![tru, fls])),
-                    e2.ty,
-                    expr.span,
-                )
+                self.elab_if(expr.span, e1, e2, e3)
             }
             ast::ExprKind::Let(decls, body) => {
                 let mut elab = Vec::new();
@@ -882,7 +846,6 @@ impl<'ar> Context<'ar> {
                     .collect::<Vec<Row<Expr>>>();
                 let tys = rows
                     .iter()
-                    // .cloned()
                     .map(|r| r.fmap(|x| x.ty))
                     .collect::<Vec<Row<_>>>();
 
@@ -970,7 +933,6 @@ impl<'ar> Context<'ar> {
                 let p = self.elaborate_pat_inner(p, bind, bindings);
                 match self.lookup_value(con).cloned() {
                     Some((scheme, IdStatus::Con(constr))) => {
-                        // TODO: Scheme instantiation
                         let inst = self.instantiate(&scheme);
 
                         let (arg, res) = match inst.de_arrow() {
@@ -1185,7 +1147,6 @@ impl<'ar> Context<'ar> {
                 tycon,
                 tyvars
                     .iter()
-                    // .cloned()
                     .map(|v| &*self.arena.types.alloc(Type::Var(v)))
                     .collect(),
             ));
@@ -1202,12 +1163,14 @@ impl<'ar> Context<'ar> {
                 }
             };
 
+            // calling `generalize` here will actually introduce some bugs, since
+            // any type vars could've already been placed in the VE, thereby
+            // preventing later constructors containing the same tyvars from
+            // being properly generalized
             let s = match tyvars.len() {
                 0 => Scheme::Mono(ty),
                 _ => Scheme::Poly(tyvars.iter().map(|tv| tv.id).collect(), ty),
             };
-            // let s = self.generalize(ty);
-
             self.define_value(con.label, s, IdStatus::Con(cons));
         }
         let dt = Datatype {
@@ -1310,7 +1273,6 @@ impl<'ar> Context<'ar> {
         let ty = arg_tys
             .iter()
             .rev()
-            // .cloned()
             .fold(res_ty, |acc, arg| self.arena.types.arrow(arg, acc));
 
         PartialFun {
@@ -1458,11 +1420,10 @@ impl<'ar> Context<'ar> {
                 )
             });
 
-        // Rebind with final type. Unbind so that generalization happens properly
+        // Rebind with final type. Unbind first so that generalization happens properly
         self.unbind_value(fun.name);
         let ty = self.arena.types.arrow(t, ty);
         let sch = self.generalize(ty);
-        // println!("generalizing {:?} {:?}", fun.name, sch);
 
         self.define_value(fun.name, sch, IdStatus::Var);
 
@@ -1494,7 +1455,7 @@ impl<'ar> Context<'ar> {
             }
 
             elab.push(Decl::Fun(
-                vars.clone(),
+                vars,
                 info.into_iter()
                     .map(|fun| ctx.elab_decl_fnbind(fun))
                     .collect::<Vec<Lambda>>(),

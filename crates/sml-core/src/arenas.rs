@@ -62,7 +62,7 @@ impl<'ar> ExprArena<'ar> {
     }
 
     pub fn tuple<I: IntoIterator<Item = Expr<'ar>>>(&self, iter: I) -> &'ar ExprKind<'ar> {
-        let mut rows = iter
+        let rows = iter
             .into_iter()
             .enumerate()
             .map(|(idx, ty)| Row {
@@ -98,7 +98,7 @@ impl<'ar> PatArena<'ar> {
     }
 
     pub fn tuple<I: IntoIterator<Item = Pat<'ar>>>(&self, iter: I) -> &'ar PatKind<'ar> {
-        let mut rows = iter
+        let rows = iter
             .into_iter()
             .enumerate()
             .map(|(idx, ty)| Row {
