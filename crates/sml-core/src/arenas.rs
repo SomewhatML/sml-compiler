@@ -72,7 +72,7 @@ impl<'ar> ExprArena<'ar> {
             })
             .collect();
 
-        self.alloc(ExprKind::Record(rows))
+        self.alloc(ExprKind::Record(SortedRecord::new_unchecked(rows)))
     }
 }
 
@@ -108,7 +108,7 @@ impl<'ar> PatArena<'ar> {
             })
             .collect();
 
-        self.alloc(PatKind::Record(rows))
+        self.alloc(PatKind::Record(SortedRecord::new_unchecked(rows)))
     }
 }
 
@@ -174,7 +174,7 @@ impl<'ar> TypeArena<'ar> {
             })
             .collect();
 
-        self.alloc(Type::Record(rows))
+        self.alloc(Type::Record(SortedRecord::new_unchecked(rows)))
     }
 
     pub fn tuple<I: IntoIterator<Item = &'ar Type<'ar>>>(&self, iter: I) -> &'ar Type<'ar> {
@@ -188,7 +188,7 @@ impl<'ar> TypeArena<'ar> {
             })
             .collect();
 
-        self.alloc(Type::Record(rows))
+        self.alloc(Type::Record(SortedRecord::new_unchecked(rows)))
     }
 
     pub fn exn(&self) -> &'ar Type<'ar> {

@@ -14,7 +14,7 @@ fn define_constructor<'arena>(
 
 /// This is not pretty, but we have to handle builtins for elaboration somehow
 pub fn populate_context<'arena>(ctx: &mut elaborate::Context<'arena>) {
-    /// Build the initial type environment
+    // Build the initial type environment
     for tc in &tycons::T_BUILTINS {
         ctx.define_type(tc.name, TypeStructure::Tycon(*tc));
     }
@@ -30,18 +30,10 @@ pub fn populate_context<'arena>(ctx: &mut elaborate::Context<'arena>) {
     let cons = ctx.arena.types.fresh_var();
 
     // The inner types of cons: 'a * 'a list
-    let crec = ctx.arena.types.alloc(Type::Record(vec![
-        Row {
-            label: Symbol::tuple_field(1),
-            data: cons,
-            span: Span::dummy(),
-        },
-        Row {
-            label: Symbol::tuple_field(2),
-            data: ctx.arena.types.list(cons),
-            span: Span::dummy(),
-        },
-    ]));
+    let crec = ctx
+        .arena
+        .types
+        .tuple(vec![cons, ctx.arena.types.list(cons)]);
 
     define_constructor(
         ctx,

@@ -1,5 +1,4 @@
 use sml_frontend::ast::Const;
-use sml_util::arena::Arena;
 use sml_util::interner::Symbol;
 use sml_util::span::Span;
 use std::collections::HashMap;
@@ -8,6 +7,7 @@ use std::fmt;
 pub mod arenas;
 pub mod builtin;
 pub mod check;
+pub mod decision;
 pub mod elaborate;
 pub mod types;
 use types::{Constructor, Scheme, Tycon, Type, TypeVar};
@@ -31,7 +31,7 @@ pub enum ExprKind<'ar> {
     List(Vec<Expr<'ar>>),
     Primitive(Symbol),
     Raise(Expr<'ar>),
-    Record(Vec<Row<Expr<'ar>>>),
+    Record(SortedRecord<Expr<'ar>>),
     Seq(Vec<Expr<'ar>>),
     Var(Symbol),
 }
@@ -58,7 +58,7 @@ pub enum PatKind<'ar> {
     /// Literal list
     List(Vec<Pat<'ar>>),
     /// Record
-    Record(Vec<Row<Pat<'ar>>>),
+    Record(SortedRecord<Pat<'ar>>),
     /// Variable binding
     Var(Symbol),
     /// Wildcard
@@ -85,13 +85,6 @@ pub struct Datatype<'ar> {
     pub constructors: Vec<(Constructor, Option<&'ar Type<'ar>>)>,
 }
 
-// #[derive(Clone, Debug)]
-// pub struct ValueBinding {
-//     tyvars: Vec<usize>,
-//     vbs: Vec<Rule>,
-//     rvbs: Vec<Lambda>,
-// }
-
 #[derive(Clone, Debug)]
 pub enum Decl<'ar> {
     Datatype(Datatype<'ar>),
@@ -107,6 +100,10 @@ pub struct Row<T> {
     pub span: Span,
 }
 
+pub struct SortedRecord<T> {
+    pub rows: Vec<Row<T>>,
+}
+
 impl<'ar> Expr<'ar> {
     pub fn new(expr: &'ar ExprKind<'ar>, ty: &'ar Type<'ar>, span: Span) -> Expr<'ar> {
         Expr { expr, ty, span }
@@ -120,7 +117,7 @@ impl<'ar> Expr<'ar> {
             ExprKind::Lambda(_) => true,
             ExprKind::Var(_) => true,
             ExprKind::Primitive(_) => true,
-            ExprKind::Record(rows) => rows.iter().all(|r| r.data.non_expansive()),
+            ExprKind::Record(rec) => rec.rows.iter().all(|r| r.data.non_expansive()),
             ExprKind::List(exprs) => exprs.iter().all(|r| r.non_expansive()),
             _ => false,
         }
@@ -142,13 +139,46 @@ impl<T> Row<T> {
         }
     }
 }
-impl<T, E> Row<Result<T, E>> {
-    pub fn flatten(self) -> Result<Row<T>, E> {
-        Ok(Row {
-            label: self.label,
-            span: self.span,
-            data: self.data?,
-        })
+
+impl<T> SortedRecord<T> {
+    pub fn new(mut rows: Vec<Row<T>>) -> SortedRecord<T> {
+        rows.sort_by(|a, b| a.label.cmp(&b.label));
+        SortedRecord { rows }
+    }
+
+    pub fn new_unchecked(rows: Vec<Row<T>>) -> SortedRecord<T> {
+        SortedRecord { rows }
+    }
+
+    pub fn fmap<S, F: Fn(&T) -> S>(&self, f: F) -> SortedRecord<S> {
+        let mut v = Vec::with_capacity(self.rows.len());
+        for row in self.iter() {
+            v.push(Row {
+                label: row.label,
+                span: row.span,
+                data: f(&row.data),
+            });
+        }
+        SortedRecord { rows: v }
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<Row<T>> {
+        self.rows.iter()
+    }
+}
+
+impl<T> std::iter::IntoIterator for SortedRecord<T> {
+    type Item = Row<T>;
+    type IntoIter = std::vec::IntoIter<Row<T>>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.rows.into_iter()
+    }
+}
+
+impl<T> std::ops::Deref for SortedRecord<T> {
+    type Target = Vec<Row<T>>;
+    fn deref(&self) -> &Self::Target {
+        &self.rows
     }
 }
 
@@ -185,7 +215,7 @@ impl<'ar> fmt::Debug for ExprKind<'ar> {
             Record(rows) => write!(
                 f,
                 "{{ {} }}",
-                rows.into_iter()
+                rows.iter()
                     .map(|r| format!("{:?}={:?}", r.label, r.data))
                     .collect::<Vec<String>>()
                     .join(",")
@@ -206,7 +236,7 @@ impl<'ar> fmt::Debug for PatKind<'ar> {
             Record(rows) => write!(
                 f,
                 "{{ {} }}",
-                rows.into_iter()
+                rows.iter()
                     .map(|r| format!("{:?}={:?}", r.label, r.data))
                     .collect::<Vec<String>>()
                     .join(",")

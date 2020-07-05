@@ -294,7 +294,6 @@ impl<'ar> Context<'ar> {
     }
 
     fn const_ty(&self, c: &Const) -> &'ar Type<'ar> {
-        use super::builtin::tycons::*;
         match c {
             Const::Char(_) => self.arena.types.char(),
             Const::Int(_) => self.arena.types.int(),
@@ -386,11 +385,6 @@ impl<'ar> Context<'ar> {
                 }
             }
             (Type::Record(r1), Type::Record(r2)) => {
-                let mut r1 = r1.clone();
-                let mut r2 = r2.clone();
-                r1.sort_by(|a, b| a.label.cmp(&b.label));
-                r2.sort_by(|a, b| a.label.cmp(&b.label));
-
                 if r1.len() != r2.len() {
                     return self.diags.push(
                         Diagnostic::error(
@@ -402,7 +396,7 @@ impl<'ar> Context<'ar> {
                     );
                 }
 
-                for (ra, rb) in r1.into_iter().zip(r2.into_iter()) {
+                for (ra, rb) in r1.iter().zip(r2.iter()) {
                     if ra.label != rb.label {
                         return self.diags.push(
                             Diagnostic::error(sp, "Can't unify record types")
@@ -550,11 +544,11 @@ impl<'ar> Context<'ar> {
                 }
                 con.apply(&self.arena.types, args)
             }
-            Record(rows) => self.arena.types.alloc(Type::Record(
+            Record(rows) => self.arena.types.alloc(Type::Record(SortedRecord::new(
                 rows.into_iter()
                     .map(|row| self.elab_row(|f, r| f.elaborate_type(r, allow_unbound), row))
                     .collect::<Vec<Row<_>>>(),
-            )),
+            ))),
         }
     }
 }
@@ -845,9 +839,11 @@ impl<'ar> Context<'ar> {
                     .map(|r| r.fmap(|x| x.ty))
                     .collect::<Vec<Row<_>>>();
 
-                let ty = self.arena.types.alloc(Type::Record(tys));
+                let ty = self.arena.types.alloc(Type::Record(SortedRecord::new(tys)));
                 Expr::new(
-                    self.arena.exprs.alloc(ExprKind::Record(rows)),
+                    self.arena
+                        .exprs
+                        .alloc(ExprKind::Record(SortedRecord::new(rows))),
                     ty,
                     expr.span,
                 )
@@ -1032,8 +1028,14 @@ impl<'ar> Context<'ar> {
                     })
                     .collect::<Vec<Row<_>>>();
 
-                let ty = self.arena.types.alloc(Type::Record(tys));
-                Pat::new(self.arena.pats.alloc(PatKind::Record(pats)), ty, pat.span)
+                let ty = self.arena.types.alloc(Type::Record(SortedRecord::new(tys)));
+                Pat::new(
+                    self.arena
+                        .pats
+                        .alloc(PatKind::Record(SortedRecord::new(pats))),
+                    ty,
+                    pat.span,
+                )
             }
             Variable(sym) => match self.lookup_value(sym) {
                 // Rule 35
@@ -1341,8 +1343,12 @@ impl<'ar> Context<'ar> {
                         });
                     }
                     Pat::new(
-                        self.arena.pats.alloc(PatKind::Record(rows)),
-                        self.arena.types.alloc(Type::Record(tys)),
+                        self.arena
+                            .pats
+                            .alloc(PatKind::Record(SortedRecord::new_unchecked(rows))),
+                        self.arena
+                            .types
+                            .alloc(Type::Record(SortedRecord::new_unchecked(tys))),
                         sp,
                     )
                 }

@@ -196,7 +196,9 @@ impl Check {
         }
     }
 
-    fn check_variants(&mut self, datbinds: &[Variant]) {}
+    fn check_variants(&mut self, datbinds: &[Variant]) {
+        self.check_rows(datbinds, |_, _| {});
+    }
 
     fn check_valbinds(&mut self, sp: Span, tyvars: &[Symbol], pat: &Pat, expr: &Expr) {
         self.check_tyvars(sp, tyvars);

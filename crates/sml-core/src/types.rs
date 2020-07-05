@@ -2,7 +2,6 @@ use super::arenas::TypeArena;
 use super::*;
 use std::cell::Cell;
 use std::collections::{HashSet, VecDeque};
-use std::rc::Rc;
 
 pub struct TypeVar<'ar> {
     pub id: usize,
@@ -12,7 +11,7 @@ pub struct TypeVar<'ar> {
 pub enum Type<'ar> {
     Var(&'ar TypeVar<'ar>),
     Con(Tycon, Vec<&'ar Type<'ar>>),
-    Record(Vec<Row<&'ar Type<'ar>>>),
+    Record(SortedRecord<&'ar Type<'ar>>),
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq)]
@@ -76,7 +75,7 @@ impl<'ar> Type<'ar> {
                     }
                 }
                 Type::Record(rows) => {
-                    for row in rows {
+                    for row in rows.iter() {
                         queue.push_back(&row.data);
                     }
                 }
@@ -110,7 +109,7 @@ impl<'ar> Type<'ar> {
                     }
                 }
                 Type::Record(rows) => {
-                    for row in rows {
+                    for row in rows.iter() {
                         queue.push_back(&row.data);
                     }
                 }
@@ -140,11 +139,7 @@ impl<'ar> Type<'ar> {
                 *tc,
                 vars.into_iter().map(|ty| ty.apply(arena, map)).collect(),
             )),
-            Type::Record(rows) => arena.alloc(Type::Record(
-                rows.into_iter()
-                    .map(|r| r.fmap(|ty| ty.apply(arena, map)))
-                    .collect(),
-            )),
+            Type::Record(rows) => arena.alloc(Type::Record(rows.fmap(|ty| ty.apply(arena, map)))),
         }
     }
 
@@ -203,7 +198,7 @@ impl<'ar> fmt::Debug for Type<'ar> {
             Record(rows) => write!(
                 f,
                 "{{{}}}",
-                rows.into_iter()
+                rows.iter()
                     .map(|r| format!("{:?}:{:?}", r.label, r.data))
                     .collect::<Vec<String>>()
                     .join(",")
