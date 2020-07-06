@@ -10,11 +10,15 @@ pub const C_NIL: Constructor = Constructor {
     name: S_NIL,
     type_id: TypeId(6),
     tag: 0,
+    arity: 0,
+    type_arity: 2,
 };
 pub const C_CONS: Constructor = Constructor {
     name: S_CONS,
     type_id: TypeId(6),
     tag: 1,
+    arity: 1,
+    type_arity: 2,
 };
 
 // datatype bool = true | false
@@ -22,17 +26,23 @@ pub const C_TRUE: Constructor = Constructor {
     name: S_TRUE,
     type_id: TypeId(7),
     tag: 0,
+    arity: 0,
+    type_arity: 2,
 };
 pub const C_FALSE: Constructor = Constructor {
     name: S_FALSE,
     type_id: TypeId(7),
     tag: 1,
+    arity: 0,
+    type_arity: 2,
 };
 
 pub const C_REF: Constructor = Constructor {
     name: S_REF,
     type_id: TypeId(5),
     tag: 0,
+    arity: 1,
+    type_arity: 1,
 };
 
 pub const C_BUILTINS: [Constructor; 5] = [C_NIL, C_CONS, C_TRUE, C_FALSE, C_REF];

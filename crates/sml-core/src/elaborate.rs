@@ -657,6 +657,8 @@ impl<'ar> Context<'ar> {
 
                 self.unify(scrutinee.span, &casee.ty, arg);
 
+                self.build_decision_tree(casee, &rules);
+
                 Expr::new(
                     self.arena.exprs.alloc(ExprKind::Case(casee, rules)),
                     res,
@@ -1138,7 +1140,9 @@ impl<'ar> Context<'ar> {
             let cons = Constructor {
                 name: con.label,
                 type_id,
-                tag: tag as u32,
+                tag: tag as u8,
+                arity: con.data.is_some() as u8,
+                type_arity: db.constructors.len() as u8,
             };
 
             let res = self.arena.types.alloc(Type::Con(
@@ -1204,6 +1208,8 @@ impl<'ar> Context<'ar> {
                 name: exn.label,
                 type_id: TypeId(8),
                 tag: 0,
+                arity: exn.data.is_some() as u8,
+                type_arity: exns.len() as u8,
             };
 
             match &exn.data {
@@ -1395,7 +1401,7 @@ impl<'ar> Context<'ar> {
             }
         };
 
-        // self.build_decision_tree(&scrutinee, &rules);
+        self.build_decision_tree(scrutinee, &rules);
 
         let case = Expr::new(
             self.arena.exprs.alloc(ExprKind::Case(scrutinee, rules)),

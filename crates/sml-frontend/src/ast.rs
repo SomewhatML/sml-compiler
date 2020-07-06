@@ -1,7 +1,7 @@
 use sml_util::interner::Symbol;
 use sml_util::span::{Span, Spanned};
 
-#[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq, Hash)]
 pub enum Const {
     Unit,
     Int(usize),

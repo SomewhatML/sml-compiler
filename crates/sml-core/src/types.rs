@@ -24,7 +24,9 @@ pub struct Tycon {
 pub struct Constructor {
     pub name: Symbol,
     pub type_id: TypeId,
-    pub tag: u32,
+    pub tag: u8,
+    pub arity: u8,
+    pub type_arity: u8,
 }
 
 #[derive(Clone)]

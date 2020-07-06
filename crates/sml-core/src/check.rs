@@ -255,11 +255,27 @@ impl Check {
     pub fn check_decl(&mut self, decl: &Decl) {
         use DeclKind::*;
         match &decl.data {
-            Datatype(datbinds) => self.check_datatype(datbinds),
+            Datatype(datbinds) => {
+                self.check_datatype(datbinds);
+                if datbinds.len() >= 255 {
+                    self.diags.push(Diagnostic::error(
+                        decl.span,
+                        format!("maximum of 255 mutually recursive datatypes"),
+                    ));
+                }
+            }
             Type(_) => {}
             Function(tyvars, fbs) => self.check_funbinds(decl.span, tyvars, fbs),
             Value(tyvars, pat, expr) => self.check_valbinds(decl.span, tyvars, pat, expr),
-            Exception(vars) => self.check_variants(vars),
+            Exception(vars) => {
+                self.check_variants(vars);
+                if vars.len() >= 255 {
+                    self.diags.push(Diagnostic::error(
+                        decl.span,
+                        format!("maximum of 255 mutually recursive datatypes"),
+                    ));
+                }
+            }
             Fixity(_, _, _) => {}
             Local(d1, d2) => {
                 self.check_decl(d1);
