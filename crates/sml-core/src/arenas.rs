@@ -152,15 +152,15 @@ impl<'ar> TypeArena<'ar> {
         self.types.alloc(ty)
     }
 
-    pub fn fresh_var(&self) -> &'ar Type<'ar> {
-        let tvar = self.fresh_type_var();
+    pub fn fresh_var(&self, rank: usize) -> &'ar Type<'ar> {
+        let tvar = self.fresh_type_var(rank);
         self.types.alloc(Type::Var(tvar))
     }
 
-    pub fn fresh_type_var(&self) -> &'ar TypeVar<'ar> {
+    pub fn fresh_type_var(&self, rank: usize) -> &'ar TypeVar<'ar> {
         let x = self.fresh.get();
         self.fresh.set(x + 1);
-        self.vars.alloc(TypeVar::new(x))
+        self.vars.alloc(TypeVar::new(x, rank))
     }
 
     pub fn alloc_tuple<I: IntoIterator<Item = Type<'ar>>>(&self, iter: I) -> &'ar Type<'ar> {

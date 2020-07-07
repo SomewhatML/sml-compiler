@@ -139,6 +139,8 @@ pub struct Context<'ar> {
     // All defined values live here, indexed by `ExprId`
     values: Vec<(Scheme<'ar>, IdStatus)>,
 
+    tyvar_rank: usize,
+
     pub(crate) arena: &'ar CoreArena<'ar>,
     pub diags: Vec<Diagnostic>,
 }
@@ -160,6 +162,7 @@ impl<'ar> Context<'ar> {
             tyvars: Vec::default(),
             namespaces: Vec::default(),
             current: 0,
+            tyvar_rank: 0,
             types: Vec::default(),
             values: Vec::default(),
             diags: Vec::default(),
@@ -277,7 +280,7 @@ impl<'ar> Context<'ar> {
             }
         }
         if allow_unbound {
-            let v = self.arena.types.fresh_type_var();
+            let v = self.arena.types.fresh_type_var(self.tyvar_rank);
             self.tyvars.push((*s, v));
             Some(v)
         } else {
@@ -286,7 +289,7 @@ impl<'ar> Context<'ar> {
     }
 
     fn fresh_tyvar(&self) -> &'ar Type<'ar> {
-        self.arena.types.fresh_var()
+        self.arena.types.fresh_var(self.tyvar_rank)
     }
 
     fn fresh_var(&self) -> Symbol {
@@ -457,12 +460,18 @@ impl<'ar> Context<'ar> {
     }
 
     pub fn generalize(&self, ty: &'ar Type<'ar>) -> Scheme<'ar> {
-        let bound = self.bound_ty_slow();
-        let ftv = ty
-            .ftv()
-            .drain(..)
-            .filter(|x| !bound.contains(x))
-            .collect::<Vec<usize>>();
+        // let bound = self.bound_ty_slow();
+        // let ftv = ty
+        //     .ftv()
+        //     .drain(..)
+        //     .filter(|x| !bound.contains(x))
+        //     .collect::<Vec<usize>>();
+
+        // let ftv2 = ty.ftv_rank(self.tyvar_rank);
+        // assert_eq!(ftv, ftv2);
+
+        let ftv = ty.ftv_rank(self.tyvar_rank);
+
         match ftv.len() {
             0 => Scheme::Mono(ty),
             _ => Scheme::Poly(ftv, ty),
@@ -657,7 +666,7 @@ impl<'ar> Context<'ar> {
 
                 self.unify(scrutinee.span, &casee.ty, arg);
 
-                self.build_decision_tree(casee, &rules);
+                // self.build_decision_tree(casee, &rules);
 
                 Expr::new(
                     self.arena.exprs.alloc(ExprKind::Case(casee, rules)),
@@ -892,7 +901,7 @@ impl<'ar> Context<'ar> {
                     ));
                     Expr::new(
                         self.arena.exprs.fresh_var(),
-                        self.arena.types.fresh_var(),
+                        self.arena.types.fresh_var(self.tyvar_rank),
                         expr.span,
                     )
                 }
@@ -952,7 +961,7 @@ impl<'ar> Context<'ar> {
                         ));
                         Pat::new(
                             self.arena.pats.wild(),
-                            self.arena.types.fresh_var(),
+                            self.arena.types.fresh_var(self.tyvar_rank),
                             pat.span,
                         )
                     }
@@ -1047,7 +1056,7 @@ impl<'ar> Context<'ar> {
                 }
                 _ => {
                     // Rule 34
-                    // let tvar = self.arena.types.fresh_type_var();
+                    // let tvar = self.arena.types.fresh_type_var(self.tyvar_rank);
                     let ty = self.fresh_tyvar();
                     if bind {
                         self.define_value(*sym, Scheme::Mono(ty), IdStatus::Var);
@@ -1087,19 +1096,19 @@ impl<'ar> Context<'ar> {
     fn elab_decl_type(&mut self, tbs: &[ast::Typebind], _elab: &mut Vec<Decl<'ar>>) {
         for typebind in tbs {
             let scheme = if !typebind.tyvars.is_empty() {
-                self.with_tyvars(|f| {
+                self.with_tyvars(|ctx| {
                     for s in typebind.tyvars.iter() {
-                        let v = f.arena.types.fresh_type_var();
-                        f.tyvars.push((*s, v));
+                        let v = ctx.arena.types.fresh_type_var(ctx.tyvar_rank);
+                        ctx.tyvars.push((*s, v));
                     }
-                    let ty = f.elaborate_type(&typebind.ty, false);
+                    let ty = ctx.elaborate_type(&typebind.ty, false);
                     let s = match typebind.tyvars.len() {
                         0 => Scheme::Mono(ty),
                         _ => Scheme::Poly(
                             typebind
                                 .tyvars
                                 .iter()
-                                .map(|tv| f.lookup_tyvar(tv, false).unwrap().id)
+                                .map(|tv| ctx.lookup_tyvar(tv, false).unwrap().id)
                                 .collect(),
                             ty,
                         ),
@@ -1192,12 +1201,12 @@ impl<'ar> Context<'ar> {
             self.define_type(db.tycon, TypeStructure::Tycon(tycon));
         }
         for db in dbs {
-            self.with_tyvars(|f| {
+            self.with_tyvars(|ctx| {
                 for s in &db.tyvars {
-                    let v = f.arena.types.fresh_type_var();
-                    f.tyvars.push((*s, v));
+                    let v = ctx.arena.types.fresh_type_var(ctx.tyvar_rank);
+                    ctx.tyvars.push((*s, v));
                 }
-                f.elab_decl_conbind(db, elab)
+                ctx.elab_decl_conbind(db, elab)
             });
         }
     }
@@ -1245,7 +1254,6 @@ impl<'ar> Context<'ar> {
             .map(|_| self.fresh_tyvar())
             .collect::<Vec<&'ar Type<'ar>>>();
         let res_ty = self.fresh_tyvar();
-
         let mut clauses = Vec::new();
         for clause in fbs {
             if let Some(ty) = &clause.res_ty {
@@ -1309,13 +1317,14 @@ impl<'ar> Context<'ar> {
         {
             // Make a new scope, in which we define the pattern bindings, and proceed
             // to elaborate the body of the function clause
+            self.tyvar_rank += 1;
             let expr = self.with_scope(move |ctx| {
                 for (var, tv) in bindings {
                     ctx.define_value(var, Scheme::Mono(tv), IdStatus::Var);
                 }
                 ctx.elaborate_expr(&expr)
             });
-
+            self.tyvar_rank -= 1;
             // Unify function clause body with result type
             self.unify(span, &res_ty, &expr.ty);
             // .map_err(|diag| {
@@ -1401,7 +1410,7 @@ impl<'ar> Context<'ar> {
             }
         };
 
-        self.build_decision_tree(scrutinee, &rules);
+        // self.build_decision_tree(scrutinee, &rules);
 
         let case = Expr::new(
             self.arena.exprs.alloc(ExprKind::Case(scrutinee, rules)),
@@ -1445,9 +1454,9 @@ impl<'ar> Context<'ar> {
     fn elab_decl_fun(&mut self, tyvars: &[Symbol], fbs: &[ast::Fun], elab: &mut Vec<Decl<'ar>>) {
         self.with_tyvars(|ctx| {
             let mut vars = Vec::new();
-
+            ctx.tyvar_rank += 1;
             for sym in tyvars {
-                let f = ctx.arena.types.fresh_type_var();
+                let f = ctx.arena.types.fresh_type_var(ctx.tyvar_rank + 1);
                 vars.push(f.id);
                 ctx.tyvars.push((*sym, f));
             }
@@ -1456,11 +1465,13 @@ impl<'ar> Context<'ar> {
             // Check to make sure all of the function clauses are consistent within each binding group
             for f in fbs {
                 let n = f[0].name;
-                let a = f[0].pats.len();
+                let a = f[0].pats.len();                
                 let fns = ctx.elab_decl_fnbind_ty(n, a, f);
+                
                 ctx.define_value(fns.name, Scheme::Mono(fns.ty), IdStatus::Var);
                 info.push(fns);
             }
+            ctx.tyvar_rank -= 1;
 
             elab.push(Decl::Fun(
                 vars,
@@ -1479,12 +1490,16 @@ impl<'ar> Context<'ar> {
         elab: &mut Vec<Decl<'ar>>,
     ) {
         self.with_tyvars(|ctx| {
+            ctx.tyvar_rank += 1;
             for tyvar in tyvars {
-                ctx.tyvars.push((*tyvar, ctx.arena.types.fresh_type_var()));
+                ctx.tyvars
+                    .push((*tyvar, ctx.arena.types.fresh_type_var(ctx.tyvar_rank)));
             }
-            let expr = ctx.elaborate_expr(expr);
-            let (pat, bindings) = ctx.elaborate_pat(pat, false);
 
+            let expr = ctx.elaborate_expr(expr);
+
+            let (pat, bindings) = ctx.elaborate_pat(pat, false);
+            ctx.tyvar_rank -= 1;
             let non_expansive = expr.non_expansive();
             ctx.unify(expr.span, &pat.ty, &expr.ty);
             for (var, tv) in bindings {

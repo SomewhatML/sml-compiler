@@ -333,7 +333,7 @@ impl<'a> Matrix<'a> {
                 //     (tree, 0) => tree,
                 //     (tree, _) => Tree::Swap(col, Box::new(tree)),
                 // };
-                let tree =mat.compile();
+                let tree = mat.compile();
                 branches.push((h, tree));
             }
 
@@ -344,7 +344,7 @@ impl<'a> Matrix<'a> {
                 //     (tree, 0) => tree,
                 //     (tree, _) => Tree::Swap(col, Box::new(tree)),
                 // };
-                let tree =mat.compile();
+                let tree = mat.compile();
                 branches.push((Head::Wild, tree));
             }
 

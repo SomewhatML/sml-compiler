@@ -19,7 +19,7 @@ pub fn populate_context<'arena>(ctx: &mut elaborate::Context<'arena>) {
         ctx.define_type(tc.name, TypeStructure::Tycon(*tc));
     }
 
-    let nil = ctx.arena.types.fresh_var();
+    let nil = ctx.arena.types.fresh_var(0);
 
     define_constructor(
         ctx,
@@ -27,7 +27,7 @@ pub fn populate_context<'arena>(ctx: &mut elaborate::Context<'arena>) {
         Scheme::Poly(vec![nil.as_tyvar().id], ctx.arena.types.list(nil)),
     );
 
-    let cons = ctx.arena.types.fresh_var();
+    let cons = ctx.arena.types.fresh_var(0);
 
     // The inner types of cons: 'a * 'a list
     let crec = ctx
@@ -56,7 +56,7 @@ pub fn populate_context<'arena>(ctx: &mut elaborate::Context<'arena>) {
         Scheme::Mono(ctx.arena.types.bool()),
     );
 
-    let reff = ctx.arena.types.fresh_var();
+    let reff = ctx.arena.types.fresh_var(0);
     define_constructor(
         ctx,
         constructors::C_REF,

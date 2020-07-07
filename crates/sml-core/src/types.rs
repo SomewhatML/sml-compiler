@@ -5,6 +5,7 @@ use std::collections::{HashSet, VecDeque};
 
 pub struct TypeVar<'ar> {
     pub id: usize,
+    rank: Cell<usize>,
     pub data: Cell<Option<&'ar Type<'ar>>>,
 }
 
@@ -120,6 +121,39 @@ impl<'ar> Type<'ar> {
         set
     }
 
+    pub fn ftv_rank(&self, rank: usize) -> Vec<usize> {
+        let mut set = Vec::new();
+        let mut uniq = HashSet::new();
+        let mut queue = VecDeque::new();
+        queue.push_back(self);
+
+        while let Some(ty) = queue.pop_front() {
+            match ty {
+                Type::Var(x) => match x.ty() {
+                    None => {
+                        if x.rank() > rank && uniq.insert(x.id) {
+                            set.push(x.id);
+                        }
+                    }
+                    Some(link) => {
+                        queue.push_back(link);
+                    }
+                },
+                Type::Con(_, tys) => {
+                    for ty in tys {
+                        queue.push_back(ty);
+                    }
+                }
+                Type::Record(rows) => {
+                    for row in rows.iter() {
+                        queue.push_back(&row.data);
+                    }
+                }
+            }
+        }
+        set
+    }
+
     /// Apply a substitution to a type
     pub fn apply(
         &'ar self,
@@ -155,12 +189,12 @@ impl<'ar> Type<'ar> {
                 if let Some(info) = x.ty() {
                     info.occurs_check(tyvar)
                 } else {
-                    // let curr = x.rank();
-                    // let min_rank = curr.min(tyvar.rank());
-                    // if min_rank < curr {
-                    //     // println!("promoting type var {:?} {}->{}", x, x.rank(), min_rank);
-                    //     x.data.set_rank(min_rank);
-                    // }
+                    let curr = x.rank();
+                    let min_rank = curr.min(tyvar.rank());
+                    if min_rank < curr {
+                        // println!("promoting type var {} {}->{}", fresh_name(x.id), x.rank(), min_rank);
+                        x.rank.set(min_rank);
+                    }
                     x.id == tyvar.id
                 }
             }
@@ -184,7 +218,7 @@ impl<'ar> fmt::Debug for Type<'ar> {
         match self {
             Var(tv) => match tv.ty() {
                 Some(ty) => write!(f, "{:?}", ty),
-                None => write!(f, "'{}", fresh_name(tv.id)),
+                None => write!(f, "'{}#{}", fresh_name(tv.id), tv.rank()),
             },
             Con(tc, args) => match tc {
                 &crate::builtin::tycons::T_ARROW => write!(f, "{:?} -> {:?}", args[0], args[1]),
@@ -252,13 +286,21 @@ impl<'ar> Scheme<'ar> {
 }
 
 impl<'ar> TypeVar<'ar> {
-    pub fn new(id: usize) -> TypeVar<'ar> {
+    pub fn new(id: usize, rank: usize) -> TypeVar<'ar> {
         let data = Cell::new(None);
-        TypeVar { id, data }
+        TypeVar {
+            id,
+            rank: Cell::new(rank),
+            data,
+        }
     }
 
     pub fn ty(&self) -> Option<&'ar Type<'ar>> {
         self.data.get()
+    }
+
+    fn rank(&self) -> usize {
+        self.rank.get()
     }
 }
 
