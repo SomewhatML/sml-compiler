@@ -230,7 +230,8 @@ impl<'ar> fmt::Debug for PatKind<'ar> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use PatKind::*;
         match self {
-            App(e1, e2) => write!(f, "{:?} {:?}", e1, e2),
+            App(e1, Some(e2)) => write!(f, "{:?} {:?}", e1.name, e2),
+            App(e1, None) => write!(f, "{:?}", e1.name),
             // Con(con, tys) => write!(f, "{:?} [{:?}]", con, tys),
             Const(c) => write!(f, "{:?}", c),
             Record(rows) => write!(

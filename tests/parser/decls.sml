@@ -47,3 +47,7 @@ fun type_check ctx Unit         = TyUnit
       end 
     end 
   | type_check ctx (Abs (ty, e)) = TyArrow (ty, type_check (ty::ctx) e)
+
+fun merge xs [] = xs 
+  | merge [] ys = ys 
+  | merge (x::xs) (y::ys) = x::ys
