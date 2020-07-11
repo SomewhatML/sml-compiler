@@ -666,7 +666,7 @@ impl<'ar> Context<'ar> {
 
                 self.unify(scrutinee.span, &casee.ty, arg);
 
-                // self.build_decision_tree(casee, &rules);
+                self.build_decision_tree(casee, &rules);
 
                 Expr::new(
                     self.arena.exprs.alloc(ExprKind::Case(casee, rules)),
@@ -1410,7 +1410,7 @@ impl<'ar> Context<'ar> {
             }
         };
 
-        // self.build_decision_tree(scrutinee, &rules);
+        self.build_decision_tree(scrutinee, &rules);
 
         let case = Expr::new(
             self.arena.exprs.alloc(ExprKind::Case(scrutinee, rules)),
@@ -1465,9 +1465,9 @@ impl<'ar> Context<'ar> {
             // Check to make sure all of the function clauses are consistent within each binding group
             for f in fbs {
                 let n = f[0].name;
-                let a = f[0].pats.len();                
+                let a = f[0].pats.len();
                 let fns = ctx.elab_decl_fnbind_ty(n, a, f);
-                
+
                 ctx.define_value(fns.name, Scheme::Mono(fns.ty), IdStatus::Var);
                 info.push(fns);
             }

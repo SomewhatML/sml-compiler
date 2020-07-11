@@ -1,8 +1,10 @@
 use super::*;
 use sml_util::diagnostics::Diagnostic;
+use std::cell::RefCell;
 use std::collections::HashSet;
+use std::rc::Rc;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Occurence<'a> {
     Expr(Expr<'a>),
     Path(Box<Occurence<'a>>, usize),
@@ -17,9 +19,8 @@ pub struct Switch<'a> {
 
 #[derive(Debug)]
 pub enum Tree<'a> {
-    Leaf(Expr<'a>),
+    Leaf(Action<'a>),
     Switch(Switch<'a>),
-    Swap(usize, Box<Tree<'a>>),
     Fail,
 }
 
@@ -28,12 +29,18 @@ pub struct DecisionTree<'a> {
     nodes: Vec<Tree<'a>>,
 }
 
+#[derive(Clone, Debug)]
+pub struct Action<'a> {
+    variable_map: Rc<RefCell<HashMap<Symbol, Vec<Occurence<'a>>>>>,
+    expr: Expr<'a>,
+}
+
 /// A column-oriented matrix
 #[derive(Clone)]
 pub struct Matrix<'a> {
     occs: Vec<Occurence<'a>>,
     patterns: Vec<Vec<&'a PatKind<'a>>>,
-    exprs: Vec<Expr<'a>>,
+    exprs: Vec<Action<'a>>,
 
     wild: &'a PatKind<'a>,
 }
@@ -59,93 +66,6 @@ impl<'ar> PatKind<'ar> {
             PatKind::Wild => Head::Wild,
         }
     }
-
-    fn irrefutable(&self) -> bool {
-        match self {
-            PatKind::App(c, inner) => inner.map(|pat| pat.pat.irrefutable()).unwrap_or(true),
-            PatKind::Const(c) => false,
-            PatKind::List(_) => false,
-            PatKind::Record(r) => r.iter().all(|row| row.data.pat.irrefutable()),
-            PatKind::Var(_) => true,
-            PatKind::Wild => true,
-        }
-    }
-
-    fn accepts(&self, head: Head) -> bool {
-        match self {
-            PatKind::Wild | PatKind::Var(_) => true,
-            _ => self.head() == head,
-        }
-    }
-}
-
-impl<'a> Tree<'a> {
-    fn pp(&self, depth: usize, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = (0..depth).map(|_| '\t').collect::<String>();
-        match self {
-            Tree::Leaf(e) => write!(f, "{}{:?}", s, e.expr),
-            Tree::Fail => write!(f, "{}FAIL", s),
-            Tree::Swap(idx, tree) => {
-                write!(f, "{} Swap {}", s, idx)?;
-                tree.pp(depth, f)
-            }
-            Tree::Switch(Switch {
-                occurence,
-                list,
-                default,
-            }) => {
-                for (head, tree) in list {
-                    writeln!(f, "{}{} -> {}", s, occurence, head)?;
-                    tree.pp(depth + 1, f)?;
-                    writeln!(f, "")?;
-                }
-                write!(f, "")
-            }
-        }
-    }
-}
-
-impl<'a> std::fmt::Display for Tree<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.pp(0, f)
-    }
-}
-
-impl<'a> std::fmt::Display for Occurence<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Occurence::Expr(e) => write!(f, "root"),
-            Occurence::Path(o, i) => write!(f, "{}.{}", o, i),
-        }
-    }
-}
-
-impl std::fmt::Display for Head {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Head::Const(c) => write!(f, "{:?}", c),
-            Head::Enum(c) => write!(f, "{:?}", c.name),
-            _ => write!(f, "{:?}", self),
-        }
-    }
-}
-
-impl<'a> std::fmt::Debug for Matrix<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(
-            f,
-            "{}",
-            self.occs
-                .iter()
-                .map(|o| o.to_string())
-                .collect::<Vec<String>>()
-                .join(",")
-        )?;
-        for idx in 0..self.patterns.len() {
-            writeln!(f, "{:?} => {:?}", self.patterns[idx], self.exprs[idx].expr)?;
-        }
-        write!(f, "")
-    }
 }
 
 impl Head {
@@ -158,24 +78,15 @@ impl Head {
     }
 }
 
-fn find_record_field<T>(rows: &[Row<T>], label: Symbol) -> Option<&T> {
-    for row in rows {
-        if row.label == label {
-            return Some(&row.data);
+impl<'a> Action<'a> {
+    fn new(expr: Expr<'a>) -> Action<'a> {
+        Action {
+            variable_map: Rc::new(RefCell::new(HashMap::new())),
+            expr,
         }
     }
-    None
-}
 
-fn mk_occurrence_vector<'a>(expr: Expr<'a>, v: &mut Vec<Occurence<'a>>) {
-    match &expr.expr {
-        ExprKind::Record(rows) => {
-            for row in rows.iter() {
-                mk_occurrence_vector(row.data, v);
-            }
-        }
-        _ => v.push(Occurence::Expr(expr)),
-    }
+    fn add_var(&mut self, s: Symbol, o: Occurence<'a>) {}
 }
 
 impl<'arena> elaborate::Context<'arena> {
@@ -183,7 +94,7 @@ impl<'arena> elaborate::Context<'arena> {
         let mut matrix = Matrix {
             occs: vec![Occurence::Expr(expr)],
             patterns: rules.iter().map(|rule| vec![rule.pat.pat]).collect(),
-            exprs: rules.iter().map(|rule| rule.expr).collect(),
+            exprs: rules.iter().map(|rule| Action::new(rule.expr)).collect(),
             wild: self.arena.pats.wild(),
         };
 
@@ -247,9 +158,27 @@ impl<'a> Matrix<'a> {
                 }
                 filtered.push(row);
                 ex.push(expr);
-            } else if fst.accepts(head) {
+            } else if fst.head() == Head::Wild {
+                if let PatKind::Var(sym) = fst {
+                    // TODO: Handle generation of fresh variables, and rewriting in expression
+                    //
+                    // is this the best place to handle this though? Also perhaps we want
+                    // to eta-expand/close over all variables in `expr` that are bound
+                    // in a pattern to make this step easier. e.g.
+                    //      fun m x       [] = x    --> (fn a => a) x
+                    //        | m (y::ys) xs = ys   --> (fn b => b) ys
+                    // if head.arity() > 1 {
+                    //     println!("binding {:?} to {:?} occurrences", sym, self.occs);
+                    // }
+
+                    println!("bind {:?} to {:?}", sym, self.occs[col]);
+                    // if let Head::Record(_) =
+                    expr.variable_map
+                        .borrow_mut()
+                        .insert(*sym, vec![self.occs[col].clone()]);
+                }
                 for _ in 0..head.arity() {
-                    row.insert(col + 0, self.wild);
+                    row.insert(col, self.wild);
                 }
                 filtered.push(row);
                 ex.push(expr);
@@ -263,6 +192,7 @@ impl<'a> Matrix<'a> {
             self.occs
                 .insert(col + i, Occurence::Path(Box::new(o.clone()), i));
         }
+        // dbg!(self);
     }
 
     fn specialize(&self, head: Head, col: usize) -> Matrix<'a> {
@@ -279,32 +209,19 @@ impl<'a> Matrix<'a> {
         i
     }
 
-    fn swap(&mut self, col: usize) {
-        self.occs.swap(0, col);
-        for row in self.patterns.iter_mut() {
-            row.swap(0, col);
-        }
-    }
-
     fn compile(&mut self) -> Tree<'a> {
         if self.patterns.is_empty() {
             Tree::Fail
         } else if self.patterns[0].iter().all(|pat| pat.head() == Head::Wild) {
-            Tree::Leaf(self.exprs[0])
+            Tree::Leaf(self.exprs[0].clone())
         } else {
             let mut set = HashSet::new();
             let col = self.heuristic();
-
-            // if col != 0 {
-            //     println!("SWAPPING {}", col);
-            //     self.swap(col);
-            // }
 
             for pat in self.col_iter(col) {
                 set.insert(pat.head());
             }
             let wildcard = set.remove(&Head::Wild);
-            // let var = set.remove(&Head::Variable);
 
             let exhaustive = if set.is_empty() {
                 wildcard
@@ -329,10 +246,7 @@ impl<'a> Matrix<'a> {
                 let mut mat = self.specialize(h, col);
 
                 println!("{:?}:\n{:?}\nspecial: {:?}\n", h, self, &mat);
-                // let tree = match (mat.compile(), col) {
-                //     (tree, 0) => tree,
-                //     (tree, _) => Tree::Swap(col, Box::new(tree)),
-                // };
+
                 let tree = mat.compile();
                 branches.push((h, tree));
             }
@@ -340,10 +254,7 @@ impl<'a> Matrix<'a> {
             if !exhaustive {
                 let mut mat = self.default_matrix();
                 println!("default {:#?}", &mat);
-                // let tree = match (mat.compile(), col) {
-                //     (tree, 0) => tree,
-                //     (tree, _) => Tree::Swap(col, Box::new(tree)),
-                // };
+
                 let tree = mat.compile();
                 branches.push((Head::Wild, tree));
             }
@@ -374,5 +285,79 @@ impl<'m, 'arena> Iterator for ColIter<'m, 'arena> {
         let r = self.row;
         self.row += 1;
         self.matrix.patterns.get(r)?.get(self.col).copied()
+    }
+}
+
+impl<'a> Tree<'a> {
+    fn pp(&self, depth: usize, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = (0..depth).map(|_| '\t').collect::<String>();
+        match self {
+            Tree::Leaf(e) => write!(f, "{}{:#?}", s, e),
+            Tree::Fail => write!(f, "{}FAIL", s),
+            Tree::Switch(Switch {
+                occurence,
+                list,
+                default,
+            }) => {
+                for (head, tree) in list {
+                    writeln!(f, "{}{} -> {}", s, occurence, head)?;
+                    tree.pp(depth + 1, f)?;
+                    writeln!(f, "")?;
+                }
+                write!(f, "")
+            }
+        }
+    }
+}
+
+impl<'a> std::fmt::Display for Tree<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.pp(0, f)
+    }
+}
+
+impl<'a> std::fmt::Debug for Occurence<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Occurence::Expr(e) => write!(f, "root"),
+            Occurence::Path(o, i) => write!(f, "{}.{}", o, i),
+        }
+    }
+}
+
+impl<'a> std::fmt::Display for Occurence<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Occurence::Expr(e) => write!(f, "root"),
+            Occurence::Path(o, i) => write!(f, "{}.{}", o, i),
+        }
+    }
+}
+
+impl std::fmt::Display for Head {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Head::Const(c) => write!(f, "{:?}", c),
+            Head::Enum(c) => write!(f, "{:?}", c.name),
+            _ => write!(f, "{:?}", self),
+        }
+    }
+}
+
+impl<'a> std::fmt::Debug for Matrix<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(
+            f,
+            "{}",
+            self.occs
+                .iter()
+                .map(|o| o.to_string())
+                .collect::<Vec<String>>()
+                .join(",")
+        )?;
+        for idx in 0..self.patterns.len() {
+            writeln!(f, "{:?} => {:?}", self.patterns[idx], self.exprs[idx])?;
+        }
+        write!(f, "")
     }
 }
