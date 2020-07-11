@@ -26,11 +26,13 @@ impl<'s, 'sym> Lexer<'s, 'sym> {
     }
 
     /// Peek at the next [`char`] in the input stream
+    #[inline]
     fn peek(&mut self) -> Option<char> {
         self.input.peek().copied()
     }
 
     /// Consume the next [`char`] and advance internal source position
+    #[inline]
     fn consume(&mut self) -> Option<char> {
         match self.input.next() {
             Some('\n') => {
@@ -50,6 +52,7 @@ impl<'s, 'sym> Lexer<'s, 'sym> {
 
     /// Consume characters from the input stream while pred(peek()) is true,
     /// collecting the characters into a string.
+    #[inline]
     fn consume_while<F: Fn(char) -> bool>(&mut self, pred: F) -> (String, Span) {
         let mut s = String::new();
         let start = self.current;
@@ -67,10 +70,12 @@ impl<'s, 'sym> Lexer<'s, 'sym> {
     }
 
     /// Eat whitespace
+    #[inline]
     fn consume_delimiter(&mut self) {
         let _ = self.consume_while(char::is_whitespace);
     }
 
+    #[inline]
     fn valid_symbolic(c: char) -> bool {
         match c {
             '!' | '%' | '&' | '$' | '#' | '+' | '-' | '/' | ':' | '<' | '=' | '>' | '?' | '@'
@@ -95,6 +100,7 @@ impl<'s, 'sym> Lexer<'s, 'sym> {
         Spanned::new(kind, sp)
     }
 
+    #[inline]
     fn valid_id_char(c: char) -> bool {
         match c {
             x if x.is_alphanumeric() => true,
@@ -161,17 +167,6 @@ impl<'s, 'sym> Lexer<'s, 'sym> {
         ))
     }
 
-    /// Consume the next input character, expecting to match `ch`.
-    /// Return a [`TokenKind::Invalid`] if the next character does not match,
-    /// or the argument `kind` if it does
-    fn eat(&mut self, kind: Token) -> Option<Spanned<Token>> {
-        let loc = self.current;
-        // Lexer::eat() should only be called internally after calling peek()
-        // so we know that it's safe to unwrap the result of Lexer::consume()
-        self.consume().unwrap();
-        Some(Spanned::new(kind, Span::new(loc, self.current)))
-    }
-
     /// Lex a natural number
     fn number(&mut self) -> Option<Spanned<Token>> {
         // Since we peeked at least one numeric char, we should always
@@ -212,27 +207,33 @@ impl<'s, 'sym> Lexer<'s, 'sym> {
         self.consume_delimiter();
         let sp = self.current;
 
+        macro_rules! eat {
+            ($kind:expr) => {{
+                self.consume().unwrap();
+                Some(Spanned::new($kind, Span::new(sp, self.current)))
+            }};
+        }
+
         match self.peek()? {
-            ';' => self.eat(Token::Semi),
-            ',' => self.eat(Token::Comma),
-            '\'' => self.eat(Token::Apostrophe),
-            '_' => self.eat(Token::Wildcard),
-            // '.' => self.eat(Token::Dot),
+            ';' => eat!(Token::Semi),
+            ',' => eat!(Token::Comma),
+            '\'' => eat!(Token::Apostrophe),
+            '_' => eat!(Token::Wildcard),
             '(' => {
-                let alt = self.eat(Token::LParen);
+                let alt = eat!(Token::LParen);
                 if let Some('*') = self.peek() {
                     self.comment()
                 } else {
                     alt
                 }
             }
-            ')' => self.eat(Token::RParen),
-            '{' => self.eat(Token::LBrace),
-            '}' => self.eat(Token::RBrace),
-            '[' => self.eat(Token::LBracket),
-            ']' => self.eat(Token::RBracket),
-            'λ' => self.eat(Token::Fn),
-            '∀' => self.eat(Token::Forall),
+            ')' => eat!(Token::RParen),
+            '{' => eat!(Token::LBrace),
+            '}' => eat!(Token::RBrace),
+            '[' => eat!(Token::LBracket),
+            ']' => eat!(Token::RBracket),
+            'λ' => eat!(Token::Fn),
+            '∀' => eat!(Token::Forall),
             '#' => {
                 self.consume();
                 match self.peek() {

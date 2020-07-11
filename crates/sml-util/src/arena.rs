@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::mem;
 
-const PAGE_SIZE: usize = 8192 * 8;
+const PAGE_SIZE: usize = 4096;
 
 pub struct Arena<T> {
     chunks: RefCell<Chunks<T>>,
@@ -46,7 +46,7 @@ impl<T> Arena<T> {
         chunks.reserve();
         debug_assert!(chunks.current.len() < chunks.current.capacity());
         chunks.current.push(value);
-        unsafe { &mut *chunks.current.as_mut_ptr().add(1) }
+        unsafe { &mut *chunks.current.as_mut_ptr().add(chunks.current.len() - 1) }
     }
 
     pub fn alloc(&self, value: T) -> &mut T {
@@ -58,6 +58,7 @@ impl<T> Arena<T> {
 impl<T> Chunks<T> {
     fn reserve(&mut self) {
         let cap = self.current.capacity();
+        let cap = cap.checked_mul(2).unwrap_or(cap);
         let chunk = mem::replace(&mut self.current, Vec::with_capacity(cap));
         self.rest.push(chunk);
     }

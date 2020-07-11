@@ -86,31 +86,6 @@ impl Diagnostic {
         range
     }
 
-    // pub fn code_format(src: &str, diag: Diagnostic) {
-    //     // let lines = diag.ot
-    //     //     .iter()
-    //     //     .map(|(_, sp)| sp.start.line)
-    //     //     .collect::<std::collections::HashSet<_>>();
-    //     let srcl = src.lines().collect::<Vec<&str>>();
-
-    //     let mut msgs = diag.other.clone();
-    //     msgs.insert(0, diag.primary.clone());
-
-    //     for line in diag.lines() {
-    //         println!("| {} {}", line + 1, &srcl[line as usize]);
-    //         for anno in &msgs {
-    //             if anno.span.start.line != line {
-    //                 continue;
-    //             }
-    //             let empty = (0..anno.span.start.col + 3).map(|_| ' ').collect::<String>();
-    //             let tilde = (1..anno.span.end.col.saturating_sub(anno.span.start.col))
-    //                 .map(|_| '~')
-    //                 .collect::<String>();
-    //             println!("{}^{}^ --- {}", empty, tilde, anno.info);
-    //         }
-    //     }
-    // }
-
     pub fn report(mut self, source: &str) -> String {
         let lines = source.lines().collect::<Vec<&str>>();
 

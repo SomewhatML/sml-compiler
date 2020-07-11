@@ -9,6 +9,7 @@ pub mod builtin;
 pub mod check;
 pub mod decision;
 pub mod elaborate;
+pub mod monomorphize;
 pub mod types;
 use types::{Constructor, Scheme, Tycon, Type, TypeVar};
 
