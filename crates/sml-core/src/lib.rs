@@ -88,7 +88,7 @@ pub struct Datatype<'ar> {
 #[derive(Clone, Debug)]
 pub enum Decl<'ar> {
     Datatype(Datatype<'ar>),
-    Fun(Vec<usize>, Vec<Lambda<'ar>>),
+    Fun(Vec<usize>, Vec<(Symbol, Lambda<'ar>)>),
     Val(Rule<'ar>),
     Exn(Constructor, Option<&'ar Type<'ar>>),
 }

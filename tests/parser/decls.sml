@@ -51,3 +51,5 @@ fun type_check ctx Unit         = TyUnit
 fun merge xs [] = xs 
   | merge [] ys = ys 
   | merge (x::xs) (y::ys) = x::ys
+
+

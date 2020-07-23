@@ -1,8 +1,22 @@
 use super::*;
+use elaborate::Context;
 use sml_util::diagnostics::Diagnostic;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
+
+pub struct PMat<'a> {
+    pats: Vec<Vec<&'a Pat<'a>>>,
+    exprs: Vec<&'a Expr<'a>>,
+}
+
+fn default_matrix<'a>(ctx: &'a mut Context<'a>, mat: &PMat<'a>) -> Expr<'a> {
+    todo!()
+}
+
+pub fn match_compile<'a>(ctx: &'a mut Context<'a>) {
+    todo!()
+}
 
 #[derive(Clone)]
 pub enum Occurence<'a> {

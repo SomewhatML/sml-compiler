@@ -666,7 +666,7 @@ impl<'ar> Context<'ar> {
 
                 self.unify(scrutinee.span, &casee.ty, arg);
 
-                self.build_decision_tree(casee, &rules);
+                // self.build_decision_tree(casee, &rules);
 
                 Expr::new(
                     self.arena.exprs.alloc(ExprKind::Case(casee, rules)),
@@ -1410,7 +1410,7 @@ impl<'ar> Context<'ar> {
             }
         };
 
-        self.build_decision_tree(scrutinee, &rules);
+        // self.build_decision_tree(scrutinee, &rules);
 
         let case = Expr::new(
             self.arena.exprs.alloc(ExprKind::Case(scrutinee, rules)),
@@ -1476,8 +1476,8 @@ impl<'ar> Context<'ar> {
             elab.push(Decl::Fun(
                 vars,
                 info.into_iter()
-                    .map(|fun| ctx.elab_decl_fnbind(fun))
-                    .collect::<Vec<Lambda>>(),
+                    .map(|fun| (fun.name, ctx.elab_decl_fnbind(fun)))
+                    .collect::<Vec<(Symbol, Lambda)>>(),
             ));
         })
     }
