@@ -9,6 +9,8 @@ fn main() {
     let owned_arena = sml_core::arenas::OwnedCoreArena::new();
     let borrow = owned_arena.borrow();
 
+    dbg!(std::mem::size_of::<Symbol>());
+
     let args = env::args();
     if args.len() > 1 {
         for f in args.skip(1) {
