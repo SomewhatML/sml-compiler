@@ -216,6 +216,7 @@ impl Interner {
                 .strings
                 .get(n as usize)
                 .map(|s| Pin::get_ref(s.as_ref())),
+            Symbol::Builtin(n) => BUILTIN_STRS.get(n as usize).copied(),
             _ => None,
         }
     }
