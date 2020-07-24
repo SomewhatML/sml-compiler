@@ -118,6 +118,15 @@ impl<'s, 'sym> Parser<'s, 'sym> {
         Ok(DeclKind::Fixity(fixity, num, sym))
     }
 
+    fn parse_decl_local(&mut self) -> Result<DeclKind, Error> {
+        self.expect(Token::Local)?;
+        let a = self.parse_decl()?;
+        self.expect_try_recover(Token::In);
+        let b = self.parse_decl()?;
+        self.expect_try_recover(Token::End);
+        Ok(DeclKind::Local(Box::new(a), Box::new(b)))
+    }
+
     fn parse_decl_atom(&mut self) -> Result<Decl, Error> {
         match self.current() {
             Token::Fun => self.spanned(|p| p.parse_decl_fun()),
@@ -126,6 +135,7 @@ impl<'s, 'sym> Parser<'s, 'sym> {
             Token::Datatype => self.spanned(|p| p.parse_decl_datatype()),
             Token::Exception => self.spanned(|p| p.parse_decl_exn()),
             Token::Infix | Token::Infixr | Token::Nonfix => self.spanned(|p| p.fixity()),
+            Token::Local => self.spanned(|p| p.parse_decl_local()),
             Token::EOF => self.error(ErrorKind::EOF),
             _ => {
                 // self.diags.push(Diagnostic::error(

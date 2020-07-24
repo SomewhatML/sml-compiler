@@ -1081,6 +1081,7 @@ impl<'ar> Context<'ar> {
     }
 
     fn elab_decl_local(&mut self, decls: &ast::Decl, body: &ast::Decl, elab: &mut Vec<Decl<'ar>>) {
+        // TODO: Check for type escape
         self.with_scope(|ctx| {
             ctx.elaborate_decl_inner(decls, elab);
             ctx.elaborate_decl_inner(body, elab)
