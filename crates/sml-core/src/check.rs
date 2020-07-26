@@ -49,7 +49,7 @@ impl Check {
                         queue.push_back(pat)
                     }
                 }
-                Record(rows) => {
+                Record(rows, _) => {
                     self.check_rows(rows, |c, p| c.check_pat(p));
                 }
                 Variable(sym) => {

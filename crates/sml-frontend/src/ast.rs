@@ -103,8 +103,8 @@ pub enum PatKind {
     FlatApp(Vec<Pat>),
     /// List pattern [pat1, ... patN]
     List(Vec<Pat>),
-    /// Record pattern { label1, label2 }
-    Record(Vec<Row<Pat>>),
+    /// Record pattern { label1, label2 }, and whether it's flexible or not
+    Record(Vec<Row<Pat>>, bool),
 
     /// Variable binding
     Variable(Symbol),
@@ -171,7 +171,7 @@ pub fn make_record_type(v: Vec<Type>) -> TypeKind {
     )
 }
 
-pub fn make_record_pat(v: Vec<Pat>) -> PatKind {
+pub fn make_record_pat(v: Vec<Pat>, flex: bool) -> PatKind {
     PatKind::Record(
         v.into_iter()
             .enumerate()
@@ -181,5 +181,6 @@ pub fn make_record_pat(v: Vec<Pat>) -> PatKind {
                 data: ex,
             })
             .collect(),
+        flex,
     )
 }

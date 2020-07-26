@@ -443,33 +443,7 @@ impl<'ar> Context<'ar> {
         }
     }
 
-    /// TODO: Perform rank-based type generalization
-    fn bound_ty_slow(&self) -> HashSet<usize> {
-        let mut set = HashSet::new();
-        for ns in self.namespace_iter() {
-            for (_, id) in &ns.values {
-                let (sch, _) = &self.values[id.0 as usize];
-                let var = match sch {
-                    Scheme::Mono(ty) => ty.ftv(),
-                    Scheme::Poly(_, ty) => ty.ftv(),
-                };
-                set.extend(var);
-            }
-        }
-        set
-    }
-
     pub fn generalize(&self, ty: &'ar Type<'ar>) -> Scheme<'ar> {
-        // let bound = self.bound_ty_slow();
-        // let ftv = ty
-        //     .ftv()
-        //     .drain(..)
-        //     .filter(|x| !bound.contains(x))
-        //     .collect::<Vec<usize>>();
-
-        // let ftv2 = ty.ftv_rank(self.tyvar_rank);
-        // assert_eq!(ftv, ftv2);
-
         let ftv = ty.ftv_rank(self.tyvar_rank);
 
         match ftv.len() {
@@ -865,7 +839,7 @@ impl<'ar> Context<'ar> {
                     data: ast::Pat::new(ast::PatKind::Variable(*s), Span::dummy()),
                     span: Span::dummy(),
                 };
-                let pat = ast::Pat::new(ast::PatKind::Record(vec![row]), Span::dummy());
+                let pat = ast::Pat::new(ast::PatKind::Record(vec![row], true), Span::dummy());
                 let inner = ast::Expr::new(ast::ExprKind::Var(*s), Span::dummy());
                 self.elaborate_expr(&ast::Expr::new(
                     ast::ExprKind::Fn(vec![ast::Rule {
@@ -1024,7 +998,7 @@ impl<'ar> Context<'ar> {
                     pat.span,
                 )
             }
-            Record(rows) => {
+            Record(rows, flex) => {
                 let pats: Vec<Row<Pat>> = rows
                     .into_iter()
                     .map(|r| self.elab_row(|f, rho| f.elaborate_pat_inner(rho, bind, bindings), r))
@@ -1039,7 +1013,11 @@ impl<'ar> Context<'ar> {
                     })
                     .collect::<Vec<Row<_>>>();
 
-                let ty = self.arena.types.alloc(Type::Record(SortedRecord::new(tys)));
+                // TODO: Figure out how to support flex records
+                let ty = match flex {
+                    false => self.arena.types.alloc(Type::Record(SortedRecord::new(tys))),
+                    true => self.arena.types.alloc(Type::Record(SortedRecord::new(tys))),
+                };
                 Pat::new(
                     self.arena
                         .pats
@@ -1549,7 +1527,7 @@ impl<'ar> Query<ast::Pat> for &Context<'ar> {
             ast::PatKind::Variable(s) => {
                 let sp_bc = b.span + c.span;
                 let sp = a.span + sp_bc;
-                let rec = ast::Pat::new(ast::make_record_pat(vec![b, c]), sp_bc);
+                let rec = ast::Pat::new(ast::make_record_pat(vec![b, c], false), sp_bc);
                 Ok(ast::Pat::new(ast::PatKind::App(s, Box::new(rec)), sp))
             }
             _ => Err(precedence::Error::InvalidOperator),
