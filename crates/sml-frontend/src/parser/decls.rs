@@ -173,12 +173,11 @@ impl<'s, 'sym> Parser<'s, 'sym> {
                             sp,
                         ));
                     }
-                    Err(Error {
-                        kind: ErrorKind::EOF,
-                        ..
-                    }) => break,
                     Err(err) => {
-                        self.diags.push(err.to_diagnostic());
+                        match err.kind {
+                            ErrorKind::EOF | ErrorKind::ExpectedExpr => {}
+                            _ => self.diags.push(err.to_diagnostic()),
+                        }
                         break;
                     }
                 },
