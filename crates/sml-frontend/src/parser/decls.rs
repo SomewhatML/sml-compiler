@@ -154,10 +154,38 @@ impl<'s, 'sym> Parser<'s, 'sym> {
         let mut seq = Vec::new();
         let span = self.current.span;
         self.bump_if(Token::Semi);
-        while let Ok(decl) = self.parse_decl_atom() {
-            seq.push(decl);
+        loop {
+            match self.parse_decl_atom() {
+                Ok(d) => seq.push(d),
+                Err(Error {
+                    kind: ErrorKind::EOF,
+                    ..
+                }) => break,
+                Err(_) => match self.parse_expr() {
+                    Ok(exp) => {
+                        self.diags.push(Diagnostic::warn(
+                            exp.span,
+                            "top level expressions are not supported! emitting `val _ = ...`",
+                        ));
+                        let sp = exp.span;
+                        seq.push(Decl::new(
+                            DeclKind::Value(Vec::new(), Pat::new(PatKind::Wild, sp), exp),
+                            sp,
+                        ));
+                    }
+                    Err(Error {
+                        kind: ErrorKind::EOF,
+                        ..
+                    }) => break,
+                    Err(err) => {
+                        self.diags.push(err.to_diagnostic());
+                        break;
+                    }
+                },
+            }
             self.bump_if(Token::Semi);
         }
+
         match seq.len() {
             0 => self.error(ErrorKind::ExpectedDecl),
             1 => Ok(seq.pop().unwrap()),
