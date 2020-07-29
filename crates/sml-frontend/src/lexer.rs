@@ -7,20 +7,24 @@ use std::iter::Peekable;
 use std::str::Chars;
 
 pub struct Lexer<'s, 'sym> {
+    source: &'s str,
     interner: &'sym mut Interner,
     input: Peekable<Chars<'s>>,
     current: Location,
+    abs: usize,
 }
 
 impl<'s, 'sym> Lexer<'s, 'sym> {
     pub fn new(input: Chars<'s>, interner: &'sym mut Interner) -> Lexer<'s, 'sym> {
         Lexer {
+            source: input.as_str(),
             input: input.peekable(),
             current: Location {
                 line: 0,
                 col: 0,
                 // abs: 0,
             },
+            abs: 0,
             interner,
         }
     }
@@ -38,11 +42,13 @@ impl<'s, 'sym> Lexer<'s, 'sym> {
             Some('\n') => {
                 self.current.line += 1;
                 self.current.col = 0;
+                self.abs += 1;
                 // self.current.abs += 1;
                 Some('\n')
             }
             Some(ch) => {
                 self.current.col += 1;
+                self.abs += 1;
                 // self.current.abs += 1;
                 Some(ch)
             }
@@ -53,20 +59,20 @@ impl<'s, 'sym> Lexer<'s, 'sym> {
     /// Consume characters from the input stream while pred(peek()) is true,
     /// collecting the characters into a string.
     #[inline]
-    fn consume_while<F: Fn(char) -> bool>(&mut self, pred: F) -> (String, Span) {
-        let mut s = String::new();
+    fn consume_while<F: Fn(char) -> bool>(&mut self, pred: F) -> (&'s str, Span) {
+        let abs = self.abs;
         let start = self.current;
         while let Some(n) = self.peek() {
             if pred(n) {
                 match self.consume() {
-                    Some(ch) => s.push(ch),
+                    Some(_) => continue,
                     None => break,
                 }
             } else {
                 break;
             }
         }
-        (s, Span::new(start, self.current))
+        (&self.source[abs..self.abs], Span::new(start, self.current))
     }
 
     /// Eat whitespace

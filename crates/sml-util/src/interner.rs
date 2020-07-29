@@ -81,7 +81,8 @@ globals!(
     S_CONS,
     S_TRUE,
     S_FALSE,
-    S_UNIT
+    S_UNIT,
+    S_MATCH
 );
 
 const BUILTIN_STRS: [&'static str; S_TOTAL_GLOBALS as usize] = [
@@ -147,6 +148,7 @@ const BUILTIN_STRS: [&'static str; S_TOTAL_GLOBALS as usize] = [
     "true",
     "false",
     "unit",
+    "Match",
 ];
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
@@ -196,13 +198,13 @@ impl Interner {
         i
     }
 
-    pub fn intern(&mut self, s: String) -> Symbol {
+    pub fn intern(&mut self, s: &str) -> Symbol {
         if let Some(sym) = self.symbols.get(s.as_ref() as &str) {
             return *sym;
         }
 
         let sym = Symbol::Interned(self.strings.len() as u32);
-        let pinned = Pin::new(s.into_boxed_str());
+        let pinned = Pin::new(String::into_boxed_str(s.into()));
         let ptr: &'static str = unsafe { std::mem::transmute(Pin::get_ref(pinned.as_ref())) };
 
         self.strings.push(pinned);
