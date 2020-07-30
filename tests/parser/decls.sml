@@ -51,3 +51,16 @@ fun type_check ctx Unit         = TyUnit
 fun merge xs [] = xs 
   | merge [] ys = ys 
   | merge (x::xs) (y::ys) = x::ys
+
+
+let 
+  datatype u = T | F
+  val x = (T, F, T) 
+in 
+  case x of
+      | (_, F, T) => 1
+      | (F, T, _) => 2
+      | (_, _, F) => 3
+      | (_, _, T) => 4
+    end
+end

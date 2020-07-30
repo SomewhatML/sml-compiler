@@ -288,11 +288,11 @@ impl<'ar> Context<'ar> {
         }
     }
 
-    fn fresh_tyvar(&self) -> &'ar Type<'ar> {
+    pub(crate) fn fresh_tyvar(&self) -> &'ar Type<'ar> {
         self.arena.types.fresh_var(self.tyvar_rank)
     }
 
-    fn fresh_var(&self) -> Symbol {
+    pub(crate) fn fresh_var(&self) -> Symbol {
         self.arena.exprs.allocate_id()
     }
 
@@ -641,6 +641,10 @@ impl<'ar> Context<'ar> {
                 self.unify(scrutinee.span, &casee.ty, arg);
 
                 // self.build_decision_tree(casee, &rules);
+
+                let mut mat = crate::match_compile::Matrix::build(casee, &rules);
+                let compiled = mat.compile(self, res);
+                println!("{:?}", compiled);
 
                 Expr::new(
                     self.arena.exprs.alloc(ExprKind::Case(casee, rules)),
