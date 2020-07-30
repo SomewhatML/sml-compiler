@@ -52,12 +52,11 @@ fun merge xs [] = xs
   | merge [] ys = ys 
   | merge (x::xs) (y::ys) = x::ys
 
-
 let 
   datatype u = T | F
   val x = (T, F, T) 
 in 
-  case x of
+  case (T, F, T) of
       | (_, F, T) => 1
       | (F, T, _) => 2
       | (_, _, F) => 3

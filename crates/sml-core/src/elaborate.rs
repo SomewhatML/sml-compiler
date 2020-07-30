@@ -640,17 +640,15 @@ impl<'ar> Context<'ar> {
 
                 self.unify(scrutinee.span, &casee.ty, arg);
 
-                // self.build_decision_tree(casee, &rules);
-
-                let mut mat = crate::match_compile::Matrix::build(casee, &rules);
-                let compiled = mat.compile(self, res);
-                println!("{:?}", compiled);
-
-                Expr::new(
-                    self.arena.exprs.alloc(ExprKind::Case(casee, rules)),
-                    res,
-                    expr.span,
-                )
+                let mut mat = crate::match_compile::Matrix::new(self, res, vec![casee], &rules);
+                let compiled = mat.compile();
+                // println!("compiled: {:?}", compiled);
+                compiled
+                // Expr::new(
+                //     self.arena.exprs.alloc(ExprKind::Case(casee, rules)),
+                //     res,
+                //     expr.span,
+                // )
             }
             ast::ExprKind::Const(c) => {
                 let ty = self.const_ty(c);
@@ -1288,6 +1286,7 @@ impl<'ar> Context<'ar> {
             arity,
             ..
         } = fun;
+
         let mut rules = Vec::new();
 
         // Destructure so that we can move `bindings` into a closure
@@ -1310,50 +1309,7 @@ impl<'ar> Context<'ar> {
             self.tyvar_rank -= 1;
             // Unify function clause body with result type
             self.unify(span, &res_ty, &expr.ty);
-            // .map_err(|diag| {
-            //     diag.message(
-            //         span,
-            //         format!(
-            //             "function clause with body of different type: expected {:?}, got {:?}",
-            //             &res_ty, &expr.ty
-            //         ),
-            //     )
-            // });
-
-            // If we have more than 1 pattern, turn it into a tuple (really, a record)
-            let pat = match arity {
-                1 => pats.remove(0),
-                _ => {
-                    let mut rows = Vec::new();
-                    let mut tys = Vec::new();
-                    let mut sp = pats[0].span;
-                    for (idx, pat) in pats.into_iter().enumerate() {
-                        sp += pat.span;
-                        tys.push(Row {
-                            label: Symbol::tuple_field(idx as u32 + 1),
-                            data: pat.ty,
-                            span: pat.span,
-                        });
-                        rows.push(Row {
-                            label: Symbol::tuple_field(idx as u32 + 1),
-                            span: pat.span,
-                            data: pat,
-                        });
-                    }
-                    Pat::new(
-                        self.arena
-                            .pats
-                            .alloc(PatKind::Record(SortedRecord::new_unchecked(rows))),
-                        self.arena
-                            .types
-                            .alloc(Type::Record(SortedRecord::new_unchecked(tys))),
-                        sp,
-                    )
-                }
-            };
-
-            let rule = Rule { pat, expr };
-            rules.push(rule);
+            rules.push((pats, expr));
         }
 
         // Now generate fresh argument names for our function, so we can curry
@@ -1363,43 +1319,24 @@ impl<'ar> Context<'ar> {
             .map(|ty| (self.fresh_var(), ty))
             .collect::<Vec<(Symbol, _)>>();
 
-        // Generate the scrutinee for the case expression
-        // Once again, if we have multiple args, tuplify them
-        let scrutinee = match arity {
-            1 => {
-                let (sym, ty) = &fresh_args[0];
+        let new_vars = fresh_args
+            .iter()
+            .copied()
+            .map(|(sym, ty)| {
                 Expr::new(
-                    self.arena.exprs.alloc(ExprKind::Var(*sym)),
+                    self.arena.exprs.alloc(ExprKind::Var(sym)),
                     ty,
                     Span::dummy(),
                 )
-            }
-            _ => {
-                let tau = self
-                    .arena
-                    .types
-                    .tuple(fresh_args.iter().copied().map(|(_, ty)| *ty));
-                let rho = self
-                    .arena
-                    .exprs
-                    .tuple(fresh_args.iter().copied().map(|(sym, ty)| {
-                        Expr::new(
-                            self.arena.exprs.alloc(ExprKind::Var(sym)),
-                            ty,
-                            Span::dummy(),
-                        )
-                    }));
-                Expr::new(rho, tau, Span::dummy())
-            }
-        };
+            })
+            .collect::<Vec<Expr<'ar>>>();
 
-        // self.build_decision_tree(scrutinee, &rules);
-
-        let case = Expr::new(
-            self.arena.exprs.alloc(ExprKind::Case(scrutinee, rules)),
-            res_ty,
-            Span::dummy(),
-        );
+        let mut matrix = crate::match_compile::Matrix::build(self, res_ty, new_vars, rules.len());
+        for (pats, expr) in rules {
+            matrix.pats.push(pats);
+            matrix.exprs.push(expr);
+        }
+        let case = matrix.compile();
 
         let (a, t) = fresh_args.pop().unwrap();
 

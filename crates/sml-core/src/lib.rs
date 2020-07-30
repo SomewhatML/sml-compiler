@@ -87,7 +87,6 @@ pub struct Datatype<'ar> {
     pub constructors: Vec<(Constructor, Option<&'ar Type<'ar>>)>,
 }
 
-#[derive(Clone, Debug)]
 pub enum Decl<'ar> {
     Datatype(Datatype<'ar>),
     Fun(Vec<usize>, Vec<(Symbol, Lambda<'ar>)>),
@@ -191,7 +190,7 @@ impl<'ar> fmt::Debug for ExprKind<'ar> {
             App(e1, e2) => write!(f, "{:?} {:?}", e1, e2),
             Case(casee, rules) => write!(
                 f,
-                "case {:?} of\n{}",
+                "(case {:?} of\n{})",
                 casee,
                 rules
                     .into_iter()
@@ -253,7 +252,7 @@ impl<'ar> fmt::Debug for PatKind<'ar> {
 
 impl<'ar> fmt::Debug for Expr<'ar> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[{:?} : {:?}]", self.expr, self.ty)
+        write!(f, "{:?}", self.expr)
     }
 }
 
@@ -265,6 +264,48 @@ impl<'ar> fmt::Debug for Pat<'ar> {
 
 impl<'ar> fmt::Debug for Lambda<'ar> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "fn {:?} => {:?}", self.arg, self.body)
+        write!(f, "fn ({:?} : {:?}) => {:?}", self.arg, self.ty, self.body)
+    }
+}
+
+impl<'ar> fmt::Debug for Decl<'ar> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Decl::Val(rule) => write!(f, "val {:?} = {:?}", rule.pat, rule.expr),
+            Decl::Fun(_, binds) => {
+                let s = binds
+                    .iter()
+                    .map(|(n, l)| format!("val {:?} = {:?}", n, l))
+                    .collect::<Vec<String>>()
+                    .join(";\n");
+                writeln!(f, "{}", s)
+            }
+            Decl::Datatype(dt) => {
+                let vars = dt
+                    .tyvars
+                    .iter()
+                    .map(|u| types::fresh_name(*u))
+                    .collect::<Vec<String>>()
+                    .join(",");
+                let cons = dt
+                    .constructors
+                    .iter()
+                    .map(|(con, ty)| match ty {
+                        Some(ty) => format!("{:?} of {:?}", con.name, ty),
+                        None => format!("{:?}", con.name),
+                    })
+                    .collect::<Vec<String>>()
+                    .join(" | ");
+                match dt.tyvars.len() {
+                    0 => writeln!(f, "datatype {:?} = {}", dt.tycon.name, cons),
+                    1 => writeln!(f, "datatype {} {:?} = {}", vars, dt.tycon.name, cons),
+                    _ => writeln!(f, "datatype ({}) {:?} = {}", vars, dt.tycon.name, cons),
+                }
+            }
+            Decl::Exn(con, ty) => match ty {
+                Some(ty) => writeln!(f, "exception {:?} of {:?}", con.name, ty),
+                None => writeln!(f, "exception {:?}", con.name),
+            },
+        }
     }
 }
