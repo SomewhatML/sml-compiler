@@ -1,6 +1,6 @@
 use super::*;
 use elaborate::Context;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 pub type Var<'a> = (Symbol, &'a Type<'a>);
 
@@ -18,6 +18,45 @@ struct Facts {
 impl Facts {
     pub fn add(&mut self, var: Symbol, fact: Fact) {
         self.v.push((var, fact))
+    }
+
+    pub fn bind(&self, var: Symbol, pat: Pat<'_>) -> HashMap<Symbol, Symbol> {
+        let mut map = HashMap::new();
+        let mut facts = HashMap::new();
+        // let mut vec = Vec::new();
+        for (sym, fact) in &self.v {
+            facts.insert(sym, fact);
+        }
+
+        let mut queue = VecDeque::new();
+        queue.push_back((&var, &pat));
+        while let Some((var, pat)) = queue.pop_front() {
+            match pat.pat {
+                PatKind::Var(x) => { map.insert(*x, *var); },
+                PatKind::App(_, Some(pat)) => {
+                    match facts.get(var) {
+                        Some(Fact::Con(_, Some(x))) => {
+                            queue.push_back((x, pat));
+                        },
+                        _ => panic!("Bug: Facts.bind constructor")
+                    }
+                },
+                PatKind::Record(rp) => {
+                    match facts.get(var) {
+                        Some(Fact::Record(rx)) => {
+                            for (rp, rx) in rp.iter().zip(rx.iter()) {
+                                queue.push_back((&rx.data, &rp.data));
+                            }
+                        },
+                        _ => panic!("Bug: Facts.bind record")
+                    }
+                },
+                _ => continue,
+            }
+        }
+        
+
+        map
     }
 }
 
@@ -346,7 +385,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
 
     /// Compile a [`Matrix`] into a source-level expression
     fn compile(&mut self, facts: &mut Facts) -> Expr<'a> {
-        dbg!(&facts);
+       
         dbg!(&self);
         if self.pats.is_empty() {
             // We have an in-exhaustive case expression
@@ -366,6 +405,8 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
         } else if self.pats[0].iter().all(Pat::wild) {
             // Every pattern in the first row is a variable or wildcard,
             // so the it matches. return the body of the match rule
+            // dbg!(facts.bind(self.vars[0].0, pat))
+            dbg!(&facts);
             self.exprs[0]
         } else {
             // There is at least one non-wild pattern in the matrix somewhere
@@ -409,7 +450,9 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
 
     pub fn compile_top(&mut self) -> Expr<'a> {
         let mut facts = Facts::default();
-        self.compile(&mut facts)
+        let expr = self.compile(&mut facts);
+        
+        expr
     }
 }
 
