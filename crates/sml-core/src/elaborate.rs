@@ -640,15 +640,22 @@ impl<'ar> Context<'ar> {
 
                 self.unify(scrutinee.span, &casee.ty, arg);
 
-                let mut mat = crate::match_compile::Matrix::new(self, res, vec![casee], &rules);
-                let compiled = mat.compile();
-                // println!("compiled: {:?}", compiled);
-                compiled
-                // Expr::new(
-                //     self.arena.exprs.alloc(ExprKind::Case(casee, rules)),
-                //     res,
-                //     expr.span,
-                // )
+                let var = self.fresh_var();
+                let ty = casee.ty;
+
+                let mut mat = crate::match_compile::Matrix::new(self, res, vec![(var, ty)], &rules);
+                let compiled = mat.compile_top();
+
+                let pat = Pat::new(self.arena.pats.alloc(PatKind::Var(var)), ty, Span::dummy());
+
+                Expr::new(
+                    self.arena.exprs.alloc(ExprKind::Let(
+                        vec![Decl::Val(Rule { pat, expr: casee })],
+                        compiled,
+                    )),
+                    res,
+                    expr.span,
+                )
             }
             ast::ExprKind::Const(c) => {
                 let ty = self.const_ty(c);
@@ -1315,47 +1322,38 @@ impl<'ar> Context<'ar> {
         // Now generate fresh argument names for our function, so we can curry
         let mut fresh_args = arg_tys
             .iter()
-            .rev()
-            .map(|ty| (self.fresh_var(), ty))
+            // .rev()
+            .map(|ty| (self.fresh_var(), *ty))
             .collect::<Vec<(Symbol, _)>>();
 
-        let new_vars = fresh_args
-            .iter()
-            .copied()
-            .map(|(sym, ty)| {
-                Expr::new(
-                    self.arena.exprs.alloc(ExprKind::Var(sym)),
-                    ty,
-                    Span::dummy(),
-                )
-            })
-            .collect::<Vec<Expr<'ar>>>();
-
-        let mut matrix = crate::match_compile::Matrix::build(self, res_ty, new_vars, rules.len());
+        let mut matrix =
+            crate::match_compile::Matrix::build(self, res_ty, fresh_args.clone(), rules.len());
         for (pats, expr) in rules {
             matrix.pats.push(pats);
             matrix.exprs.push(expr);
         }
-        let case = matrix.compile();
+        let case = matrix.compile_top();
 
-        let (a, t) = fresh_args.pop().unwrap();
+        let (a, t) = fresh_args.remove(0);
 
-        let (body, ty) = fresh_args
-            .into_iter()
-            .fold((case, res_ty), |(expr, rty), (arg, ty)| {
-                (
-                    Expr::new(
-                        self.arena.exprs.alloc(ExprKind::Lambda(Lambda {
-                            arg,
-                            ty,
-                            body: expr,
-                        })),
+        let (body, ty) =
+            fresh_args
+                .into_iter()
+                .rev()
+                .fold((case, res_ty), |(expr, rty), (arg, ty)| {
+                    (
+                        Expr::new(
+                            self.arena.exprs.alloc(ExprKind::Lambda(Lambda {
+                                arg,
+                                ty,
+                                body: expr,
+                            })),
+                            self.arena.types.arrow(ty, rty),
+                            Span::dummy(),
+                        ),
                         self.arena.types.arrow(ty, rty),
-                        Span::dummy(),
-                    ),
-                    self.arena.types.arrow(ty, rty),
-                )
-            });
+                    )
+                });
 
         // Rebind with final type. Unbind first so that generalization happens properly
         self.unbind_value(fun.name);

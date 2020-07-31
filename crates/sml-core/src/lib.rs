@@ -183,6 +183,20 @@ impl<T> std::ops::Deref for SortedRecord<T> {
     }
 }
 
+impl<T: fmt::Debug> fmt::Debug for SortedRecord<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{{ {} }}",
+            self.rows
+                .iter()
+                .map(|r| format!("{:?}={:?}", r.label, r.data))
+                .collect::<Vec<String>>()
+                .join(",")
+        )
+    }
+}
+
 impl<'ar> fmt::Debug for ExprKind<'ar> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use ExprKind::*;
