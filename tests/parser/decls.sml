@@ -35,6 +35,7 @@ exception Unwrap
 fun unwrap (Some x) = x 
   | unwrap None     = raise Unwrap 
 
+(* STLC type checking *)
 fun type_check ctx Unit         = TyUnit
   | type_check ctx (Var x)      = unwrap (index x ctx)
   | type_check ctx (App (e1, e2))  = let 
@@ -50,8 +51,9 @@ fun type_check ctx Unit         = TyUnit
 
 fun merge xs [] = xs 
   | merge [] ys = ys 
-  | merge (x::xs) (y::ys) = x::ys
+  | merge (x::xs) (y::ys) = x::y::merge xs ys
 
+(* example from Compiling Pattern Matching *)
 let 
   datatype u = T | F
   val x = (T, F, T) 
@@ -62,4 +64,14 @@ in
       | (_, _, F) => 3
       | (_, _, T) => 4
     end
+end
+
+(* example from MLton's MatchCompile docs *)
+datatype 'a c = C1 of 'a | C2 of 'a | C3 of 'a 
+val e1 = 1
+val e2 = 2
+val x = C1 10
+val _ = case x of
+  | (_, C1 a) => e1
+  | (C2 b, C3 c) => e2
 end

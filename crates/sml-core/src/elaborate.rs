@@ -643,7 +643,8 @@ impl<'ar> Context<'ar> {
                 let var = self.fresh_var();
                 let ty = casee.ty;
 
-                let mut mat = crate::match_compile::Matrix::new(self, res, (var, ty), rules);
+                let mut mat =
+                    crate::match_compile::Matrix::new(self, res, (var, ty), expr.span, rules);
                 let compiled = mat.compile_top();
 
                 let pat = Pat::new(self.arena.pats.alloc(PatKind::Var(var)), ty, Span::dummy());
@@ -1295,7 +1296,7 @@ impl<'ar> Context<'ar> {
         } = fun;
 
         let mut rules = Vec::new();
-
+        let mut total_sp = clauses[0].span;
         // Destructure so that we can move `bindings` into a closure
         for PartialFnBinding {
             mut pats,
@@ -1324,6 +1325,7 @@ impl<'ar> Context<'ar> {
                 expr,
             };
 
+            total_sp += span;
             rules.push((pats, rule));
         }
 
@@ -1342,6 +1344,7 @@ impl<'ar> Context<'ar> {
                 self.fresh_var(),
                 self.arena.types.tuple(arg_tys.iter().copied()),
             ),
+            total_sp,
             r,
         );
         // let mut matrix =

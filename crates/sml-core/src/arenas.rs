@@ -68,6 +68,36 @@ impl<'a> CoreArena<'a> {
         )
     }
 
+    /// Create a new pattern struct from an iterator of (PatKind, Type).
+    /// The new tuple will have dummy spans everywhere
+    pub fn pat_record<I: IntoIterator<Item = (Symbol, PatKind<'a>, &'a Type<'a>)>>(
+        &self,
+        iter: I,
+    ) -> Pat<'a> {
+        let (fields, tys) = iter
+            .into_iter()
+            .map(|(sym, data, ty)| {
+                (
+                    Row {
+                        label: sym,
+                        data: Pat::new(self.pats.alloc(data), ty, Span::dummy()),
+                        span: Span::dummy(),
+                    },
+                    Row {
+                        label: sym,
+                        data: ty,
+                        span: Span::dummy(),
+                    },
+                )
+            })
+            .unzip();
+        Pat::new(
+            self.pats.alloc(PatKind::Record(SortedRecord::new(fields))),
+            self.types.alloc(Type::Record(SortedRecord::new(tys))),
+            Span::dummy(),
+        )
+    }
+
     /// Create a new expression tuple from an iterator of (PatKind, Type).
     /// The new tuple will have dummy spans everywhere
     pub fn expr_tuple<I: IntoIterator<Item = (ExprKind<'a>, &'a Type<'a>)>>(
@@ -181,6 +211,28 @@ impl<'a> CoreArena<'a> {
         body: Expr<'a>,
     ) -> Expr<'a> {
         let pat = self.pat_tuple(iter.into_iter().map(|(sym, ty)| (PatKind::Var(sym), ty)));
+        let decl = Decl::Val(Rule {
+            pat,
+            expr: self.expr_var(var_name, pat.ty),
+        });
+        Expr::new(
+            self.exprs.alloc(ExprKind::Let(vec![decl], body)),
+            body.ty,
+            body.span,
+        )
+    }
+
+    /// Create a `let val {s11 : s21, ..., } = var_name : (ty1, ty2, ty3) in expr` expression
+    pub fn let_derecord<I: IntoIterator<Item = (Symbol, Symbol, &'a Type<'a>)>>(
+        &self,
+        iter: I,
+        var_name: Symbol,
+        body: Expr<'a>,
+    ) -> Expr<'a> {
+        let pat = self.pat_record(
+            iter.into_iter()
+                .map(|(field, sym, ty)| (field, PatKind::Var(sym), ty)),
+        );
         let decl = Decl::Val(Rule {
             pat,
             expr: self.expr_var(var_name, pat.ty),
