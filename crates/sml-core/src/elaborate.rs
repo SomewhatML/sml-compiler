@@ -1337,23 +1337,48 @@ impl<'ar> Context<'ar> {
             .collect::<Vec<(Symbol, _)>>();
 
         let r = rules.iter().map(|r| r.1).collect::<Vec<Rule<'_>>>();
-        let mut matrix = crate::match_compile::Matrix::new(
+        // let mut matrix = crate::match_compile::Matrix::new(
+        //     self,
+        //     res_ty,
+        //     (
+        //         self.fresh_var(),
+        //         self.arena.types.tuple(arg_tys.iter().copied()),
+        //     ),
+        //     total_sp,
+        //     r,
+        // );
+
+        // let case = matrix.compile_top();
+
+        let binder = self.fresh_var();
+        let binder_ty = self.arena.types.tuple(arg_tys.iter().copied());
+        let mut matrix = crate::match_compile::Matrix::build(
             self,
             res_ty,
-            (
-                self.fresh_var(),
-                self.arena.types.tuple(arg_tys.iter().copied()),
-            ),
+            (binder, binder_ty),
             total_sp,
-            r,
+            rules.len(),
         );
-        // let mut matrix =
-        //     crate::match_compile::Matrix::build(self, res_ty, (self.fresh_var(), self.arena.types.tuple(arg_tys.iter().copied())), rules.len());
-        // for (pats, rule) in &rules {
-        //     matrix.pats.push(pats.clone());
-        //     matrix.exprs.push(&rule);
-        // }
-        let case = matrix.compile_top();
+        for (pats, rule) in rules {
+            matrix.pats.push(pats);
+            matrix.exprs.push(rule);
+        }
+        matrix.vars = fresh_args.clone();
+        let mut facts = crate::match_compile::Facts::default();
+        let rec = SortedRecord::new_unchecked(
+            fresh_args
+                .iter()
+                .enumerate()
+                .map(|(idx, (s, t))| Row {
+                    label: Symbol::tuple_field(idx as u32 + 1),
+                    data: *s,
+                    span: Span::dummy(),
+                })
+                .collect(),
+        );
+        let fact = crate::match_compile::Fact::Record(rec);
+        facts.add(binder, fact);
+        let case = matrix.experimental(facts);
 
         let (a, t) = fresh_args.remove(0);
 

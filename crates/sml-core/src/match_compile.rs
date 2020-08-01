@@ -6,13 +6,13 @@ use std::collections::{HashMap, HashSet, VecDeque};
 pub type Var<'a> = (Symbol, &'a Type<'a>);
 
 #[derive(Debug, Clone)]
-enum Fact {
+pub enum Fact {
     Con(Constructor, Option<Symbol>),
     Record(SortedRecord<Symbol>),
 }
 
 #[derive(Default, Debug, Clone)]
-struct Facts {
+pub struct Facts {
     v: Vec<(Symbol, Fact)>,
 }
 
@@ -75,7 +75,7 @@ pub struct Matrix<'a, 'ctx> {
     pub exprs: Vec<Rule<'a>>,
 
     test: Symbol,
-    vars: Vec<Var<'a>>,
+    pub vars: Vec<Var<'a>>,
 }
 
 impl<'a> Pat<'a> {
@@ -150,22 +150,6 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
         Pat::new(self.ctx.arena.pats.wild(), ty, Span::dummy())
     }
 
-    fn mk_pvar(&self, name: Symbol, ty: &'a Type<'a>) -> Pat<'a> {
-        Pat::new(
-            self.ctx.arena.pats.alloc(PatKind::Var(name)),
-            ty,
-            Span::dummy(),
-        )
-    }
-
-    fn mk_evar(&self, name: Symbol, ty: &'a Type<'a>) -> Expr<'a> {
-        Expr::new(
-            self.ctx.arena.exprs.alloc(ExprKind::Var(name)),
-            ty,
-            Span::dummy(),
-        )
-    }
-
     /// Deconstruct a record or tuple pattern, binding each field to a fresh
     /// variable, and flattening all of the record patterns in the first column
     /// [{a, b, c}, ...] --> [a, b, c, ...]
@@ -237,8 +221,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
                 PatKind::App(con, None) if con == head => {}
                 PatKind::Wild | PatKind::Var(_) => {
                     if let Some((name, ty)) = arity {
-                        new_row.insert(0, self.mk_pvar(name, ty));
-                        // new_row.insert(0, self.mk_wild(ty));
+                        new_row.insert(0, self.ctx.arena.pat_var(name, ty));
                     }
                 }
                 _ => continue,
@@ -287,7 +270,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
             let expr = self.specialize(&mut f, con, arg_ty.map(|ty| (fresh, ty)));
 
             let arg = match arg_ty {
-                Some(ty) => Some(self.mk_pvar(fresh, ty)),
+                Some(ty) => Some(self.ctx.arena.pat_var(fresh, ty)),
                 None => None,
             };
             let pat = Pat::new(
@@ -307,7 +290,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
 
         Expr::new(
             self.ctx.arena.exprs.alloc(ExprKind::Case(
-                self.mk_evar(self.vars[0].0, self.vars[0].1),
+                self.ctx.arena.expr_var(self.vars[0].0, self.vars[0].1),
                 rules,
             )),
             self.ret_ty,
@@ -367,7 +350,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
 
         Expr::new(
             self.ctx.arena.exprs.alloc(ExprKind::Case(
-                self.mk_evar(self.vars[0].0, self.vars[0].1),
+                self.ctx.arena.expr_var(self.vars[0].0, self.vars[0].1),
                 rules,
             )),
             self.ret_ty,
@@ -587,6 +570,19 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
     pub fn compile_top(&mut self) -> Expr<'a> {
         let mut facts = Facts::default();
 
+        let rules = std::mem::replace(&mut self.exprs, Vec::new());
+        let (decls, rules) = self.preflight(rules);
+        let _ = std::mem::replace(&mut self.exprs, rules);
+        let expr = self.compile(&mut facts);
+
+        Expr::new(
+            self.ctx.arena.exprs.alloc(ExprKind::Let(decls, expr)),
+            expr.ty,
+            expr.span,
+        )
+    }
+
+    pub fn experimental(&mut self, mut facts: Facts) -> Expr<'a> {
         let rules = std::mem::replace(&mut self.exprs, Vec::new());
         let (decls, rules) = self.preflight(rules);
         let _ = std::mem::replace(&mut self.exprs, rules);
