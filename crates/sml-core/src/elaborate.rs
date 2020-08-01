@@ -643,7 +643,7 @@ impl<'ar> Context<'ar> {
                 let var = self.fresh_var();
                 let ty = casee.ty;
 
-                let mut mat = crate::match_compile::Matrix::new(self, res, vec![(var, ty)], &rules);
+                let mut mat = crate::match_compile::Matrix::new(self, res, (var, ty), &rules);
                 let compiled = mat.compile_top();
 
                 let pat = Pat::new(self.arena.pats.alloc(PatKind::Var(var)), ty, Span::dummy());
@@ -1316,7 +1316,15 @@ impl<'ar> Context<'ar> {
             self.tyvar_rank -= 1;
             // Unify function clause body with result type
             self.unify(span, &res_ty, &expr.ty);
-            rules.push((pats, expr));
+
+            let tuple_ty = self.arena.types.tuple(pats.iter().map(|pat| pat.ty));
+            let tuple_pat = Pat::new(self.arena.pats.tuple(pats.iter().copied()), tuple_ty, span);
+            let rule = Rule {
+                pat: tuple_pat,
+                expr,
+            };
+
+            rules.push((pats, rule));
         }
 
         // Now generate fresh argument names for our function, so we can curry
@@ -1326,12 +1334,22 @@ impl<'ar> Context<'ar> {
             .map(|ty| (self.fresh_var(), *ty))
             .collect::<Vec<(Symbol, _)>>();
 
-        let mut matrix =
-            crate::match_compile::Matrix::build(self, res_ty, fresh_args.clone(), rules.len());
-        for (pats, expr) in rules {
-            matrix.pats.push(pats);
-            matrix.exprs.push(expr);
-        }
+        let r = rules.iter().map(|r| r.1).collect::<Vec<Rule<'_>>>();
+        let mut matrix = crate::match_compile::Matrix::new(
+            self,
+            res_ty,
+            (
+                self.fresh_var(),
+                self.arena.types.tuple(arg_tys.iter().copied()),
+            ),
+            &r,
+        );
+        // let mut matrix =
+        //     crate::match_compile::Matrix::build(self, res_ty, (self.fresh_var(), self.arena.types.tuple(arg_tys.iter().copied())), rules.len());
+        // for (pats, rule) in &rules {
+        //     matrix.pats.push(pats.clone());
+        //     matrix.exprs.push(&rule);
+        // }
         let case = matrix.compile_top();
 
         let (a, t) = fresh_args.remove(0);

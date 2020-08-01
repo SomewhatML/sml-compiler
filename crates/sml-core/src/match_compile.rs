@@ -17,6 +17,7 @@ struct Facts {
 
 impl Facts {
     pub fn add(&mut self, var: Symbol, fact: Fact) {
+        println!("bind {:?} {:?}", var, fact);
         self.v.push((var, fact))
     }
 
@@ -24,37 +25,35 @@ impl Facts {
         let mut map = HashMap::new();
         let mut facts = HashMap::new();
         // let mut vec = Vec::new();
-        for (sym, fact) in &self.v {
+        for (sym, fact) in self.v.iter().rev() {
             facts.insert(sym, fact);
         }
 
         let mut queue = VecDeque::new();
         queue.push_back((&var, &pat));
         while let Some((var, pat)) = queue.pop_front() {
+            println!("try bind {:?} {:?}", var, pat);
             match pat.pat {
-                PatKind::Var(x) => { map.insert(*x, *var); },
-                PatKind::App(_, Some(pat)) => {
-                    match facts.get(var) {
-                        Some(Fact::Con(_, Some(x))) => {
-                            queue.push_back((x, pat));
-                        },
-                        _ => panic!("Bug: Facts.bind constructor")
+                PatKind::Var(x) => {
+                    map.insert(*x, *var);
+                }
+                PatKind::App(_, Some(pat)) => match facts.get(var) {
+                    Some(Fact::Con(_, Some(x))) => {
+                        queue.push_back((x, pat));
                     }
+                    x => panic!("Bug: Facts.bind constructor {:?} {:?}", var, x),
                 },
-                PatKind::Record(rp) => {
-                    match facts.get(var) {
-                        Some(Fact::Record(rx)) => {
-                            for (rp, rx) in rp.iter().zip(rx.iter()) {
-                                queue.push_back((&rx.data, &rp.data));
-                            }
-                        },
-                        _ => panic!("Bug: Facts.bind record")
+                PatKind::Record(rp) => match facts.get(var) {
+                    Some(Fact::Record(rx)) => {
+                        for (rp, rx) in rp.iter().zip(rx.iter()) {
+                            queue.push_back((&rx.data, &rp.data));
+                        }
                     }
+                    x => panic!("Bug: Facts.bind record {:?} {:?}", var, x),
                 },
                 _ => continue,
             }
         }
-        
 
         map
     }
@@ -67,8 +66,10 @@ pub struct Matrix<'a, 'ctx> {
     ret_ty: &'a Type<'a>,
 
     pub pats: Vec<Vec<Pat<'a>>>,
-    pub exprs: Vec<Expr<'a>>,
+    // Store the original rule
+    pub exprs: Vec<&'ctx Rule<'a>>,
 
+    test: Symbol,
     vars: Vec<Var<'a>>,
 }
 
@@ -89,6 +90,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
             ctx: self.ctx,
             ret_ty: self.ret_ty,
             vars: self.vars.clone(),
+            test: self.vars[0].0,
             pats: Vec::with_capacity(self.pats.len()),
             exprs: Vec::with_capacity(self.exprs.len()),
         }
@@ -107,13 +109,14 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
     pub fn new(
         ctx: &'ctx Context<'a>,
         ret_ty: &'a Type<'a>,
-        vars: Vec<Var<'a>>,
-        rules: &[Rule<'a>],
+        test: Var<'a>,
+        // vars: Vec<Var<'a>>,
+        rules: &'ctx [Rule<'a>],
     ) -> Matrix<'a, 'ctx> {
-        let mut mat = Matrix::build(ctx, ret_ty, vars, rules.len());
+        let mut mat = Matrix::build(ctx, ret_ty, test, rules.len());
         for rule in rules {
             mat.pats.push(vec![rule.pat]);
-            mat.exprs.push(rule.expr);
+            mat.exprs.push(rule);
         }
         mat
     }
@@ -122,13 +125,15 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
     pub fn build(
         ctx: &'ctx Context<'a>,
         ret_ty: &'a Type<'a>,
-        vars: Vec<Var<'a>>,
+        test: Var<'a>,
+        // vars: Vec<Var<'a>>,
         cap: usize,
     ) -> Matrix<'a, 'ctx> {
         Matrix {
             ctx,
             ret_ty,
-            vars,
+            vars: vec![test],
+            test: test.0,
             pats: Vec::with_capacity(cap),
             exprs: Vec::with_capacity(cap),
         }
@@ -197,7 +202,8 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
             record.push(row.fmap(|_| bind));
             fact_r.push(row.fmap(|_| fresh));
             tys.push(row.fmap(|p| p.ty));
-            // vars.push((fresh, row.data.ty));
+            vars.push((fresh, row.data.ty));
+            println!("binding {:?} {:?}", fresh, row.data);
             vars.insert(idx, (fresh, row.data.ty));
             span.end = row.span.end;
         }
@@ -282,6 +288,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
                 mat.vars.remove(0);
             }
         }
+        // mat.test = mat.vars[0].0;
         mat.compile(facts)
     }
 
@@ -308,7 +315,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
             // data constructor. We just mock it instead
             let fresh = self.ctx.fresh_var();
             let expr = self.specialize(facts, con, arg_ty.map(|ty| (fresh, ty)));
-
+            println!("spec {:?} {:?}", con, expr);
             let arg = match arg_ty {
                 Some(ty) => Some(self.mk_pvar(fresh, ty)),
                 None => None,
@@ -343,12 +350,12 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
         // Generate the set of constants appearing in the column
         let mut set = HashSet::new();
         let mut rules = Vec::new();
-        for (row, expr) in self.pats.iter().zip(&self.exprs) {
+        for (row, rule) in self.pats.iter().zip(&self.exprs) {
             if let PatKind::Const(con) = &row[0].pat {
                 if set.insert(con) {
                     rules.push(Rule {
                         pat: row[0],
-                        expr: *expr,
+                        expr: rule.expr,
                     });
                 }
             }
@@ -380,13 +387,13 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
                 mat.exprs.push(self.exprs[idx]);
             }
         }
+        // mat.test = mat.vars[0].0;
         mat.compile(facts)
     }
 
     /// Compile a [`Matrix`] into a source-level expression
     fn compile(&mut self, facts: &mut Facts) -> Expr<'a> {
-       
-        dbg!(&self);
+        // dbg!(&self);
         if self.pats.is_empty() {
             // We have an in-exhaustive case expression
             let matchh = Expr::new(
@@ -406,8 +413,9 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
             // Every pattern in the first row is a variable or wildcard,
             // so the it matches. return the body of the match rule
             // dbg!(facts.bind(self.vars[0].0, pat))
-            dbg!(&facts);
-            self.exprs[0]
+            println!("patbind {:?} {:?}", self.test, self.exprs[0].pat);
+            facts.bind(self.test, self.exprs[0].pat);
+            self.exprs[0].expr
         } else {
             // There is at least one non-wild pattern in the matrix somewhere
             for row in &self.pats {
@@ -439,8 +447,8 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
             if col < sz {
                 for row in self.pats.iter_mut() {
                     row.swap(0, col);
-                    self.vars.swap(0, col);
                 }
+                self.vars.swap(0, col);
                 self.compile(facts)
             } else {
                 self.default_matrix(facts)
@@ -451,7 +459,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
     pub fn compile_top(&mut self) -> Expr<'a> {
         let mut facts = Facts::default();
         let expr = self.compile(&mut facts);
-        
+
         expr
     }
 }
