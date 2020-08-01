@@ -643,7 +643,7 @@ impl<'ar> Context<'ar> {
                 let var = self.fresh_var();
                 let ty = casee.ty;
 
-                let mut mat = crate::match_compile::Matrix::new(self, res, (var, ty), &rules);
+                let mut mat = crate::match_compile::Matrix::new(self, res, (var, ty), rules);
                 let compiled = mat.compile_top();
 
                 let pat = Pat::new(self.arena.pats.alloc(PatKind::Var(var)), ty, Span::dummy());
@@ -1342,7 +1342,7 @@ impl<'ar> Context<'ar> {
                 self.fresh_var(),
                 self.arena.types.tuple(arg_tys.iter().copied()),
             ),
-            &r,
+            r,
         );
         // let mut matrix =
         //     crate::match_compile::Matrix::build(self, res_ty, (self.fresh_var(), self.arena.types.tuple(arg_tys.iter().copied())), rules.len());

@@ -11,6 +11,7 @@ pub mod check;
 pub mod elaborate;
 pub mod match_compile;
 pub mod monomorphize;
+mod rename;
 pub mod types;
 use types::{Constructor, Scheme, Tycon, Type, TypeVar};
 
@@ -101,6 +102,7 @@ pub struct Row<T> {
     pub span: Span,
 }
 
+#[derive(Clone)]
 pub struct SortedRecord<T> {
     pub rows: Vec<Row<T>>,
 }

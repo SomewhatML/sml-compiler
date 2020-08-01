@@ -34,6 +34,165 @@ pub struct CoreArena<'ar> {
     pub pats: PatArena<'ar>,
 }
 
+impl<'a> CoreArena<'a> {
+    /// Create a new pattern tuple from an iterator of (PatKind, Type).
+    /// The new tuple will have dummy spans everywhere
+    pub fn pat_tuple<I: IntoIterator<Item = (PatKind<'a>, &'a Type<'a>)>>(
+        &self,
+        iter: I,
+    ) -> Pat<'a> {
+        let (fields, tys) = iter
+            .into_iter()
+            .enumerate()
+            .map(|(idx, (sym, ty))| {
+                (
+                    Row {
+                        label: Symbol::tuple_field(idx as u32 + 1),
+                        data: Pat::new(self.pats.alloc(sym), ty, Span::dummy()),
+                        span: Span::dummy(),
+                    },
+                    Row {
+                        label: Symbol::tuple_field(idx as u32 + 1),
+                        data: ty,
+                        span: Span::dummy(),
+                    },
+                )
+            })
+            .unzip();
+        Pat::new(
+            self.pats
+                .alloc(PatKind::Record(SortedRecord::new_unchecked(fields))),
+            self.types
+                .alloc(Type::Record(SortedRecord::new_unchecked(tys))),
+            Span::dummy(),
+        )
+    }
+
+    /// Create a new expression tuple from an iterator of (PatKind, Type).
+    /// The new tuple will have dummy spans everywhere
+    pub fn expr_tuple<I: IntoIterator<Item = (ExprKind<'a>, &'a Type<'a>)>>(
+        &self,
+        iter: I,
+    ) -> Expr<'a> {
+        let (fields, tys) = iter
+            .into_iter()
+            .enumerate()
+            .map(|(idx, (sym, ty))| {
+                (
+                    Row {
+                        label: Symbol::tuple_field(idx as u32 + 1),
+                        data: Expr::new(self.exprs.alloc(sym), ty, Span::dummy()),
+                        span: Span::dummy(),
+                    },
+                    Row {
+                        label: Symbol::tuple_field(idx as u32 + 1),
+                        data: ty,
+                        span: Span::dummy(),
+                    },
+                )
+            })
+            .unzip();
+        Expr::new(
+            self.exprs
+                .alloc(ExprKind::Record(SortedRecord::new_unchecked(fields))),
+            self.types
+                .alloc(Type::Record(SortedRecord::new_unchecked(tys))),
+            Span::dummy(),
+        )
+    }
+
+    /// Create a new expression record from an iterator of (PatKind, Type).
+    /// The new tuple will have dummy spans everywhere
+    pub fn expr_record<I: IntoIterator<Item = (Symbol, ExprKind<'a>, &'a Type<'a>)>>(
+        &self,
+        iter: I,
+    ) -> Expr<'a> {
+        let (fields, tys) = iter
+            .into_iter()
+            .map(|(sym, data, ty)| {
+                (
+                    Row {
+                        label: sym,
+                        data: Expr::new(self.exprs.alloc(data), ty, Span::dummy()),
+                        span: Span::dummy(),
+                    },
+                    Row {
+                        label: sym,
+                        data: ty,
+                        span: Span::dummy(),
+                    },
+                )
+            })
+            .unzip();
+        Expr::new(
+            self.exprs
+                .alloc(ExprKind::Record(SortedRecord::new(fields))),
+            self.types.alloc(Type::Record(SortedRecord::new(tys))),
+            Span::dummy(),
+        )
+    }
+
+    pub fn ty_tuple<I: IntoIterator<Item = &'a Type<'a>>>(&self, iter: I) -> &'a Type<'a> {
+        let tys = iter
+            .into_iter()
+            .enumerate()
+            .map(|(idx, ty)| Row {
+                label: Symbol::tuple_field(idx as u32 + 1),
+                data: ty,
+                span: Span::dummy(),
+            })
+            .collect();
+        self.types
+            .alloc(Type::Record(SortedRecord::new_unchecked(tys)))
+    }
+
+    pub fn pat_var(&self, var: Symbol, ty: &'a Type<'a>) -> Pat<'a> {
+        Pat::new(self.pats.alloc(PatKind::Var(var)), ty, Span::dummy())
+    }
+
+    pub fn expr_var(&self, var: Symbol, ty: &'a Type<'a>) -> Expr<'a> {
+        Expr::new(self.exprs.alloc(ExprKind::Var(var)), ty, Span::dummy())
+    }
+
+    /// Create a `let val var_name : (ty1, ty2, ty3) = (s1, ... sN) in expr` expression
+    pub fn let_tuple<I: IntoIterator<Item = (Symbol, &'a Type<'a>)>>(
+        &self,
+        iter: I,
+        var_name: Symbol,
+        body: Expr<'a>,
+    ) -> Expr<'a> {
+        let expr = self.expr_tuple(iter.into_iter().map(|(sym, ty)| (ExprKind::Var(sym), ty)));
+        let decl = Decl::Val(Rule {
+            pat: self.pat_var(var_name, expr.ty),
+            expr,
+        });
+        Expr::new(
+            self.exprs.alloc(ExprKind::Let(vec![decl], body)),
+            body.ty,
+            body.span,
+        )
+    }
+
+    /// Create a `let val (s1, ..., sN) = var_name : (ty1, ty2, ty3) in expr` expression
+    pub fn let_detuple<I: IntoIterator<Item = (Symbol, &'a Type<'a>)>>(
+        &self,
+        iter: I,
+        var_name: Symbol,
+        body: Expr<'a>,
+    ) -> Expr<'a> {
+        let pat = self.pat_tuple(iter.into_iter().map(|(sym, ty)| (PatKind::Var(sym), ty)));
+        let decl = Decl::Val(Rule {
+            pat,
+            expr: self.expr_var(var_name, pat.ty),
+        });
+        Expr::new(
+            self.exprs.alloc(ExprKind::Let(vec![decl], body)),
+            body.ty,
+            body.span,
+        )
+    }
+}
+
 pub struct ExprArena<'ar> {
     arena: &'ar Arena<ExprKind<'ar>>,
     fresh: Cell<u32>,
