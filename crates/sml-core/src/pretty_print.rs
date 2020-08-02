@@ -4,89 +4,12 @@ use sml_util::interner::{Interner, Symbol};
 use std::collections::{HashMap, VecDeque};
 use std::fmt::{self, Write};
 
-// pub enum Doc {
-//     Nil,
-//     Line,
-//     Text(String),
-//     Nest(usize, Box<Doc>),
-//     Group(Box<Doc>),
-//     Append(Vec<Doc>),
-// }
-
-// #[derive(Default)]
-// pub struct Document {
-//     docs: Vec<Doc>,
-// }
-
-// impl Document {
-//     pub fn nil(&mut self) -> &mut Self {
-//         self.docs.push(Doc::Nil);
-//         self
-//     }
-
-//     pub fn line(&mut self) -> &mut Self {
-//         self.docs.push(Doc::Line);
-//         self
-//     }
-
-//     pub fn text<S: AsRef<str>>(&mut self, s: S) -> &mut Self {
-//         self.docs.push(Doc::Text(s.as_ref().into()));
-//         self
-//     }
-
-//     pub fn nest<F>(&mut self, depth: usize, f: F) -> &mut Self
-//         where F: Fn(&mut Document) -> Document
-//     {
-//         let mut inner = Document::default();
-//         let docs = f(&mut inner).docs;
-//         self.docs.push(Doc::Nest(depth, Box::new(Doc::Append(docs))));
-//         self
-//     }
-
-//     pub fn group<F>(&mut self, f: F) -> &mut Self
-//         where F: Fn(&mut Document) -> Document
-//     {
-//         let mut inner = Document::default();
-//         let docs = f(&mut inner).docs;
-//         self.docs.push(Doc::Group(Box::new(Doc::Append(docs))));
-//         self
-//     }
-// }
-
-// pub struct Formatter<'a> {
-//     docs: Vec<Doc>,
-//     width: usize,
-//     indent: usize,
-
-//     write: Box<dyn fmt::Write + 'a>,
-// }
-
-// impl<'a> Formatter<'a> {
-//     pub fn best(&mut self) {
-//         while let Some(doc) = self.docs.pop() {
-//             use Doc::*;
-//             match doc {
-//                 Nil => continue,
-//                 Append(docs) => {
-//                     self.docs.extend(docs);
-//                 },
-//                 Nest(depth, doc) => {
-//                     self.indent += depth;
-//                     self.docs.extend(doc);
-//                 }
-//                 _ => continue,
-//             }
-//         }
-//     }
-// }
-
 pub struct PrettyPrinter<'a> {
     indent: usize,
     width: usize,
     max: usize,
     prev_max: Vec<usize>,
     interner: &'a Interner,
-    write: Box<dyn fmt::Write + 'a>,
     commands: VecDeque<Command>,
 }
 
@@ -109,34 +32,38 @@ impl fmt::Debug for PrettyPrinter<'_> {
 }
 
 impl<'a> PrettyPrinter<'a> {
-    pub fn new(interner: &'a Interner, write: Box<dyn fmt::Write + 'a>) -> PrettyPrinter<'a> {
+    pub fn new(interner: &'a Interner) -> PrettyPrinter<'a> {
         PrettyPrinter {
             width: 0,
             indent: 0,
             max: 120,
             prev_max: Vec::new(),
-            write,
             interner,
             commands: VecDeque::new(),
         }
     }
-
-    pub fn print_symbol(&mut self, sym: Symbol) -> fmt::Result {
-        let repr = self.interner.get(sym).unwrap_or("?");
-        write!(self.write, "{}", repr)
-    }
-
     pub fn test(&mut self) {
-        self.wrap(80, |pp| {
-            pp.text("hello, world")
+        self.wrap(20, |pp| {
+            pp.text("case")
+                .text("x")
+                .nest(2, |pp| pp.line().text("of _ => bar"))
+                .nest(3, |pp| {
+                    pp.line().nest(2, |pp| {
+                        pp.text("| _ => foo")
+                            .text("bar baz qux")
+                            .text(" flub ")
+                            .text(" mosoaic")
+                    })
+                })
                 .line()
-                .text("goodbye, world")
-                .nest(2, |pp| pp.line().text("indent!"))
+                .text("goodbye")
+                .text(",")
+                .text("world")
+                .nest(2, |pp| pp.line().text("indent!").text("is fun!"))
         });
     }
 
-    pub fn run_command(&mut self) -> String {
-        let mut buffer = String::new();
+    pub fn write<W: fmt::Write>(&mut self, w: &mut W) -> fmt::Result {
         while let Some(cmd) = self.commands.pop_front() {
             use Command::*;
             match cmd {
@@ -156,33 +83,25 @@ impl<'a> PrettyPrinter<'a> {
                 }
                 Line => {
                     let spaces = (0..self.indent).map(|_| ' ').collect::<String>();
-                    write!(&mut buffer, "\n{}", spaces);
+                    write!(w, "\n{}", spaces)?;
                     self.width = self.indent;
                 }
                 Text(s) => {
                     if self.width + s.len() >= self.max {
                         let spaces = (0..self.indent).map(|_| ' ').collect::<String>();
-                        write!(&mut buffer, "\n{}{}", spaces, s);
+                        write!(w, "\n{}{}", spaces, s)?;
                         self.width = self.indent + s.len();
                     } else {
                         self.width += s.len();
-                        buffer.write_str(&s);
+                        w.write_str(&s)?;
                     }
                 }
             }
         }
-        buffer
+        Ok(())
     }
 
-    fn indent(&mut self) {
-        self.indent += 1;
-    }
-
-    fn dedent(&mut self) {
-        self.indent -= 1;
-    }
-
-    fn wrap<F>(&mut self, width: usize, f: F) -> &mut Self
+    pub fn wrap<F>(&mut self, width: usize, f: F) -> &mut Self
     where
         for<'b> F: Fn(&'b mut PrettyPrinter<'a>) -> &'b mut PrettyPrinter<'a>,
     {
@@ -192,7 +111,7 @@ impl<'a> PrettyPrinter<'a> {
         self
     }
 
-    fn nest<F>(&mut self, width: usize, f: F) -> &mut Self
+    pub fn nest<F>(&mut self, width: usize, f: F) -> &mut Self
     where
         for<'b> F: Fn(&'b mut PrettyPrinter<'a>) -> &'b mut PrettyPrinter<'a>,
     {
@@ -202,125 +121,146 @@ impl<'a> PrettyPrinter<'a> {
         self
     }
 
-    fn line(&mut self) -> &mut Self {
+    pub fn line(&mut self) -> &mut Self {
         self.commands.push_back(Command::Line);
         self
     }
 
-    fn text<S: AsRef<str>>(&mut self, s: S) -> &mut Self {
+    pub fn text<S: AsRef<str>>(&mut self, s: S) -> &mut Self {
         self.commands.push_back(Command::Text(s.as_ref().into()));
         self
     }
-    // fn text<(&mut self, s: S)
 
-    pub fn newline(&mut self) -> fmt::Result {
-        let spaces = (0..self.indent * 2).map(|_| ' ').collect::<String>();
-        writeln!(self.write, "\n{}", spaces)
-    }
-}
-
-impl fmt::Write for PrettyPrinter<'_> {
-    fn write_str(&mut self, s: &str) -> fmt::Result {
-        self.write.write_str(s)
+    pub fn print<P: Print>(&mut self, p: &P) -> &mut Self {
+        p.print(self)
     }
 }
 
 pub trait Print {
-    fn print(&self, printer: &mut PrettyPrinter<'_>) -> fmt::Result;
+    fn print<'a, 'b>(&self, pp: &'a mut PrettyPrinter<'b>) -> &'a mut PrettyPrinter<'b>;
 }
 
-impl<T: Print> Print for SortedRecord<T> {
-    fn print(&self, printer: &mut PrettyPrinter<'_>) -> fmt::Result {
-        printer.write_str("{{")?;
-        for (idx, row) in self.iter().enumerate() {
-            printer.print_symbol(row.label)?;
-            printer.write_str(": ")?;
-            row.data.print(printer)?;
-            if idx != self.rows.len() {
-                printer.write_str(",")?;
-            }
+impl Print for Symbol {
+    fn print<'a, 'b>(&self, pp: &'a mut PrettyPrinter<'b>) -> &'a mut PrettyPrinter<'b> {
+        match self {
+            Symbol::Tuple(n) => pp.text(n.to_string()),
+            _ => pp.text(pp.interner.get(*self).unwrap_or("?")),
         }
-        printer.write_str("}}")
     }
 }
 
-impl Print for Const {
-    fn print(&self, printer: &mut PrettyPrinter<'_>) -> fmt::Result {
-        match self {
-            Const::Unit => printer.write_str("()"),
-            Const::Char(c) => write!(printer, "#'{}'", c),
-            Const::String(s) => {
-                printer.write_char('"')?;
-                printer.print_symbol(*s)?;
-                printer.write_char('"')
+impl<T: Print> Print for &SortedRecord<T> {
+    fn print<'a, 'b>(&self, pp: &'a mut PrettyPrinter<'b>) -> &'a mut PrettyPrinter<'b> {
+        if let Symbol::Tuple(_) = self.rows[0].label {
+            pp.text("(");
+            for (idx, row) in self.iter().enumerate() {
+                pp.print(&row.data);
+                if idx != self.rows.len() - 1 {
+                    pp.text(", ");
+                }
             }
-            Const::Int(i) => write!(printer, "{}", i),
+            pp.text(")")
+        } else {
+            pp.text("{");
+            for (idx, row) in self.iter().enumerate() {
+                pp.print(&row.label).text(": ").print(&row.data);
+                if idx != self.rows.len() - 1 {
+                    pp.text(", ");
+                }
+            }
+            pp.text("}")
+        }
+    }
+}
+
+impl Print for &Const {
+    fn print<'a, 'b>(&self, pp: &'a mut PrettyPrinter<'b>) -> &'a mut PrettyPrinter<'b> {
+        match self {
+            Const::Unit => pp.text("()"),
+            Const::Char(c) => pp.text(format!("#'{}'", c)),
+            Const::String(s) => pp.print(s),
+            Const::Int(i) => pp.text(i.to_string()),
         }
     }
 }
 
 impl<'a> Print for Pat<'a> {
-    fn print(&self, printer: &mut PrettyPrinter<'_>) -> fmt::Result {
+    fn print<'c, 'b>(&self, pp: &'c mut PrettyPrinter<'b>) -> &'c mut PrettyPrinter<'b> {
         match &self.pat {
-            PatKind::App(con, Some(pat)) => {
-                printer.print_symbol(con.name)?;
-                printer.write_str(" ")?;
-                pat.print(printer)
-            }
-            PatKind::App(con, None) => printer.print_symbol(con.name),
-            PatKind::Const(constant) => constant.print(printer),
-            PatKind::Record(record) => record.print(printer),
-            PatKind::Var(sym) => printer.print_symbol(*sym),
-            PatKind::Wild => printer.write_str("_"),
+            PatKind::App(con, Some(pat)) => pp.print(&con.name).text(" ").print(pat),
+            PatKind::App(con, None) => pp.print(&con.name),
+            PatKind::Const(constant) => pp.print(&constant),
+            PatKind::Record(record) => pp.print(&record),
+            PatKind::Var(sym) => pp.print(sym),
+            PatKind::Wild => pp.text("_"),
         }
     }
 }
 
 impl<'a> Print for Type<'a> {
-    fn print(&self, printer: &mut PrettyPrinter<'_>) -> fmt::Result {
+    fn print<'c, 'b>(&self, pp: &'c mut PrettyPrinter<'b>) -> &'c mut PrettyPrinter<'b> {
         let mut map = HashMap::new();
-        self.print_rename(printer, &mut map)
+        self.print_rename(pp, &mut map)
     }
 }
 
 impl<'a> Type<'a> {
-    fn print_rename(
+    fn print_rename<'b, 'c>(
         &self,
-        printer: &mut PrettyPrinter<'_>,
+        pp: &'b mut PrettyPrinter<'c>,
         map: &mut HashMap<usize, String>,
-    ) -> fmt::Result {
+    ) -> &'b mut PrettyPrinter<'c> {
         match self {
             Type::Con(tycon, args) => {
-                for arg in args {
-                    arg.print_rename(printer, map)?;
-                    printer.write_str(" ")?;
+                if tycon == &crate::builtin::tycons::T_ARROW {
+                    args[0].print_rename(pp, map).text(" -> ");
+                    args[1].print_rename(pp, map)
+                } else {
+                    for arg in args {
+                        arg.print_rename(pp, map).text(" ");
+                    }
+                    pp.print(&tycon.name)
                 }
-                printer.print_symbol(tycon.name)
             }
             Type::Record(fields) => {
-                printer.write_str("{{")?;
-                for row in fields.iter() {
-                    printer.print_symbol(row.label)?;
-                    printer.write_str(": ")?;
-                    row.data.print_rename(printer, map)?;
-                    printer.write_str(",")?;
+                if let Symbol::Tuple(_) = fields[0].label {
+                    pp.text("(");
+                    for (idx, row) in fields.iter().enumerate() {
+                        row.data.print_rename(pp, map);
+                        if idx != fields.rows.len() - 1 {
+                            pp.text(", ");
+                        }
+                    }
+                    pp.text(")")
+                } else {
+                    pp.text("{");
+                    for (idx, row) in fields.iter().enumerate() {
+                        pp.print(&row.label).text(": ");
+                        row.data.print_rename(pp, map);
+                        if idx != fields.rows.len() - 1 {
+                            pp.text(", ");
+                        }
+                    }
+                    pp.text("}")
                 }
-                printer.write_str("}}")
             }
             Type::Var(tyvar) => match tyvar.ty() {
-                Some(bound) => bound.print_rename(printer, map),
+                Some(bound) => bound.print_rename(pp, map),
                 None => match map.get(&tyvar.id) {
-                    Some(s) => write!(printer, "{}", s),
+                    Some(s) => pp.text(s),
                     None => {
                         let x = map.len();
                         let last = ((x % 26) as u8 + 'a' as u8) as char;
-                        let name = (0..x / 26)
-                            .map(|_| 'z')
-                            .chain(std::iter::once(last))
-                            .collect::<String>();
-                        write!(printer, "{}", name)?;
+                        let name = format!(
+                            "'{}",
+                            (0..x / 26)
+                                .map(|_| 'z')
+                                .chain(std::iter::once(last))
+                                .collect::<String>()
+                        );
+                        pp.text(&name);
                         map.insert(tyvar.id, name);
-                        Ok(())
+                        pp
                     }
                 },
             },
