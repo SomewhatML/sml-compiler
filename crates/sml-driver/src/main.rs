@@ -87,6 +87,11 @@ impl<'a> Compiler<'a> {
                         use sml_core::pretty_print::Print;
                         use sml_core::{Decl, Rule};
                         use std::fmt::Write;
+
+                        pp.test();
+                        dbg!(&pp);
+                        println!("{}", pp.run_command());
+
                         match decl {
                             Decl::Val(Rule { pat, .. }) => {
                                 pat.print(&mut pp);
