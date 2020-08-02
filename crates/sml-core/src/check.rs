@@ -4,7 +4,8 @@
 //! * valbind, typbind, datbind, exbinds may not bind the same identifier twice
 //! * No tyvarseq may contain the same `tyvar` twice
 //! * For each recursive `pat=exp` valbind, exp must be of the form `fn match`
-//! * No datbind, valbind, or exnbind may bind `true`, `false`, `nil`, `::`, or `ref`
+//! * No datbind, valbind, or exnbind may bind `true`, `false`, `nil`, `::`, or
+//!   `ref`
 //! * No datbind or exnbind may bind `it`
 //! * No real constant may occur in a pattern
 //! * tyvarseqs across the same valbinds must be unique

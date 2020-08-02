@@ -1,4 +1,5 @@
 use sml_core::elaborate::Context;
+use sml_core::pretty_print::PrettyPrinter;
 use sml_frontend::parser::Parser;
 use sml_util::diagnostics::{Diagnostic, Level};
 use sml_util::interner::*;
@@ -8,6 +9,7 @@ use std::time::Instant;
 
 pub struct Compiler<'a> {
     arena: &'a sml_core::arenas::CoreArena<'a>,
+    interner: Interner,
     measure: bool,
     print_types: bool,
 }
@@ -22,6 +24,7 @@ impl CompilerBuilder {
     pub fn build<'a>(self, arena: &'a sml_core::arenas::CoreArena<'a>) -> Compiler<'a> {
         Compiler {
             arena,
+            interner: Interner::with_capacity(4096),
             measure: self.measure.unwrap_or(false),
             print_types: self.print_types.unwrap_or(false),
         }
@@ -70,18 +73,41 @@ fn report(diags: Vec<Diagnostic>, src: &str) {
 
 impl<'a> Compiler<'a> {
     fn run(&mut self, src: &str) {
-        let (res, mut diags) = INTERNER.with(|i| {
-            let x = &mut i.borrow_mut();
-            let mut p = Parser::new(&src, x);
-            let res = p.parse_decl();
-            (res, p.diags)
-        });
+        let mut p = Parser::new(src, &mut self.interner);
+        let res = p.parse_decl();
+        let mut diags = p.diags;
 
         match res {
             Ok(d) => {
                 let (decls, diags) = sml_core::elaborate::check_and_elaborate(self.arena, &d);
                 if self.print_types {
-                    for decl in &decls {}
+                    let mut buffer = String::new();
+                    for decl in &decls {
+                        let mut pp = PrettyPrinter::new(&self.interner, Box::new(&mut buffer));
+                        use sml_core::pretty_print::Print;
+                        use sml_core::{Decl, Rule};
+                        use std::fmt::Write;
+                        match decl {
+                            Decl::Val(Rule { pat, .. }) => {
+                                pat.print(&mut pp);
+                                write!(pp, ": ");
+                                pat.ty.print(&mut pp);
+                            }
+                            Decl::Fun(_, binds) => {
+                                for (name, lam) in binds {
+                                    pp.print_symbol(*name);
+                                    write!(pp, ": ");
+
+                                    lam.ty.print(&mut pp);
+                                    write!(pp, " -> ");
+                                    lam.body.ty.print(&mut pp);
+                                }
+                            }
+                            _ => continue,
+                        }
+                        pp.newline();
+                    }
+                    println!("{}", buffer);
                 }
                 report(diags, &src)
             }
@@ -106,8 +132,7 @@ fn main() {
         return;
     }
 
-    let mut ctx = Context::new(&borrow);
-    println!("SimpleML (c) 2020");
+    println!("SomewhatML (c) 2020");
     loop {
         let mut buffer = String::new();
         print!("repl: ");
