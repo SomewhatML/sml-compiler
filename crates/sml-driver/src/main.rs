@@ -9,6 +9,7 @@ use std::time::Instant;
 
 pub struct Compiler<'a> {
     arena: &'a sml_core::arenas::CoreArena<'a>,
+    elab: sml_core::elaborate::Context<'a>,
     interner: Interner,
     measure: bool,
     print_types: bool,
@@ -24,6 +25,7 @@ impl CompilerBuilder {
     pub fn build<'a>(self, arena: &'a sml_core::arenas::CoreArena<'a>) -> Compiler<'a> {
         Compiler {
             arena,
+            elab: sml_core::elaborate::Context::new(arena),
             interner: Interner::with_capacity(4096),
             measure: self.measure.unwrap_or(false),
             print_types: self.print_types.unwrap_or(false),
@@ -76,33 +78,22 @@ impl<'a> Compiler<'a> {
         let mut p = Parser::new(src, &mut self.interner);
         let res = p.parse_decl();
         let mut diags = p.diags;
-
+        let sio = std::io::stdout();
+        let mut out = sio.lock();
         match res {
             Ok(d) => {
-                let (decls, diags) = sml_core::elaborate::check_and_elaborate(self.arena, &d);
+                let mut check = sml_core::check::Check::default();
+                check.check_decl(&d);
+                let mut diags = check.diags;
+
+                let decls = self.elab.elaborate_decl(&d);
+                diags.extend(std::mem::replace(&mut self.elab.diags, Vec::new()));
                 if self.print_types {
                     for decl in &decls {
                         let mut pp = PrettyPrinter::new(&self.interner);
-                        use sml_core::{Decl, Rule};
-
-                        match decl {
-                            Decl::Val(Rule { pat, .. }) => {
-                                pp.text("val ").print(pat).text(": ").print(pat.ty).line();
-                            }
-                            Decl::Fun(_, binds) => {
-                                for (name, lam) in binds {
-                                    pp.text("val ")
-                                        .print(name)
-                                        .text(": ")
-                                        .print(self.arena.types.arrow(lam.ty, lam.body.ty))
-                                        .line();
-                                }
-                            }
-                            _ => continue,
-                        }
-                        let mut buffer = String::with_capacity(64);
-                        pp.write(&mut buffer).unwrap();
-                        println!("{}", buffer);
+                        pp.print(decl);
+                        pp.write(&mut out).unwrap();
+                        out.flush().unwrap();
                     }
                 }
                 report(diags, &src)
@@ -121,23 +112,22 @@ fn main() {
 
     let args = env::args();
     if args.len() > 1 {
+        let mut compiler = CompilerBuilder::default().build(&borrow);
         for f in args.skip(1) {
             let file = std::fs::read_to_string(&f).unwrap();
-            CompilerBuilder::default().build(&borrow).run(&file);
+            compiler.run(&file);
         }
         return;
     }
 
     println!("SomewhatML (c) 2020");
+    let mut compiler = CompilerBuilder::default().print_types(true).build(&borrow);
     loop {
         let mut buffer = String::new();
         print!("repl: ");
         std::io::stdout().flush().unwrap();
         std::io::stdin().read_to_string(&mut buffer).unwrap();
 
-        CompilerBuilder::default()
-            .print_types(true)
-            .build(&borrow)
-            .run(&buffer);
+        compiler.run(&buffer);
     }
 }
