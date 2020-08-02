@@ -164,13 +164,13 @@ fn preflight<'a>(ctx: &Context<'a>, rules: Vec<Rule<'a>>) -> (Vec<Decl<'a>>, Vec
     (decls, finished)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Fact {
     Con(Constructor, Option<Symbol>),
     Record(SortedRecord<Symbol>),
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Clone)]
 pub struct Facts {
     v: Vec<(Symbol, Fact)>,
 }
@@ -194,14 +194,14 @@ impl Facts {
             match pat.pat {
                 PatKind::Var(x) => {
                     if let Some(_) = map.insert(*x, (*var, pat.ty)) {
-                        panic!("Bug: Facts.bind rebinding of {:?} => {:?}", var, x)
+                        panic!("Bug: Facts.bind rebinding")
                     }
                 }
                 PatKind::App(_, Some(pat)) => match facts.get(var) {
                     Some(Fact::Con(_, Some(x))) => {
                         queue.push_back((x, pat));
                     }
-                    x => panic!("Bug: Facts.bind constructor {:?} {:?}", var, x),
+                    x => panic!("Bug: Facts.bind constructor"),
                 },
                 PatKind::Record(rp) => match facts.get(var) {
                     Some(Fact::Record(rx)) => {
@@ -209,7 +209,7 @@ impl Facts {
                             queue.push_back((&rx.data, &rp.data));
                         }
                     }
-                    x => panic!("Bug: Facts.bind record {:?} {:?}", var, x),
+                    x => panic!("Bug: Facts.bind record"),
                 },
                 _ => continue,
             }
@@ -579,24 +579,6 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
                 self.default_matrix(facts)
             }
         }
-    }
-}
-
-impl fmt::Debug for Matrix<'_, '_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "matrix {:?}\n", self.vars)?;
-        for (pats, exprs) in self.pats.iter().zip(self.rules.iter()) {
-            writeln!(
-                f,
-                "{:?} => {:?}",
-                pats.iter()
-                    .map(|pat| format!("{:?}", pat))
-                    .collect::<Vec<String>>()
-                    .join(","),
-                exprs
-            )?;
-        }
-        Ok(())
     }
 }
 

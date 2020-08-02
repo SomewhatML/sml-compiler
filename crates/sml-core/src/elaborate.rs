@@ -938,7 +938,7 @@ impl<'ar> Context<'ar> {
                     _ => {
                         self.diags.push(Diagnostic::error(
                             pat.span,
-                            format!("Non-constructor {:?} applied to pattern {:?}", con, p),
+                            format!("Non-constructor applied to pattern"),
                         ));
                         Pat::new(
                             self.arena.pats.wild(),
