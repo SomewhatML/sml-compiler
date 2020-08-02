@@ -7,10 +7,10 @@ use std::fmt;
 pub mod arenas;
 pub mod builtin;
 pub mod check;
-// pub mod decision;
 pub mod elaborate;
 pub mod match_compile;
 pub mod monomorphize;
+pub mod pretty_print;
 pub mod types;
 use types::{Constructor, Scheme, Tycon, Type, TypeVar};
 
