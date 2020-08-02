@@ -7,6 +7,10 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-sml-util = {path = "../sml-util"}
-sml-frontend = {path = "../sml-frontend"}
 typed-arena = "2.0"
+
+[dependencies.sml-frontend]
+path = "../sml-frontend"
+
+[dependencies.sml-util]
+path = "../sml-util"

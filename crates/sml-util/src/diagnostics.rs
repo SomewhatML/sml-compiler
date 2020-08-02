@@ -86,7 +86,7 @@ impl Diagnostic {
         range
     }
 
-    pub fn report(mut self, source: &str) -> String {
+    pub fn verbose(mut self, source: &str) -> String {
         let lines = source.lines().collect::<Vec<&str>>();
 
         let mut output = format!("{:?}\n", self.level);
@@ -116,6 +116,33 @@ impl Diagnostic {
             }
         }
         output
+    }
+
+    pub fn minimal(mut self, _: &str) -> String {
+        let mut output = format!("{:?}\n", self.level);
+        self.other.insert(0, self.primary);
+        for anno in self.other {
+            if anno.span == Span::dummy() {
+                output.push_str(&anno.info);
+                output.push('\n');
+            } else {
+                output.push_str(&format!(
+                    "{},{} {}\n",
+                    anno.span.start.line + 1,
+                    anno.span.start.col + 1,
+                    anno.info
+                ));
+            }
+        }
+        output
+    }
+
+    pub fn report(self, verbosity: u8, source: &str) -> String {
+        if verbosity > 1 {
+            self.verbose(source)
+        } else {
+            self.minimal(source)
+        }
     }
 }
 

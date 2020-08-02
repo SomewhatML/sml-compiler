@@ -2,10 +2,6 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::pin::Pin;
 
-thread_local! {
-    pub static INTERNER: RefCell<Interner> = RefCell::new(Interner::with_capacity(512));
-}
-
 macro_rules! globals {
     (@step $idx:expr, ) => {
         pub const S_TOTAL_GLOBALS: usize = $idx;
@@ -224,27 +220,8 @@ impl Interner {
     }
 }
 
-fn fresh_name(x: u32) -> String {
-    let last = ((x % 26) as u8 + 'a' as u8) as char;
-    (0..x / 26)
-        .map(|_| 'z')
-        .chain(std::iter::once(last))
-        .collect::<String>()
-}
-
 impl std::fmt::Debug for Symbol {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Symbol::Builtin(n) => write!(f, "{}", BUILTIN_STRS[*n as usize]),
-            Symbol::Gensym(n) => write!(f, "{}", fresh_name(*n)),
-            Symbol::Tuple(n) => write!(f, "{}", n),
-            Symbol::Interned(n) => INTERNER.with(|i| match i.try_borrow() {
-                Ok(b) => match b.get(*self) {
-                    Some(s) => write!(f, "{}", s),
-                    None => write!(f, "?"),
-                },
-                Err(_) => write!(f, "{}", n),
-            }),
-        }
+        f.write_str("interned symbol")
     }
 }

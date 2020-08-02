@@ -23,6 +23,6 @@ Current speeds as of 6/30/2020:
 For a 10k line file:
 
 Lexing and parsing takes ~10 ms
-Elaboration and type reconstruction takes ~45ms
+Elaboration and type reconstruction takes ~30ms
 
 Moving to an arena allocator for the CoreML language takes us down to around ~35 ms for elaboration

@@ -35,6 +35,7 @@ impl<'a> PrettyPrinter<'a> {
             commands: VecDeque::new(),
         }
     }
+
     pub fn test(&mut self) {
         self.wrap(20, |pp| {
             pp.text("case")
@@ -75,6 +76,9 @@ impl<'a> PrettyPrinter<'a> {
                     self.max = self.prev_max.pop().unwrap_or(120);
                 }
                 Line => {
+                    if self.width == self.indent {
+                        continue;
+                    }
                     let spaces = (0..self.indent).map(|_| ' ').collect::<String>();
                     write!(w, "\n{}", spaces)?;
                     self.width = self.indent;
@@ -129,6 +133,14 @@ impl<'a> PrettyPrinter<'a> {
     }
 }
 
+fn fresh_name(x: u32) -> String {
+    let last = ((x % 26) as u8 + 'a' as u8) as char;
+    (0..x / 26)
+        .map(|_| 'z')
+        .chain(std::iter::once(last))
+        .collect::<String>()
+}
+
 pub trait Print {
     fn print<'a, 'b>(&self, pp: &'a mut PrettyPrinter<'b>) -> &'a mut PrettyPrinter<'b>;
 }
@@ -137,6 +149,7 @@ impl Print for Symbol {
     fn print<'a, 'b>(&self, pp: &'a mut PrettyPrinter<'b>) -> &'a mut PrettyPrinter<'b> {
         match self {
             Symbol::Tuple(n) => pp.text(n.to_string()),
+            Symbol::Gensym(n) => pp.text(fresh_name(*n % 100)),
             _ => pp.text(pp.interner.get(*self).unwrap_or("?")),
         }
     }

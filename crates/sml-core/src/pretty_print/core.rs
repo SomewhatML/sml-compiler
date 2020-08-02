@@ -57,8 +57,8 @@ impl<'a> Print for Expr<'a> {
         use ExprKind::*;
         match &self.expr {
             App(e1, e2) => pp.print(e1).text(" ").print(e2),
-            Case(casee, rules) => {
-                pp.text("case ").print(casee).nest(2, |pp| {
+            Case(casee, rules) => pp.nest(2, |pp| {
+                pp.line().text("case ").print(casee).nest(2, |pp| {
                     pp.line()
                         .text("of ")
                         .print(&rules[0].pat)
@@ -76,7 +76,7 @@ impl<'a> Print for Expr<'a> {
                     });
                 }
                 pp
-            }
+            }),
             Con(con, tys) => pp.print(&con.name),
             Const(c) => pp.print(&c),
             Handle(tryy, sym, handler) => pp
@@ -86,21 +86,21 @@ impl<'a> Print for Expr<'a> {
                 .text(" with ")
                 .print(handler),
             Lambda(lam) => pp.text("fn ").print(&lam.arg).text(" => ").print(&lam.body),
-            Let(decls, body) => pp
-                .text("let")
-                .line()
-                .nest(2, |pp| {
-                    for decl in decls {
-                        pp.print(decl).line();
-                    }
-                    pp
-                })
-                .text("in")
-                .line()
-                .nest(2, |pp| pp.print(body).line())
-                .line()
-                .text("end")
-                .line(),
+            Let(decls, body) => pp.nest(2, |pp| {
+                pp.line()
+                    .text("let")
+                    .nest(2, |pp| {
+                        for decl in decls {
+                            pp.print(decl);
+                        }
+                        pp
+                    })
+                    .line()
+                    .text("in ")
+                    .nest(2, |pp| pp.line().print(body))
+                    .line()
+                    .text("end")
+            }),
             List(exprs) => {
                 pp.text("[");
                 for (idx, expr) in exprs.iter().enumerate() {
@@ -203,23 +203,83 @@ impl<'a> Type<'a> {
 impl<'a> Print for Decl<'a> {
     fn print<'b, 'c>(&self, pp: &'b mut PrettyPrinter<'c>) -> &'b mut PrettyPrinter<'c> {
         match self {
-            Decl::Val(Rule { pat, .. }) => {
-                pp.text("val ").print(pat).text(": ").print(pat.ty).line()
-            }
+            Decl::Val(Rule { pat, expr }) => pp
+                .line()
+                .text("val ")
+                .print(pat)
+                .text(": ")
+                .print(pat.ty)
+                .text(" = ")
+                .print(expr),
             Decl::Fun(_, binds) => {
                 for (name, lam) in binds {
-                    pp.text("val ")
+                    pp.line()
+                        .text("val ")
                         .print(name)
                         .text(": ")
                         .print(&Type::Con(
                             crate::builtin::tycons::T_ARROW,
                             vec![lam.ty, lam.body.ty],
                         ))
-                        .line();
+                        .text(" = ")
+                        .print(&lam.body);
                 }
                 pp
             }
-            _ => pp,
+            Decl::Exn(con, Some(ty)) => pp
+                .line()
+                .text("exception ")
+                .print(&con.name)
+                .text(" of ")
+                .print(*ty),
+            Decl::Exn(con, None) => pp.text("exception ").print(&con.name),
+            Decl::Datatype(dt) => {
+                let mut map = HashMap::new();
+                pp.line();
+                let pp = match dt.tyvars.len() {
+                    0 => pp.text("datatype ").print(&dt.tycon.name),
+                    1 => {
+                        map.insert(dt.tyvars[0], "'a".into());
+                        pp.text("datatype 'a ").print(&dt.tycon.name)
+                    }
+                    _ => {
+                        pp.text("datatype (");
+                        for (idx, tyvar) in dt.tyvars.iter().enumerate() {
+                            let last = ((idx % 26) as u8 + 'a' as u8) as char;
+                            let name = format!(
+                                "'{}",
+                                (0..idx / 26)
+                                    .map(|_| 'z')
+                                    .chain(std::iter::once(last))
+                                    .collect::<String>()
+                            );
+                            pp.text(&name);
+                            map.insert(*tyvar, name);
+                            if idx != dt.tyvars.len() - 1 {
+                                pp.text(", ");
+                            }
+                        }
+                        pp.text(") ").print(&dt.tycon.name)
+                    }
+                };
+                pp.text(" = ");
+
+                for (idx, con) in dt.constructors.iter().enumerate() {
+                    match con {
+                        (con, Some(ty)) => {
+                            pp.print(&con.name).text(" of ");
+                            ty.print_rename(pp, &mut map);
+                        }
+                        (con, None) => {
+                            pp.print(&con.name);
+                        }
+                    }
+                    if idx != dt.constructors.len().saturating_sub(1) {
+                        pp.text(" | ");
+                    }
+                }
+                pp
+            }
         }
     }
 }

@@ -7,7 +7,7 @@ use super::*;
 use sml_frontend::ast;
 use sml_frontend::parser::precedence::{self, Fixity, Precedence, Query};
 use sml_util::diagnostics::Diagnostic;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 pub fn check_and_elaborate<'ar>(
     arena: &'ar CoreArena<'ar>,

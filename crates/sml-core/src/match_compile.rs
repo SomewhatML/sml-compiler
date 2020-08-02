@@ -15,7 +15,6 @@
 
 use super::*;
 use elaborate::Context;
-use sml_util::diagnostics::Diagnostic;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 pub type Var<'a> = (Symbol, &'a Type<'a>);
@@ -201,7 +200,7 @@ impl Facts {
                     Some(Fact::Con(_, Some(x))) => {
                         queue.push_back((x, pat));
                     }
-                    x => panic!("Bug: Facts.bind constructor"),
+                    _ => panic!("Bug: Facts.bind constructor"),
                 },
                 PatKind::Record(rp) => match facts.get(var) {
                     Some(Fact::Record(rx)) => {
@@ -209,7 +208,7 @@ impl Facts {
                             queue.push_back((&rx.data, &rp.data));
                         }
                     }
-                    x => panic!("Bug: Facts.bind record"),
+                    _ => panic!("Bug: Facts.bind record"),
                 },
                 _ => continue,
             }
@@ -367,7 +366,8 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
                 type_arity = con.type_arity;
             }
         }
-
+        let mut set = set.into_iter().collect::<Vec<_>>();
+        set.sort_by(|a, b| a.0.name.cmp(&b.0.name));
         // We only use `true` and `false` or `cons` and `nil`, so we know
         // there are only 2 constructors in each datatype. Otherwise we
         // would need to query a context to determine this

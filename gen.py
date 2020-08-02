@@ -7,7 +7,7 @@ def new_name(s):
     return s + str(last)
 
 long = ""
-with open("decls.sml", 'r') as f:
+with open("scratch.sml", 'r') as f:
     text = f.read()
     lines = len(text.splitlines())
     total = 0
