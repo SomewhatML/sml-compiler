@@ -121,7 +121,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
     ) -> Matrix<'a, 'ctx> {
         let mut mat = Matrix::build(ctx, ret_ty, test, span, rules.len());
         for rule in rules {
-            mat.pats.push(vec![mat.delist(rule.pat)]);
+            mat.pats.push(vec![rule.pat]);
             mat.exprs.push(rule);
         }
         mat
@@ -434,7 +434,6 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
                 match &row[0].pat {
                     PatKind::Record(fields) => return self.record_rule(facts, fields),
                     PatKind::App(_, _) => return self.sum_rule(facts),
-                    PatKind::List(_) => todo!(),
                     PatKind::Const(_) => return self.const_rule(facts),
                     PatKind::Wild | PatKind::Var(_) => continue,
                 }
@@ -465,37 +464,6 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
             } else {
                 self.default_matrix(facts)
             }
-        }
-    }
-
-    fn delist(&self, pat: Pat<'a>) -> Pat<'a> {
-        match pat.pat {
-            PatKind::List(pats) => {
-                let nil = Pat::new(
-                    self.ctx
-                        .arena
-                        .pats
-                        .alloc(PatKind::App(crate::builtin::constructors::C_NIL, None)),
-                    pat.ty,
-                    pat.span,
-                );
-                dbg!(pats.into_iter().fold(nil, |xs, x| {
-                    let cons = Pat::new(
-                        self.ctx.arena.pats.tuple([*x, xs].iter().copied()),
-                        pat.ty,
-                        x.span,
-                    );
-                    Pat::new(
-                        self.ctx.arena.pats.alloc(PatKind::App(
-                            crate::builtin::constructors::C_CONS,
-                            Some(cons),
-                        )),
-                        pat.ty,
-                        pat.span,
-                    )
-                }))
-            }
-            _ => pat,
         }
     }
 
@@ -622,7 +590,6 @@ fn collect_vars<'a>(pat: Pat<'a>) -> Vec<Var<'a>> {
     while let Some(pat) = queue.pop_front() {
         match pat.pat {
             PatKind::Var(s) => v.push((*s, pat.ty)),
-            PatKind::List(pats) => queue.extend(pats.iter()),
             PatKind::Record(fields) => queue.extend(fields.iter().map(|row| row.data)),
             PatKind::App(_, Some(pat)) => queue.push_back(*pat),
             _ => {}

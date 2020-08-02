@@ -11,7 +11,6 @@ pub mod check;
 pub mod elaborate;
 pub mod match_compile;
 pub mod monomorphize;
-mod rename;
 pub mod types;
 use types::{Constructor, Scheme, Tycon, Type, TypeVar};
 
@@ -59,7 +58,7 @@ pub enum PatKind<'ar> {
     /// Constant
     Const(Const),
     /// Literal list
-    List(Vec<Pat<'ar>>),
+    // List(Vec<Pat<'ar>>),
     /// Record
     Record(SortedRecord<Pat<'ar>>),
     /// Variable binding
@@ -259,7 +258,7 @@ impl<'ar> fmt::Debug for PatKind<'ar> {
                     .collect::<Vec<String>>()
                     .join(",")
             ),
-            List(exprs) => write!(f, "{:?}", exprs),
+            // List(exprs) => write!(f, "{:?}", exprs),
             Var(s) => write!(f, "{:?}", s),
             Wild => write!(f, "_"),
         }

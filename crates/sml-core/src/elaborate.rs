@@ -908,6 +908,27 @@ impl<'ar> Context<'ar> {
         (self.elaborate_pat_inner(pat, bind, &mut bindings), bindings)
     }
 
+    fn delist(&self, pats: Vec<Pat<'ar>>, ty: &'ar Type<'ar>, sp: Span) -> Pat<'ar> {
+        let nil = Pat::new(
+            self.arena
+                .pats
+                .alloc(PatKind::App(crate::builtin::constructors::C_NIL, None)),
+            ty,
+            sp,
+        );
+        pats.into_iter().fold(nil, |xs, x| {
+            let cons = Pat::new(self.arena.pats.tuple([x, xs].iter().copied()), x.ty, x.span);
+            Pat::new(
+                self.arena.pats.alloc(PatKind::App(
+                    crate::builtin::constructors::C_CONS,
+                    Some(cons),
+                )),
+                ty,
+                sp,
+            )
+        })
+    }
+
     pub(crate) fn elaborate_pat_inner(
         &mut self,
         pat: &ast::Pat,
@@ -1002,11 +1023,12 @@ impl<'ar> Context<'ar> {
 
                 let tys = pats.iter().map(|p| p.ty).collect::<Vec<_>>();
                 self.unify_list(pat.span, &tys);
-                Pat::new(
-                    self.arena.pats.alloc(PatKind::List(pats)),
-                    self.arena.types.list(tys[0]),
-                    pat.span,
-                )
+                // Pat::new(
+                //     self.arena.pats.alloc(PatKind::List(pats)),
+                //     self.arena.types.list(tys[0]),
+                //     pat.span,
+                // )
+                self.delist(pats, self.arena.types.list(tys[0]), pat.span)
             }
             Record(rows, flex) => {
                 let pats: Vec<Row<Pat>> = rows
