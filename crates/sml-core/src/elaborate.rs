@@ -420,12 +420,12 @@ impl<'ar> Context<'ar> {
                     // .map_err(|diag| {
                     //     diag.message(
                     //         ra.span,
-                    //         format!("field '{:?}' has type {:?}", ra.label, ra.data),
-                    //     )
+                    //         format!("field '{:?}' has type {:?}", ra.label,
+                    // ra.data),     )
                     //     .message(
                     //         rb.span,
-                    //         format!("field '{:?}' has type {:?}", rb.label, rb.data),
-                    //     )
+                    //         format!("field '{:?}' has type {:?}", rb.label,
+                    // rb.data),     )
                     // })
                 }
             }
@@ -1230,7 +1230,8 @@ impl<'ar> Context<'ar> {
         }
     }
 
-    /// Perform initial elaboration on a function binding, enough to build up an environment
+    /// Perform initial elaboration on a function binding, enough to build up an
+    /// environment
     fn elab_decl_fnbind_ty<'s>(
         &mut self,
         name: Symbol,
@@ -1247,8 +1248,9 @@ impl<'ar> Context<'ar> {
                 let t = self.elaborate_type(&ty, false);
                 self.unify(ty.span, &res_ty, &t);
                 // .map_err(|diag| {
-                //     diag.message(clause.span, format!("function clause with result constraint of different type: expected {:?}, got {:?}", &res_ty, &t))
-                // });
+                //     diag.message(clause.span, format!("function clause with
+                // result constraint of different type: expected {:?}, got
+                // {:?}", &res_ty, &t)) });
             }
 
             let mut pats = Vec::new();
@@ -1257,7 +1259,8 @@ impl<'ar> Context<'ar> {
                 let pat = self.elaborate_pat_inner(pat, false, &mut bindings);
                 self.unify(pat.span, &arg_tys[idx], &pat.ty);
                 // .map_err(|diag| {
-                //     diag.message(clause.span, format!("function clause with argument of different type: expected {:?}, got {:?}", &arg_tys[0], &pat.ty))
+                //     diag.message(clause.span, format!("function clause with argument of
+                // different type: expected {:?}, got {:?}", &arg_tys[0], &pat.ty))
                 // });
                 pats.push(pat);
             }
@@ -1385,7 +1388,8 @@ impl<'ar> Context<'ar> {
             }
 
             let mut info = Vec::new();
-            // Check to make sure all of the function clauses are consistent within each binding group
+            // Check to make sure all of the function clauses are consistent within each
+            // binding group
             for f in fbs {
                 let n = f[0].name;
                 let a = f[0].pats.len();

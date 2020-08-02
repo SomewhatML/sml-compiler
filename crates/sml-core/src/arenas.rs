@@ -182,7 +182,8 @@ impl<'a> CoreArena<'a> {
         Expr::new(self.exprs.alloc(ExprKind::Var(var)), ty, Span::dummy())
     }
 
-    /// Create a `let val var_name : (ty1, ty2, ty3) = (s1, ... sN) in expr` expression
+    /// Create a `let val var_name : (ty1, ty2, ty3) = (s1, ... sN) in expr`
+    /// expression
     pub fn let_tuple<I: IntoIterator<Item = (Symbol, &'a Type<'a>)>>(
         &self,
         iter: I,
@@ -201,7 +202,8 @@ impl<'a> CoreArena<'a> {
         )
     }
 
-    /// Create a `let val (s1, ..., sN) = var_name : (ty1, ty2, ty3) in expr` expression
+    /// Create a `let val (s1, ..., sN) = var_name : (ty1, ty2, ty3) in expr`
+    /// expression
     pub fn let_detuple<I: IntoIterator<Item = (Symbol, &'a Type<'a>)>>(
         &self,
         iter: I,
@@ -220,7 +222,8 @@ impl<'a> CoreArena<'a> {
         )
     }
 
-    /// Create a `let val {s11 : s21, ..., } = var_name : (ty1, ty2, ty3) in expr` expression
+    /// Create a `let val {s11 : s21, ..., } = var_name : (ty1, ty2, ty3) in
+    /// expr` expression
     pub fn let_derecord<I: IntoIterator<Item = (Symbol, Symbol, &'a Type<'a>)>>(
         &self,
         iter: I,

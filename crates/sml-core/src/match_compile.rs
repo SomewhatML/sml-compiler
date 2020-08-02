@@ -2,13 +2,15 @@
 //!
 //! # Invariants:
 //!
-//! * Type safety - the case expression that is being transformed
-//!     should have been previously verified to be well typed
+//! * Type safety - the case expression that is being transformed should have
+//!   been previously verified to be well typed
 //! * `test` should be a fresh variable of the domain type of the match rules
-//! * `pats` is a mutable 'pattern matrix', where things might be expanded and contracted
-//! * `rules` contains the original pattern in the AST, and the abstracted expression
-//!     - abstraction is done in `preflight`, where case expression bodies are lifted
-//!       to an enclosing level and converted to functions
+//! * `pats` is a mutable 'pattern matrix', where things might be expanded and
+//!   contracted
+//! * `rules` contains the original pattern in the AST, and the abstracted
+//!   expression
+//!     - abstraction is done in `preflight`, where case expression bodies are
+//!       lifted to an enclosing level and converted to functions
 //! * `vars` contains the current "in-scope" destructured variables
 
 use super::*;
@@ -314,7 +316,8 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
 
     /// This is basically the same thing as the record rule, but for data
     /// constructors. We want to select all of the rows in the first column
-    /// that will match the constructor `head` (e.g. `head` itself, and wildcard)
+    /// that will match the constructor `head` (e.g. `head` itself, and
+    /// wildcard)
     fn specialize(
         &self,
         facts: &mut Facts,
@@ -410,7 +413,8 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
 
     /// This is basically the same thing as the record rule, but for data
     /// constructors. We want to select all of the rows in the first column
-    /// that will match the constructor `head` (e.g. `head` itself, and wildcard)
+    /// that will match the constructor `head` (e.g. `head` itself, and
+    /// wildcard)
     fn specialize_const(&self, facts: &mut Facts, head: &Const) -> Expr<'a> {
         let mut mat = self.shallow();
         for (idx, row) in self.pats.iter().enumerate() {
@@ -488,7 +492,8 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
         if self.pats.is_empty() {
             // We have an in-exhaustive case expression
             // TODO: Emit better diagnostics
-            // self.ctx.diags.push(Diagnostic::error(self.span, "inexhaustive pattern matching"));
+            // self.ctx.diags.push(Diagnostic::error(self.span, "inexhaustive pattern
+            // matching"));
             let matchh = Expr::new(
                 self.ctx
                     .arena
