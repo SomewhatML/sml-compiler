@@ -27,13 +27,14 @@ pub enum ExprKind<'ar> {
     Case(Expr<'ar>, Vec<Rule<'ar>>),
     Con(Constructor, Vec<&'ar Type<'ar>>),
     Const(Const),
-    Handle(Expr<'ar>, Vec<Rule<'ar>>),
+    /// Handle: try, bound var, case expr
+    Handle(Expr<'ar>, Symbol, Expr<'ar>),
     Lambda(Lambda<'ar>),
     Let(Vec<Decl<'ar>>, Expr<'ar>),
     List(Vec<Expr<'ar>>),
     Primitive(Symbol),
     Raise(Expr<'ar>),
-    Record(SortedRecord<Expr<'ar>>),
+    Record(Vec<Row<Expr<'ar>>>),
     Seq(Vec<Expr<'ar>>),
     Var(Symbol),
 }
@@ -119,7 +120,7 @@ impl<'ar> Expr<'ar> {
             ExprKind::Lambda(_) => true,
             ExprKind::Var(_) => true,
             ExprKind::Primitive(_) => true,
-            ExprKind::Record(rec) => rec.rows.iter().all(|r| r.data.non_expansive()),
+            ExprKind::Record(rec) => rec.iter().all(|r| r.data.non_expansive()),
             ExprKind::List(exprs) => exprs.iter().all(|r| r.non_expansive()),
             _ => false,
         }
@@ -214,15 +215,7 @@ impl<'ar> fmt::Debug for ExprKind<'ar> {
             ),
             Con(con, tys) => write!(f, "{:?} [{:?}]", con, tys),
             Const(c) => write!(f, "{:?}", c),
-            Handle(expr, rules) => write!(
-                f,
-                "{:?} handle {:?}",
-                expr,
-                rules
-                    .into_iter()
-                    .map(|r| format!("| {:?} => {:?}\n", r.pat, r.expr))
-                    .collect::<String>()
-            ),
+            Handle(tryy, sym, handler) => write!(f, "{:?} handle {:?}", tryy, handler),
             Lambda(lam) => write!(f, "{:?}", lam),
             Let(decls, body) => write!(f, "let {:?} in {:?} end", decls, body),
             List(exprs) => write!(f, "{:?}", exprs),

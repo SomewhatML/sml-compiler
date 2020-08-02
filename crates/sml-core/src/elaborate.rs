@@ -639,24 +639,7 @@ impl<'ar> Context<'ar> {
                 };
 
                 self.unify(scrutinee.span, &casee.ty, arg);
-
-                let var = self.fresh_var();
-                let ty = casee.ty;
-
-                let mut mat =
-                    crate::match_compile::Matrix::new(self, res, (var, ty), expr.span, rules);
-                let compiled = mat.compile_top();
-
-                let pat = Pat::new(self.arena.pats.alloc(PatKind::Var(var)), ty, Span::dummy());
-
-                Expr::new(
-                    self.arena.exprs.alloc(ExprKind::Let(
-                        vec![Decl::Val(Rule { pat, expr: casee })],
-                        compiled,
-                    )),
-                    res,
-                    expr.span,
-                )
+                crate::match_compile::case(self, casee, res, rules, scrutinee.span)
             }
             ast::ExprKind::Const(c) => {
                 let ty = self.const_ty(c);
@@ -717,17 +700,8 @@ impl<'ar> Context<'ar> {
                 };
 
                 let gensym = self.fresh_var();
-                let sym = Expr::new(
-                    self.arena.exprs.alloc(ExprKind::Var(gensym)),
-                    arg,
-                    Span::dummy(),
-                );
-
-                let body = Expr::new(
-                    self.arena.exprs.alloc(ExprKind::Case(sym, rules)),
-                    res,
-                    expr.span,
-                );
+                let casee = self.arena.expr_var(gensym, arg);
+                let body = crate::match_compile::case(self, casee, res, rules, expr.span);
 
                 Expr::new(
                     self.arena.exprs.alloc(ExprKind::Lambda(Lambda {
@@ -739,8 +713,8 @@ impl<'ar> Context<'ar> {
                     expr.span,
                 )
             }
-            ast::ExprKind::Handle(ex, rules) => {
-                let ex = self.elaborate_expr(ex);
+            ast::ExprKind::Handle(tryy, rules) => {
+                let tryy = self.elaborate_expr(tryy);
                 let (rules, ty) = self.elab_rules(expr.span, rules);
 
                 let (arg, res) = match ty.de_arrow() {
@@ -753,11 +727,14 @@ impl<'ar> Context<'ar> {
                     }
                 };
 
-                self.unify(expr.span, &ex.ty, res);
+                self.unify(expr.span, &tryy.ty, res);
                 self.unify(expr.span, arg, self.arena.types.exn());
-
+                // tryy handle case $gensym of |...
+                let gensym = self.fresh_var();
+                let scrutinee = self.arena.expr_var(gensym, arg);
+                let body = crate::match_compile::case(self, scrutinee, res, rules, expr.span);
                 Expr::new(
-                    self.arena.exprs.alloc(ExprKind::Handle(ex, rules)),
+                    self.arena.exprs.alloc(ExprKind::Handle(tryy, gensym, body)),
                     res,
                     expr.span,
                 )
@@ -836,9 +813,7 @@ impl<'ar> Context<'ar> {
 
                 let ty = self.arena.types.alloc(Type::Record(SortedRecord::new(tys)));
                 Expr::new(
-                    self.arena
-                        .exprs
-                        .alloc(ExprKind::Record(SortedRecord::new(rows))),
+                    self.arena.exprs.alloc(ExprKind::Record(rows)),
                     ty,
                     expr.span,
                 )
@@ -940,7 +915,8 @@ impl<'ar> Context<'ar> {
             App(con, p) => {
                 let p = self.elaborate_pat_inner(p, bind, bindings);
                 match self.lookup_value(con).cloned() {
-                    Some((scheme, IdStatus::Con(constr))) => {
+                    Some((scheme, IdStatus::Exn(constr)))
+                    | Some((scheme, IdStatus::Con(constr))) => {
                         let inst = self.instantiate(&scheme);
 
                         let (arg, res) = match inst.de_arrow() {
@@ -1313,15 +1289,15 @@ impl<'ar> Context<'ar> {
             clauses,
             res_ty,
             arg_tys,
-            arity,
             ..
         } = fun;
 
+        let mut patterns = Vec::new();
         let mut rules = Vec::new();
         let mut total_sp = clauses[0].span;
         // Destructure so that we can move `bindings` into a closure
         for PartialFnBinding {
-            mut pats,
+            pats,
             expr,
             bindings,
             span,
@@ -1348,7 +1324,9 @@ impl<'ar> Context<'ar> {
             };
 
             total_sp += span;
-            rules.push((pats, rule));
+            patterns.push(pats);
+            rules.push(rule);
+            // rules.push((pats, rule));
         }
 
         // Now generate fresh argument names for our function, so we can curry
@@ -1358,52 +1336,11 @@ impl<'ar> Context<'ar> {
             .map(|ty| (self.fresh_var(), *ty))
             .collect::<Vec<(Symbol, _)>>();
 
-        let r = rules.iter().map(|r| r.1).collect::<Vec<Rule<'_>>>();
-        // let mut matrix = crate::match_compile::Matrix::new(
-        //     self,
-        //     res_ty,
-        //     (
-        //         self.fresh_var(),
-        //         self.arena.types.tuple(arg_tys.iter().copied()),
-        //     ),
-        //     total_sp,
-        //     r,
-        // );
+        let case =
+            crate::match_compile::fun(self, res_ty, fresh_args.clone(), patterns, rules, total_sp);
 
-        // let case = matrix.compile_top();
-
-        let binder = self.fresh_var();
-        let binder_ty = self.arena.types.tuple(arg_tys.iter().copied());
-        let mut matrix = crate::match_compile::Matrix::build(
-            self,
-            res_ty,
-            (binder, binder_ty),
-            total_sp,
-            rules.len(),
-        );
-        for (pats, rule) in rules {
-            matrix.pats.push(pats);
-            matrix.exprs.push(rule);
-        }
-        matrix.vars = fresh_args.clone();
-        let mut facts = crate::match_compile::Facts::default();
-        let rec = SortedRecord::new_unchecked(
-            fresh_args
-                .iter()
-                .enumerate()
-                .map(|(idx, (s, t))| Row {
-                    label: Symbol::tuple_field(idx as u32 + 1),
-                    data: *s,
-                    span: Span::dummy(),
-                })
-                .collect(),
-        );
-        let fact = crate::match_compile::Fact::Record(rec);
-        facts.add(binder, fact);
-        let case = matrix.experimental(facts);
-
+        // Fold over the arguments and types, creating nested lambda functions
         let (a, t) = fresh_args.remove(0);
-
         let (body, ty) =
             fresh_args
                 .into_iter()
@@ -1495,6 +1432,8 @@ impl<'ar> Context<'ar> {
                 };
                 ctx.define_value(var, sch, IdStatus::Var);
             }
+
+            // crate::match_compile::case(self, scrutinee, ret_ty, rules, span)
 
             elab.push(Decl::Val(Rule { pat, expr }));
         })

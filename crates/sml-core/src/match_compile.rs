@@ -1,9 +1,166 @@
+//! Notes on building a new pattern matrix.
+//!
+//! # Invariants:
+//!
+//! * Type safety - the case expression that is being transformed
+//!     should have been previously verified to be well typed
+//! * `test` should be a fresh variable of the domain type of the match rules
+//! * `pats` is a mutable 'pattern matrix', where things might be expanded and contracted
+//! * `rules` contains the original pattern in the AST, and the abstracted expression
+//!     - abstraction is done in `preflight`, where case expression bodies are lifted
+//!       to an enclosing level and converted to functions
+//! * `vars` contains the current "in-scope" destructured variables
+
 use super::*;
 use elaborate::Context;
 use sml_util::diagnostics::Diagnostic;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 pub type Var<'a> = (Symbol, &'a Type<'a>);
+
+pub fn case<'a>(
+    ctx: &Context<'a>,
+    scrutinee: Expr<'a>,
+    ret_ty: &'a Type<'a>,
+    rules: Vec<Rule<'a>>,
+    span: Span,
+) -> Expr<'a> {
+    let test = ctx.fresh_var();
+    let pats = rules.iter().map(|r| vec![r.pat]).collect();
+    let (mut decls, rules) = preflight(ctx, rules);
+
+    decls.push(Decl::Val(Rule {
+        pat: ctx.arena.pat_var(test, scrutinee.ty),
+        expr: scrutinee,
+    }));
+    let mut mat = Matrix {
+        ctx,
+        pats,
+        rules,
+        ret_ty,
+        span,
+        test,
+        vars: vec![(test, scrutinee.ty)],
+    };
+
+    let mut facts = Facts::default();
+    let expr = mat.compile(&mut facts);
+    Expr::new(
+        ctx.arena.exprs.alloc(ExprKind::Let(decls, expr)),
+        expr.ty,
+        expr.span,
+    )
+}
+
+pub fn fun<'a>(
+    ctx: &Context<'a>,
+    ret_ty: &'a Type<'a>,
+    vars: Vec<Var<'a>>,
+    pats: Vec<Vec<Pat<'a>>>,
+    rules: Vec<Rule<'a>>,
+    span: Span,
+) -> Expr<'a> {
+    let test = ctx.fresh_var();
+    let (decls, rules) = preflight(ctx, rules);
+
+    let rec = SortedRecord::new_unchecked(
+        vars.iter()
+            .enumerate()
+            .map(|(idx, (s, t))| Row {
+                label: Symbol::tuple_field(idx as u32 + 1),
+                data: *s,
+                span: Span::dummy(),
+            })
+            .collect(),
+    );
+    let mut facts = Facts::default();
+    let fact = crate::match_compile::Fact::Record(rec);
+    facts.add(test, fact);
+
+    let mut mat = Matrix {
+        ctx,
+        pats,
+        rules,
+        ret_ty,
+        span,
+        test,
+        vars,
+    };
+
+    let expr = mat.compile(&mut facts);
+    Expr::new(
+        ctx.arena.exprs.alloc(ExprKind::Let(decls, expr)),
+        expr.ty,
+        expr.span,
+    )
+}
+
+/// Abstract match bodies into functions, to be declared prior to the
+/// body of the case expression
+///
+/// # Example
+/// from MLton
+/// ```sml
+///   case x of
+///        (_, C1 a)    => e1
+///      | (C2 b, C3 c) => e2
+/// ```
+///
+/// Translated to
+///
+/// ```sml    
+///   let
+///      fun f1 a = e1
+///      fun f2 (b, c) = e2
+///   in
+///     case x of
+///        ...
+/// ```
+fn preflight<'a>(ctx: &Context<'a>, rules: Vec<Rule<'a>>) -> (Vec<Decl<'a>>, Vec<Rule<'a>>) {
+    let mut finished = Vec::new();
+    let mut decls = Vec::new();
+    for Rule { pat, expr } in rules {
+        let vars = collect_vars(pat);
+        let arg = ctx.fresh_var();
+
+        let (body, ty) = match vars.len() {
+            0 => (expr, ctx.arena.types.unit()),
+            1 => {
+                let (var, ty) = vars[0];
+                let pat = ctx.arena.pat_var(var, ty);
+                let ex = ctx.arena.expr_var(arg, ty);
+                let decl = Decl::Val(Rule { pat, expr: ex });
+                (
+                    Expr::new(
+                        ctx.arena.exprs.alloc(ExprKind::Let(vec![decl], expr)),
+                        expr.ty,
+                        expr.span,
+                    ),
+                    ty,
+                )
+            }
+            _ => {
+                let body = ctx.arena.let_detuple(vars.clone(), arg, expr);
+                let ty = ctx.arena.ty_tuple(vars.into_iter().map(|(_, t)| t));
+                (body, ty)
+            }
+        };
+
+        // assign the tuple of bound pattern vars to a fresh var, which we will de-tuple
+        // inside of the lambda body
+        let lambda = Lambda { arg, body, ty };
+
+        let ty = ctx.arena.types.arrow(lambda.ty, expr.ty);
+        let name = ctx.fresh_var();
+        decls.push(Decl::Fun(Vec::new(), vec![(name, lambda)]));
+
+        finished.push(Rule {
+            pat,
+            expr: ctx.arena.expr_var(name, ty),
+        })
+    }
+    (decls, finished)
+}
 
 #[derive(Debug, Clone)]
 pub enum Fact {
@@ -18,7 +175,6 @@ pub struct Facts {
 
 impl Facts {
     pub fn add(&mut self, var: Symbol, fact: Fact) {
-        println!("bind {:?} {:?}", var, fact);
         self.v.push((var, fact))
     }
 
@@ -33,7 +189,6 @@ impl Facts {
         let mut queue = VecDeque::new();
         queue.push_back((&var, &pat));
         while let Some((var, pat)) = queue.pop_front() {
-            println!("try bind {:?} {:?}", var, pat);
             match pat.pat {
                 PatKind::Var(x) => {
                     if let Some(_) = map.insert(*x, (*var, pat.ty)) {
@@ -72,7 +227,7 @@ pub struct Matrix<'a, 'ctx> {
 
     pub pats: Vec<Vec<Pat<'a>>>,
     // Store the original rule
-    pub exprs: Vec<Rule<'a>>,
+    pub rules: Vec<Rule<'a>>,
 
     test: Symbol,
     pub vars: Vec<Var<'a>>,
@@ -98,54 +253,9 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
             test: self.test,
             span: self.span,
             pats: Vec::with_capacity(self.pats.len()),
-            exprs: Vec::with_capacity(self.exprs.len()),
+            rules: Vec::with_capacity(self.rules.len()),
         }
     }
-
-    /// Build a new pattern matrix.
-    ///
-    /// # Invariants:
-    ///
-    /// * Type safety - the case expression that is being transformed
-    ///     should have been previously verified to be well typed
-    /// * Eta conversion - expressions in the case arms should converted
-    ///     into abstractions that take bound vars as arguments
-    /// * `arg` should be a fresh variable of the same type of the
-    ///     match rules
-    pub fn new(
-        ctx: &'ctx Context<'a>,
-        ret_ty: &'a Type<'a>,
-        test: Var<'a>,
-        span: Span,
-        rules: Vec<Rule<'a>>,
-    ) -> Matrix<'a, 'ctx> {
-        let mut mat = Matrix::build(ctx, ret_ty, test, span, rules.len());
-        for rule in rules {
-            mat.pats.push(vec![rule.pat]);
-            mat.exprs.push(rule);
-        }
-        mat
-    }
-
-    /// We have this separate for elaborating function bindings
-    pub fn build(
-        ctx: &'ctx Context<'a>,
-        ret_ty: &'a Type<'a>,
-        test: Var<'a>,
-        span: Span,
-        cap: usize,
-    ) -> Matrix<'a, 'ctx> {
-        Matrix {
-            ctx,
-            ret_ty,
-            vars: vec![test],
-            test: test.0,
-            span: span,
-            pats: Vec::with_capacity(cap),
-            exprs: Vec::with_capacity(cap),
-        }
-    }
-
     fn mk_wild(&self, ty: &'a Type<'a>) -> Pat<'a> {
         Pat::new(self.ctx.arena.pats.wild(), ty, Span::dummy())
     }
@@ -193,7 +303,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
                 }
                 _ => continue,
             }
-            mat.exprs.push(self.exprs[idx]);
+            mat.rules.push(self.rules[idx]);
             mat.pats.push(new_row);
         }
         mat.vars = vars;
@@ -226,7 +336,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
                 }
                 _ => continue,
             }
-            mat.exprs.push(self.exprs[idx]);
+            mat.rules.push(self.rules[idx]);
             mat.pats.push(new_row);
         }
 
@@ -310,7 +420,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
                 _ => continue,
             }
             let new_row: Vec<Pat> = row.iter().skip(1).copied().collect();
-            mat.exprs.push(self.exprs[idx]);
+            mat.rules.push(self.rules[idx]);
             mat.pats.push(new_row);
         }
         mat.vars.remove(0);
@@ -366,7 +476,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
         for (idx, row) in self.pats.iter().enumerate() {
             if let Some(true) = row.first().map(Pat::wild) {
                 mat.pats.push(row.iter().skip(1).copied().collect());
-                mat.exprs.push(self.exprs[idx]);
+                mat.rules.push(self.rules[idx]);
             }
         }
         // mat.test = mat.vars[0].0;
@@ -395,18 +505,18 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
             )
         } else if self.pats[0].iter().all(Pat::wild) {
             // Every pattern in the first row is a variable or wildcard,
-            // so the it matches. return the body of the match rule with
+            // so it matches. return the body of the match rule with
             // renamed variable applied to it, if necessary
 
-            let map = facts.bind(self.test, self.exprs[0].pat);
-            let mut vars = collect_vars(self.exprs[0].pat);
+            let map = facts.bind(self.test, self.rules[0].pat);
+            let mut vars = collect_vars(self.rules[0].pat);
 
             // Generate arguments to the abstracted match arm bodies
             let args = match vars.len() {
                 0 => Expr::new(
                     self.ctx.arena.exprs.alloc(ExprKind::Const(Const::Unit)),
                     self.ctx.arena.types.unit(),
-                    self.exprs[0].expr.span,
+                    self.rules[0].expr.span,
                 ),
                 1 => {
                     let (var, ty) = vars.pop().unwrap();
@@ -424,9 +534,9 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
                 self.ctx
                     .arena
                     .exprs
-                    .alloc(ExprKind::App(self.exprs[0].expr, args)),
+                    .alloc(ExprKind::App(self.rules[0].expr, args)),
                 self.ret_ty,
-                self.exprs[0].expr.span,
+                self.rules[0].expr.span,
             )
         } else {
             // There is at least one non-wild pattern in the matrix somewhere
@@ -466,108 +576,12 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
             }
         }
     }
-
-    /// Abstract match bodies into functions, to be declared prior to the
-    /// body of the case expression
-    ///
-    /// # Example
-    /// from MLton
-    /// ```sml
-    ///   case x of
-    ///        (_, C1 a)    => e1
-    ///      | (C2 b, C3 c) => e2
-    /// ```
-    ///
-    /// Translated to
-    ///
-    /// ```sml    
-    ///   let
-    ///      fun f1 a = e1
-    ///      fun f2 (b, c) = e2
-    ///   in
-    ///     case x of
-    ///        ...
-    /// ```
-    fn preflight(&self, rules: Vec<Rule<'a>>) -> (Vec<Decl<'a>>, Vec<Rule<'a>>) {
-        let mut finished = Vec::new();
-        let mut decls = Vec::new();
-        for Rule { pat, expr } in rules {
-            let vars = collect_vars(pat);
-            let arg = self.ctx.fresh_var();
-
-            let (body, ty) = match vars.len() {
-                0 => (expr, self.ctx.arena.types.unit()),
-                1 => {
-                    let (var, ty) = vars[0];
-                    let pat = self.ctx.arena.pat_var(var, ty);
-                    let ex = self.ctx.arena.expr_var(arg, ty);
-                    let decl = Decl::Val(Rule { pat, expr: ex });
-                    (
-                        Expr::new(
-                            self.ctx.arena.exprs.alloc(ExprKind::Let(vec![decl], expr)),
-                            expr.ty,
-                            expr.span,
-                        ),
-                        ty,
-                    )
-                }
-                _ => {
-                    let body = self.ctx.arena.let_detuple(vars.clone(), arg, expr);
-                    let ty = self.ctx.arena.ty_tuple(vars.into_iter().map(|(_, t)| t));
-                    (body, ty)
-                }
-            };
-
-            // assign the tuple of bound pattern vars to a fresh var, which we will de-tuple
-            // inside of the lambda body
-
-            let lambda = Lambda { arg, body, ty };
-
-            let ty = self.ctx.arena.types.arrow(lambda.ty, expr.ty);
-            let name = self.ctx.fresh_var();
-            decls.push(Decl::Fun(Vec::new(), vec![(name, lambda)]));
-
-            finished.push(Rule {
-                pat,
-                expr: self.ctx.arena.expr_var(name, ty),
-            })
-        }
-        (decls, finished)
-    }
-
-    pub fn compile_top(&mut self) -> Expr<'a> {
-        let mut facts = Facts::default();
-
-        let rules = std::mem::replace(&mut self.exprs, Vec::new());
-        let (decls, rules) = self.preflight(rules);
-        let _ = std::mem::replace(&mut self.exprs, rules);
-        let expr = self.compile(&mut facts);
-
-        Expr::new(
-            self.ctx.arena.exprs.alloc(ExprKind::Let(decls, expr)),
-            expr.ty,
-            expr.span,
-        )
-    }
-
-    pub fn experimental(&mut self, mut facts: Facts) -> Expr<'a> {
-        let rules = std::mem::replace(&mut self.exprs, Vec::new());
-        let (decls, rules) = self.preflight(rules);
-        let _ = std::mem::replace(&mut self.exprs, rules);
-        let expr = self.compile(&mut facts);
-
-        Expr::new(
-            self.ctx.arena.exprs.alloc(ExprKind::Let(decls, expr)),
-            expr.ty,
-            expr.span,
-        )
-    }
 }
 
 impl fmt::Debug for Matrix<'_, '_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "matrix {:?}\n", self.vars)?;
-        for (pats, exprs) in self.pats.iter().zip(self.exprs.iter()) {
+        for (pats, exprs) in self.pats.iter().zip(self.rules.iter()) {
             writeln!(
                 f,
                 "{:?} => {:?}",
@@ -578,7 +592,6 @@ impl fmt::Debug for Matrix<'_, '_> {
                 exprs
             )?;
         }
-        // write!(f, "")
         Ok(())
     }
 }

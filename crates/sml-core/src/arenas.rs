@@ -123,8 +123,7 @@ impl<'a> CoreArena<'a> {
             })
             .unzip();
         Expr::new(
-            self.exprs
-                .alloc(ExprKind::Record(SortedRecord::new_unchecked(fields))),
+            self.exprs.alloc(ExprKind::Record(fields)),
             self.types
                 .alloc(Type::Record(SortedRecord::new_unchecked(tys))),
             Span::dummy(),
@@ -155,8 +154,7 @@ impl<'a> CoreArena<'a> {
             })
             .unzip();
         Expr::new(
-            self.exprs
-                .alloc(ExprKind::Record(SortedRecord::new(fields))),
+            self.exprs.alloc(ExprKind::Record(fields)),
             self.types.alloc(Type::Record(SortedRecord::new(tys))),
             Span::dummy(),
         )
@@ -283,7 +281,7 @@ impl<'ar> ExprArena<'ar> {
             })
             .collect();
 
-        self.alloc(ExprKind::Record(SortedRecord::new_unchecked(rows)))
+        self.alloc(ExprKind::Record(rows))
     }
 }
 
