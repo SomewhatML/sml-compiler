@@ -81,38 +81,29 @@ impl<'a> Compiler<'a> {
             Ok(d) => {
                 let (decls, diags) = sml_core::elaborate::check_and_elaborate(self.arena, &d);
                 if self.print_types {
-                    let mut buffer = String::new();
                     for decl in &decls {
-                        let mut pp = PrettyPrinter::new(&self.interner, Box::new(&mut buffer));
-                        use sml_core::pretty_print::Print;
+                        let mut pp = PrettyPrinter::new(&self.interner);
                         use sml_core::{Decl, Rule};
-                        use std::fmt::Write;
-
-                        pp.test();
-                        dbg!(&pp);
-                        println!("{}", pp.run_command());
 
                         match decl {
                             Decl::Val(Rule { pat, .. }) => {
-                                pat.print(&mut pp);
-                                write!(pp, ": ");
-                                pat.ty.print(&mut pp);
+                                pp.text("val ").print(pat).text(": ").print(pat.ty).line();
                             }
                             Decl::Fun(_, binds) => {
                                 for (name, lam) in binds {
-                                    pp.print_symbol(*name);
-                                    write!(pp, ": ");
-
-                                    lam.ty.print(&mut pp);
-                                    write!(pp, " -> ");
-                                    lam.body.ty.print(&mut pp);
+                                    pp.text("val ")
+                                        .print(name)
+                                        .text(": ")
+                                        .print(self.arena.types.arrow(lam.ty, lam.body.ty))
+                                        .line();
                                 }
                             }
                             _ => continue,
                         }
-                        pp.newline();
+                        let mut buffer = String::with_capacity(64);
+                        pp.write(&mut buffer).unwrap();
+                        println!("{}", buffer);
                     }
-                    println!("{}", buffer);
                 }
                 report(diags, &src)
             }
