@@ -288,11 +288,11 @@ impl<'ar> Context<'ar> {
         }
     }
 
-    fn fresh_tyvar(&self) -> &'ar Type<'ar> {
+    pub(crate) fn fresh_tyvar(&self) -> &'ar Type<'ar> {
         self.arena.types.fresh_var(self.tyvar_rank)
     }
 
-    fn fresh_var(&self) -> Symbol {
+    pub(crate) fn fresh_var(&self) -> Symbol {
         self.arena.exprs.allocate_id()
     }
 
@@ -639,14 +639,7 @@ impl<'ar> Context<'ar> {
                 };
 
                 self.unify(scrutinee.span, &casee.ty, arg);
-
-                // self.build_decision_tree(casee, &rules);
-
-                Expr::new(
-                    self.arena.exprs.alloc(ExprKind::Case(casee, rules)),
-                    res,
-                    expr.span,
-                )
+                crate::match_compile::case(self, casee, res, rules, scrutinee.span)
             }
             ast::ExprKind::Const(c) => {
                 let ty = self.const_ty(c);
@@ -707,17 +700,8 @@ impl<'ar> Context<'ar> {
                 };
 
                 let gensym = self.fresh_var();
-                let sym = Expr::new(
-                    self.arena.exprs.alloc(ExprKind::Var(gensym)),
-                    arg,
-                    Span::dummy(),
-                );
-
-                let body = Expr::new(
-                    self.arena.exprs.alloc(ExprKind::Case(sym, rules)),
-                    res,
-                    expr.span,
-                );
+                let casee = self.arena.expr_var(gensym, arg);
+                let body = crate::match_compile::case(self, casee, res, rules, expr.span);
 
                 Expr::new(
                     self.arena.exprs.alloc(ExprKind::Lambda(Lambda {
@@ -729,8 +713,8 @@ impl<'ar> Context<'ar> {
                     expr.span,
                 )
             }
-            ast::ExprKind::Handle(ex, rules) => {
-                let ex = self.elaborate_expr(ex);
+            ast::ExprKind::Handle(tryy, rules) => {
+                let tryy = self.elaborate_expr(tryy);
                 let (rules, ty) = self.elab_rules(expr.span, rules);
 
                 let (arg, res) = match ty.de_arrow() {
@@ -743,11 +727,14 @@ impl<'ar> Context<'ar> {
                     }
                 };
 
-                self.unify(expr.span, &ex.ty, res);
+                self.unify(expr.span, &tryy.ty, res);
                 self.unify(expr.span, arg, self.arena.types.exn());
-
+                // tryy handle case $gensym of |...
+                let gensym = self.fresh_var();
+                let scrutinee = self.arena.expr_var(gensym, arg);
+                let body = crate::match_compile::case(self, scrutinee, res, rules, expr.span);
                 Expr::new(
-                    self.arena.exprs.alloc(ExprKind::Handle(ex, rules)),
+                    self.arena.exprs.alloc(ExprKind::Handle(tryy, gensym, body)),
                     res,
                     expr.span,
                 )
@@ -826,9 +813,7 @@ impl<'ar> Context<'ar> {
 
                 let ty = self.arena.types.alloc(Type::Record(SortedRecord::new(tys)));
                 Expr::new(
-                    self.arena
-                        .exprs
-                        .alloc(ExprKind::Record(SortedRecord::new(rows))),
+                    self.arena.exprs.alloc(ExprKind::Record(rows)),
                     ty,
                     expr.span,
                 )
@@ -898,6 +883,27 @@ impl<'ar> Context<'ar> {
         (self.elaborate_pat_inner(pat, bind, &mut bindings), bindings)
     }
 
+    fn delist(&self, pats: Vec<Pat<'ar>>, ty: &'ar Type<'ar>, sp: Span) -> Pat<'ar> {
+        let nil = Pat::new(
+            self.arena
+                .pats
+                .alloc(PatKind::App(crate::builtin::constructors::C_NIL, None)),
+            ty,
+            sp,
+        );
+        pats.into_iter().fold(nil, |xs, x| {
+            let cons = Pat::new(self.arena.pats.tuple([x, xs].iter().copied()), x.ty, x.span);
+            Pat::new(
+                self.arena.pats.alloc(PatKind::App(
+                    crate::builtin::constructors::C_CONS,
+                    Some(cons),
+                )),
+                ty,
+                sp,
+            )
+        })
+    }
+
     pub(crate) fn elaborate_pat_inner(
         &mut self,
         pat: &ast::Pat,
@@ -909,7 +915,8 @@ impl<'ar> Context<'ar> {
             App(con, p) => {
                 let p = self.elaborate_pat_inner(p, bind, bindings);
                 match self.lookup_value(con).cloned() {
-                    Some((scheme, IdStatus::Con(constr))) => {
+                    Some((scheme, IdStatus::Exn(constr)))
+                    | Some((scheme, IdStatus::Con(constr))) => {
                         let inst = self.instantiate(&scheme);
 
                         let (arg, res) = match inst.de_arrow() {
@@ -992,11 +999,12 @@ impl<'ar> Context<'ar> {
 
                 let tys = pats.iter().map(|p| p.ty).collect::<Vec<_>>();
                 self.unify_list(pat.span, &tys);
-                Pat::new(
-                    self.arena.pats.alloc(PatKind::List(pats)),
-                    self.arena.types.list(tys[0]),
-                    pat.span,
-                )
+                // Pat::new(
+                //     self.arena.pats.alloc(PatKind::List(pats)),
+                //     self.arena.types.list(tys[0]),
+                //     pat.span,
+                // )
+                self.delist(pats, self.arena.types.list(tys[0]), pat.span)
             }
             Record(rows, flex) => {
                 let pats: Vec<Row<Pat>> = rows
@@ -1281,14 +1289,15 @@ impl<'ar> Context<'ar> {
             clauses,
             res_ty,
             arg_tys,
-            arity,
             ..
         } = fun;
-        let mut rules = Vec::new();
 
+        let mut patterns = Vec::new();
+        let mut rules = Vec::new();
+        let mut total_sp = clauses[0].span;
         // Destructure so that we can move `bindings` into a closure
         for PartialFnBinding {
-            mut pats,
+            pats,
             expr,
             bindings,
             span,
@@ -1306,115 +1315,50 @@ impl<'ar> Context<'ar> {
             self.tyvar_rank -= 1;
             // Unify function clause body with result type
             self.unify(span, &res_ty, &expr.ty);
-            // .map_err(|diag| {
-            //     diag.message(
-            //         span,
-            //         format!(
-            //             "function clause with body of different type: expected {:?}, got {:?}",
-            //             &res_ty, &expr.ty
-            //         ),
-            //     )
-            // });
 
-            // If we have more than 1 pattern, turn it into a tuple (really, a record)
-            let pat = match arity {
-                1 => pats.remove(0),
-                _ => {
-                    let mut rows = Vec::new();
-                    let mut tys = Vec::new();
-                    let mut sp = pats[0].span;
-                    for (idx, pat) in pats.into_iter().enumerate() {
-                        sp += pat.span;
-                        tys.push(Row {
-                            label: Symbol::tuple_field(idx as u32 + 1),
-                            data: pat.ty,
-                            span: pat.span,
-                        });
-                        rows.push(Row {
-                            label: Symbol::tuple_field(idx as u32 + 1),
-                            span: pat.span,
-                            data: pat,
-                        });
-                    }
-                    Pat::new(
-                        self.arena
-                            .pats
-                            .alloc(PatKind::Record(SortedRecord::new_unchecked(rows))),
-                        self.arena
-                            .types
-                            .alloc(Type::Record(SortedRecord::new_unchecked(tys))),
-                        sp,
-                    )
-                }
+            let tuple_ty = self.arena.types.tuple(pats.iter().map(|pat| pat.ty));
+            let tuple_pat = Pat::new(self.arena.pats.tuple(pats.iter().copied()), tuple_ty, span);
+            let rule = Rule {
+                pat: tuple_pat,
+                expr,
             };
 
-            let rule = Rule { pat, expr };
+            total_sp += span;
+            patterns.push(pats);
             rules.push(rule);
+            // rules.push((pats, rule));
         }
 
         // Now generate fresh argument names for our function, so we can curry
         let mut fresh_args = arg_tys
             .iter()
-            .rev()
-            .map(|ty| (self.fresh_var(), ty))
+            // .rev()
+            .map(|ty| (self.fresh_var(), *ty))
             .collect::<Vec<(Symbol, _)>>();
 
-        // Generate the scrutinee for the case expression
-        // Once again, if we have multiple args, tuplify them
-        let scrutinee = match arity {
-            1 => {
-                let (sym, ty) = &fresh_args[0];
-                Expr::new(
-                    self.arena.exprs.alloc(ExprKind::Var(*sym)),
-                    ty,
-                    Span::dummy(),
-                )
-            }
-            _ => {
-                let tau = self
-                    .arena
-                    .types
-                    .tuple(fresh_args.iter().copied().map(|(_, ty)| *ty));
-                let rho = self
-                    .arena
-                    .exprs
-                    .tuple(fresh_args.iter().copied().map(|(sym, ty)| {
+        let case =
+            crate::match_compile::fun(self, res_ty, fresh_args.clone(), patterns, rules, total_sp);
+
+        // Fold over the arguments and types, creating nested lambda functions
+        let (a, t) = fresh_args.remove(0);
+        let (body, ty) =
+            fresh_args
+                .into_iter()
+                .rev()
+                .fold((case, res_ty), |(expr, rty), (arg, ty)| {
+                    (
                         Expr::new(
-                            self.arena.exprs.alloc(ExprKind::Var(sym)),
-                            ty,
+                            self.arena.exprs.alloc(ExprKind::Lambda(Lambda {
+                                arg,
+                                ty,
+                                body: expr,
+                            })),
+                            self.arena.types.arrow(ty, rty),
                             Span::dummy(),
-                        )
-                    }));
-                Expr::new(rho, tau, Span::dummy())
-            }
-        };
-
-        // self.build_decision_tree(scrutinee, &rules);
-
-        let case = Expr::new(
-            self.arena.exprs.alloc(ExprKind::Case(scrutinee, rules)),
-            res_ty,
-            Span::dummy(),
-        );
-
-        let (a, t) = fresh_args.pop().unwrap();
-
-        let (body, ty) = fresh_args
-            .into_iter()
-            .fold((case, res_ty), |(expr, rty), (arg, ty)| {
-                (
-                    Expr::new(
-                        self.arena.exprs.alloc(ExprKind::Lambda(Lambda {
-                            arg,
-                            ty,
-                            body: expr,
-                        })),
+                        ),
                         self.arena.types.arrow(ty, rty),
-                        Span::dummy(),
-                    ),
-                    self.arena.types.arrow(ty, rty),
-                )
-            });
+                    )
+                });
 
         // Rebind with final type. Unbind first so that generalization happens properly
         self.unbind_value(fun.name);
@@ -1488,6 +1432,8 @@ impl<'ar> Context<'ar> {
                 };
                 ctx.define_value(var, sch, IdStatus::Var);
             }
+
+            // crate::match_compile::case(self, scrutinee, ret_ty, rules, span)
 
             elab.push(Decl::Val(Rule { pat, expr }));
         })

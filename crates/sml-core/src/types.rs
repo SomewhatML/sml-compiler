@@ -171,7 +171,7 @@ impl<'ar> Type<'ar> {
     }
 }
 
-fn fresh_name(x: usize) -> String {
+pub fn fresh_name(x: usize) -> String {
     let last = ((x % 26) as u8 + 'a' as u8) as char;
     (0..x / 26)
         .map(|_| 'z')

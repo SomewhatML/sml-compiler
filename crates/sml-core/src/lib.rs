@@ -7,8 +7,9 @@ use std::fmt;
 pub mod arenas;
 pub mod builtin;
 pub mod check;
-pub mod decision;
+// pub mod decision;
 pub mod elaborate;
+pub mod match_compile;
 pub mod monomorphize;
 pub mod types;
 use types::{Constructor, Scheme, Tycon, Type, TypeVar};
@@ -26,13 +27,14 @@ pub enum ExprKind<'ar> {
     Case(Expr<'ar>, Vec<Rule<'ar>>),
     Con(Constructor, Vec<&'ar Type<'ar>>),
     Const(Const),
-    Handle(Expr<'ar>, Vec<Rule<'ar>>),
+    /// Handle: try, bound var, case expr
+    Handle(Expr<'ar>, Symbol, Expr<'ar>),
     Lambda(Lambda<'ar>),
     Let(Vec<Decl<'ar>>, Expr<'ar>),
     List(Vec<Expr<'ar>>),
     Primitive(Symbol),
     Raise(Expr<'ar>),
-    Record(SortedRecord<Expr<'ar>>),
+    Record(Vec<Row<Expr<'ar>>>),
     Seq(Vec<Expr<'ar>>),
     Var(Symbol),
 }
@@ -57,7 +59,7 @@ pub enum PatKind<'ar> {
     /// Constant
     Const(Const),
     /// Literal list
-    List(Vec<Pat<'ar>>),
+    // List(Vec<Pat<'ar>>),
     /// Record
     Record(SortedRecord<Pat<'ar>>),
     /// Variable binding
@@ -86,7 +88,6 @@ pub struct Datatype<'ar> {
     pub constructors: Vec<(Constructor, Option<&'ar Type<'ar>>)>,
 }
 
-#[derive(Clone, Debug)]
 pub enum Decl<'ar> {
     Datatype(Datatype<'ar>),
     Fun(Vec<usize>, Vec<(Symbol, Lambda<'ar>)>),
@@ -101,6 +102,7 @@ pub struct Row<T> {
     pub span: Span,
 }
 
+#[derive(Clone)]
 pub struct SortedRecord<T> {
     pub rows: Vec<Row<T>>,
 }
@@ -118,7 +120,7 @@ impl<'ar> Expr<'ar> {
             ExprKind::Lambda(_) => true,
             ExprKind::Var(_) => true,
             ExprKind::Primitive(_) => true,
-            ExprKind::Record(rec) => rec.rows.iter().all(|r| r.data.non_expansive()),
+            ExprKind::Record(rec) => rec.iter().all(|r| r.data.non_expansive()),
             ExprKind::List(exprs) => exprs.iter().all(|r| r.non_expansive()),
             _ => false,
         }
@@ -183,6 +185,20 @@ impl<T> std::ops::Deref for SortedRecord<T> {
     }
 }
 
+impl<T: fmt::Debug> fmt::Debug for SortedRecord<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{{ {} }}",
+            self.rows
+                .iter()
+                .map(|r| format!("{:?}={:?}", r.label, r.data))
+                .collect::<Vec<String>>()
+                .join(",")
+        )
+    }
+}
+
 impl<'ar> fmt::Debug for ExprKind<'ar> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use ExprKind::*;
@@ -190,7 +206,7 @@ impl<'ar> fmt::Debug for ExprKind<'ar> {
             App(e1, e2) => write!(f, "{:?} {:?}", e1, e2),
             Case(casee, rules) => write!(
                 f,
-                "case {:?} of\n{}",
+                "(case {:?} of\n{})",
                 casee,
                 rules
                     .into_iter()
@@ -199,15 +215,7 @@ impl<'ar> fmt::Debug for ExprKind<'ar> {
             ),
             Con(con, tys) => write!(f, "{:?} [{:?}]", con, tys),
             Const(c) => write!(f, "{:?}", c),
-            Handle(expr, rules) => write!(
-                f,
-                "{:?} handle {:?}",
-                expr,
-                rules
-                    .into_iter()
-                    .map(|r| format!("| {:?} => {:?}\n", r.pat, r.expr))
-                    .collect::<String>()
-            ),
+            Handle(tryy, sym, handler) => write!(f, "{:?} handle {:?}", tryy, handler),
             Lambda(lam) => write!(f, "{:?}", lam),
             Let(decls, body) => write!(f, "let {:?} in {:?} end", decls, body),
             List(exprs) => write!(f, "{:?}", exprs),
@@ -243,7 +251,7 @@ impl<'ar> fmt::Debug for PatKind<'ar> {
                     .collect::<Vec<String>>()
                     .join(",")
             ),
-            List(exprs) => write!(f, "{:?}", exprs),
+            // List(exprs) => write!(f, "{:?}", exprs),
             Var(s) => write!(f, "{:?}", s),
             Wild => write!(f, "_"),
         }
@@ -252,7 +260,7 @@ impl<'ar> fmt::Debug for PatKind<'ar> {
 
 impl<'ar> fmt::Debug for Expr<'ar> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[{:?} : {:?}]", self.expr, self.ty)
+        write!(f, "{:?}", self.expr)
     }
 }
 
@@ -264,6 +272,48 @@ impl<'ar> fmt::Debug for Pat<'ar> {
 
 impl<'ar> fmt::Debug for Lambda<'ar> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "fn {:?} => {:?}", self.arg, self.body)
+        write!(f, "fn ({:?} : {:?}) => {:?}", self.arg, self.ty, self.body)
+    }
+}
+
+impl<'ar> fmt::Debug for Decl<'ar> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Decl::Val(rule) => write!(f, "val {:?} = {:?}", rule.pat, rule.expr),
+            Decl::Fun(_, binds) => {
+                let s = binds
+                    .iter()
+                    .map(|(n, l)| format!("val {:?} = {:?}", n, l))
+                    .collect::<Vec<String>>()
+                    .join(";\n");
+                writeln!(f, "{}", s)
+            }
+            Decl::Datatype(dt) => {
+                let vars = dt
+                    .tyvars
+                    .iter()
+                    .map(|u| types::fresh_name(*u))
+                    .collect::<Vec<String>>()
+                    .join(",");
+                let cons = dt
+                    .constructors
+                    .iter()
+                    .map(|(con, ty)| match ty {
+                        Some(ty) => format!("{:?} of {:?}", con.name, ty),
+                        None => format!("{:?}", con.name),
+                    })
+                    .collect::<Vec<String>>()
+                    .join(" | ");
+                match dt.tyvars.len() {
+                    0 => writeln!(f, "datatype {:?} = {}", dt.tycon.name, cons),
+                    1 => writeln!(f, "datatype {} {:?} = {}", vars, dt.tycon.name, cons),
+                    _ => writeln!(f, "datatype ({}) {:?} = {}", vars, dt.tycon.name, cons),
+                }
+            }
+            Decl::Exn(con, ty) => match ty {
+                Some(ty) => writeln!(f, "exception {:?} of {:?}", con.name, ty),
+                None => writeln!(f, "exception {:?}", con.name),
+            },
+        }
     }
 }
