@@ -1,9 +1,11 @@
 (* record types are sorted in unspecified, but fixed order
+
 -- args: --v
 -- expected stdout:
 -- val x: {a: int, b: int, c: bool}
 -- val y: {a: int, b: int, c: bool}
--- val test: {a: int, b: int, c: bool} -> (int, int)
+-- val test: {a: int, b: int, c: bool} -> int * int
+
 *)
 
 val x = {a = 10, b = 12, c = true}

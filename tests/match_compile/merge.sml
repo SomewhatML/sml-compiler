@@ -1,23 +1,24 @@
-(* test pattern matching
+(* test pattern match compilation to decision trees
+
 -- args: --vv
 -- expected stdout:
--- val merge: 'a list -> 'a list -> 'a list = fn b => 
+-- val merge: 'a list -> 'a list -> 'a list = fn a => fn b => 
 --   let
---     val e: 'a list -> 'a list = 
+--     val e: 'a list -> 'a list = fn d => 
 --       let
 --         val xs: 'a list = d
 --       in 
 --         xs
 --       end
---     val g: 'a list -> 'a list = 
+--     val g: 'a list -> 'a list = fn f => 
 --       let
 --         val ys: 'a list = f
 --       in 
 --         ys
 --       end
---     val i: ('a, 'a list, 'a, 'a list) -> 'a list = 
+--     val i: 'a * 'a list * 'a * 'a list -> 'a list = fn h => 
 --       let
---         val (x, xs, y, ys): ('a, 'a list, 'a, 'a list) = h
+--         val (x, xs, y, ys): 'a * 'a list * 'a * 'a list = h
 --       in 
 --         :: (x, :: (y, merge xs ys))
 --       end
@@ -30,19 +31,20 @@
 --              | _ => g b
 --          | :: l => 
 --              let
---                val (m, n): ('a, 'a list) = l
+--                val (m, n): 'a * 'a list = l
 --              in 
 --                
 --                  case b
 --                    of nil => e a
 --                     | :: p => 
 --                         let
---                           val (q, r): ('a, 'a list) = p
+--                           val (q, r): 'a * 'a list = p
 --                         in 
 --                           i (m, n, q, r)
 --                         end
 --              end
 --   end
+
 *)
 
 fun merge xs [] = xs 

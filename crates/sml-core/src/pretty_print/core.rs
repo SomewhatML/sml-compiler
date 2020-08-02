@@ -156,14 +156,13 @@ impl<'a> Type<'a> {
             }
             Type::Record(fields) => {
                 if let Symbol::Tuple(_) = fields[0].label {
-                    pp.text("(");
                     for (idx, row) in fields.iter().enumerate() {
                         row.data.print_rename(pp, map);
                         if idx != fields.rows.len() - 1 {
-                            pp.text(", ");
+                            pp.text(" * ");
                         }
                     }
-                    pp.text(")")
+                    pp
                 } else {
                     pp.text("{");
                     for (idx, row) in fields.iter().enumerate() {
@@ -222,6 +221,9 @@ impl<'a> Print for Decl<'a> {
                             vec![lam.ty, lam.body.ty],
                         ))
                         .text(" = ")
+                        .text("fn ")
+                        .print(&lam.arg)
+                        .text(" => ")
                         .print(&lam.body);
                 }
                 pp

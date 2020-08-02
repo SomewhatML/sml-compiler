@@ -1,4 +1,5 @@
 (* Test that the parser will issue a warning on top-level expression 
+
 -- args: --v
 -- expected stdout:
 -- val _: int
@@ -7,7 +8,8 @@
 
 -- expected stderr:
 -- Warn
--- 13,1 top level expressions are not supported! emitting `val _ = ...`
+-- 15,1 top level expressions are not supported! emitting `val _ = ...`
+
 *)
 
 if true then 1 else 0

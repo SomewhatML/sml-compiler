@@ -1,0 +1,15 @@
+(* check elaboration of exceptions 
+
+-- args: --v
+-- expected stdout:
+-- val try: int -> int
+-- val x: int
+
+*)
+
+exception EX of int;
+
+fun try 0 = raise (EX 0)
+  | try n = n
+
+val x = try 1 handle EX x => x;
