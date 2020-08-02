@@ -233,7 +233,7 @@ impl<'ar> Context<'ar> {
             .get(&sym)
             .expect("error: redefine_value");
         let s = Scheme::Mono(self.fresh_tyvar());
-        std::mem::replace(&mut self.values[id.0 as usize].0, s);
+        let _ = std::mem::replace(&mut self.values[id.0 as usize].0, s);
     }
 
     /// Starting from the current [`Namespace`], search for a bound name.

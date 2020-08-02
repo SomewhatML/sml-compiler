@@ -317,5 +317,3 @@ impl<'ar> fmt::Debug for Decl<'ar> {
         }
     }
 }
-
-use pretty_print::{PrettyPrinter, Print};

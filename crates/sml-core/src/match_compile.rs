@@ -68,7 +68,7 @@ pub fn fun<'a>(
     let rec = SortedRecord::new_unchecked(
         vars.iter()
             .enumerate()
-            .map(|(idx, (s, t))| Row {
+            .map(|(idx, (s, _))| Row {
                 label: Symbol::tuple_field(idx as u32 + 1),
                 data: *s,
                 span: Span::dummy(),
@@ -344,7 +344,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
         }
 
         match arity {
-            Some((name, ty)) => {
+            Some((name, _)) => {
                 facts.add(mat.vars[0].0, Fact::Con(*head, Some(name)));
                 mat.vars[0].0 = name;
             }
@@ -378,7 +378,6 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
             // of data constructors for a datatype, and the arity of each
             // data constructor. We just mock it instead
             let fresh = self.ctx.fresh_var();
-            println!("spec {:?} {:?}", fresh, con);
             let mut f = facts.clone();
             let expr = self.specialize(&mut f, con, arg_ty.map(|ty| (fresh, ty)));
 
