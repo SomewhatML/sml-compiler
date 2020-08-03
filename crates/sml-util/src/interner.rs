@@ -222,6 +222,11 @@ impl Interner {
 
 impl std::fmt::Debug for Symbol {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        f.write_str("interned symbol")
+        match self {
+            Symbol::Builtin(n) => f.write_str(&BUILTIN_STRS[*n as usize]),
+            Symbol::Tuple(n) => write!(f, "{}", n),
+            Symbol::Gensym(n) => write!(f, "${}", n),
+            _ => f.write_str("symbol"),
+        }
     }
 }

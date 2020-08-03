@@ -5,7 +5,7 @@
 
 -- expected stderr:
 -- Error
--- 16,5 type interned symbol escapes inner scope!
+-- 16,5 type escapes scope: t
 
 *)
 

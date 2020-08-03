@@ -8,7 +8,7 @@ use std::str::Chars;
 
 pub struct Lexer<'s, 'sym> {
     source: &'s str,
-    interner: &'sym mut Interner,
+    pub interner: &'sym mut Interner,
     input: Peekable<Chars<'s>>,
     current: Location,
     abs: usize,

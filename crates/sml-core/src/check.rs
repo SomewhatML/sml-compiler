@@ -14,23 +14,21 @@ use sml_frontend::ast::*;
 use sml_util::diagnostics::Diagnostic;
 use sml_util::interner::*;
 use sml_util::span::Span;
-
 use std::collections::{HashSet, VecDeque};
 
 const BUILTIN_CONSTRUCTORS: [Symbol; 5] = [S_NIL, S_CONS, S_TRUE, S_FALSE, S_REF];
 
-#[derive(Default, Debug)]
-pub struct Check {
+pub struct Check<'a> {
+    interner: &'a Interner,
     pub diags: Vec<Diagnostic>,
 }
 
-impl Check {
-    pub fn check_program(program: &[Decl]) -> Vec<Diagnostic> {
-        let mut check = Check { diags: Vec::new() };
-        for d in program {
-            check.check_decl(d);
+impl<'a> Check<'a> {
+    pub fn new(interner: &'a Interner) -> Self {
+        Self {
+            interner,
+            diags: Vec::new(),
         }
-        check.diags
     }
 
     fn check_pat(&mut self, pattern: &Pat) {
@@ -59,7 +57,10 @@ impl Check {
                             self.diags.push(
                                 Diagnostic::error(
                                     pattern.span,
-                                    format!("duplicate variable in pattern: '{:?}'", sym),
+                                    format!(
+                                        "duplicate variable in pattern: '{}'",
+                                        self.interner.get(*sym).unwrap_or("?")
+                                    ),
                                 )
                                 .message(pat.span, "redefined here"),
                             );
@@ -77,7 +78,10 @@ impl Check {
             if !set.insert(row.label) {
                 self.diags.push(Diagnostic::error(
                     row.span,
-                    format!("duplicate record label: '{:?}'", row.label),
+                    format!(
+                        "duplicate record label: '{}'",
+                        self.interner.get(row.label).unwrap_or("?")
+                    ),
                 ));
             }
             f(self, &row.data);
@@ -171,7 +175,10 @@ impl Check {
             if !set.insert(tv) {
                 self.diags.push(Diagnostic::error(
                     sp,
-                    format!("type variable '{:?}' cannot be rebound", tv),
+                    format!(
+                        "type variable '{}' cannot be rebound",
+                        self.interner.get(*tv).unwrap_or("?")
+                    ),
                 ));
             }
         }
@@ -188,8 +195,8 @@ impl Check {
                     self.diags.push(Diagnostic::error(
                         con.span,
                         format!(
-                            "builtin data constructor '{:?}' cannot be rebound",
-                            con.label
+                            "builtin data constructor '{}' cannot be rebound",
+                            self.interner.get(con.label).unwrap_or("?")
                         ),
                     ));
                 }
@@ -207,7 +214,10 @@ impl Check {
             if BUILTIN_CONSTRUCTORS.contains(&s) {
                 self.diags.push(Diagnostic::error(
                     pat.span,
-                    format!("builtin data constructor '{:?}' cannot be rebound", s),
+                    format!(
+                        "builtin data constructor '{}' cannot be rebound",
+                        self.interner.get(s).unwrap_or("?")
+                    ),
                 ));
             }
         }
@@ -226,8 +236,9 @@ impl Check {
                     self.diags.push(Diagnostic::error(
                         fb.span,
                         format!(
-                            "function clause with a different name; expected: {:?}, found {:?}",
-                            n, fb.name
+                            "function clause with a different name; expected: {}, found {}",
+                            self.interner.get(n).unwrap_or("?"),
+                            self.interner.get(fb.name).unwrap_or("?")
                         ),
                     ));
                 }
@@ -235,7 +246,7 @@ impl Check {
                     self.diags.push(Diagnostic::error(
                         fb.span,
                         format!(
-                            "function clause with a different number of args; expected: {:?}, found {:?}",
+                            "function clause with a different number of args; expected: {}, found {}",
                             a, fb.pats.len()
                         )
                     ));
@@ -245,8 +256,8 @@ impl Check {
                 self.diags.push(Diagnostic::error(
                     f.span,
                     format!(
-                        "function '{:?}' was previously defined in function bindings",
-                        n
+                        "function '{}' was previously defined in function bindings",
+                        self.interner.get(n).unwrap_or("?")
                     ),
                 ));
             }

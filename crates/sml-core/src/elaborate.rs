@@ -11,12 +11,12 @@ use sml_util::interner::Interner;
 use std::collections::HashMap;
 use std::fmt::Write;
 
-pub fn check_and_elaborate<'ar>(
-    arena: &'ar CoreArena<'ar>,
+pub fn check_and_elaborate<'a>(
+    arena: &'a CoreArena<'a>,
     decl: &ast::Decl,
-    interner: &Interner,
-) -> (Vec<Decl<'ar>>, Vec<Diagnostic>) {
-    let mut check = super::check::Check::default();
+    interner: &'a Interner,
+) -> (Vec<Decl<'a>>, Vec<Diagnostic>) {
+    let mut check = super::check::Check::new(interner);
     check.check_decl(decl);
 
     let mut ctx = Context::new(arena);
@@ -38,25 +38,25 @@ pub enum IdStatus {
 /// Essentially a minimized Value Environment (VE) containing only datatype
 /// constructors, and without the indirection of going from names->id->def
 #[derive(Clone, Debug)]
-pub struct Cons<'ar> {
+pub struct Cons<'a> {
     name: Symbol,
-    scheme: Scheme<'ar>,
+    scheme: Scheme<'a>,
 }
 
 /// TyStr, a [`TypeStructure`] from the Defn. This is a component of the
 /// Type Environment, TE
 #[derive(Clone, Debug)]
-pub enum TypeStructure<'ar> {
+pub enum TypeStructure<'a> {
     /// TyStr (t, VE), a datatype
-    Datatype(Tycon, Vec<Cons<'ar>>),
+    Datatype(Tycon, Vec<Cons<'a>>),
     /// TyStr (_, VE), a definition. Rather than include a whole VE hashmap,
     /// we can include just a single entry
-    Scheme(Scheme<'ar>),
+    Scheme(Scheme<'a>),
     /// TyStr (t, {}), a name
     Tycon(Tycon),
 }
 
-impl<'ar> TypeStructure<'ar> {
+impl<'a> TypeStructure<'a> {
     pub fn arity(&self) -> usize {
         match self {
             TypeStructure::Tycon(con) | TypeStructure::Datatype(con, _) => con.arity,
@@ -64,7 +64,7 @@ impl<'ar> TypeStructure<'ar> {
         }
     }
 
-    pub fn apply(&self, arena: &'ar TypeArena<'ar>, args: Vec<&'ar Type<'ar>>) -> &'ar Type<'ar> {
+    pub fn apply(&self, arena: &'a TypeArena<'a>, args: Vec<&'a Type<'a>>) -> &'a Type<'a> {
         match self {
             TypeStructure::Tycon(con) | TypeStructure::Datatype(con, _) => {
                 arena.alloc(Type::Con(*con, args))
@@ -75,28 +75,28 @@ impl<'ar> TypeStructure<'ar> {
 }
 
 /// A partially elaborated Vec<ast::FnBinding>
-struct PartialFun<'s, 'ar> {
+struct PartialFun<'s, 'a> {
     name: Symbol,
-    clauses: Vec<PartialFnBinding<'s, 'ar>>,
+    clauses: Vec<PartialFnBinding<'s, 'a>>,
     arity: usize,
     /// Argument types, invariant that |arg_tys| = arity
-    arg_tys: Vec<&'ar Type<'ar>>,
+    arg_tys: Vec<&'a Type<'a>>,
     /// The resulting type
-    res_ty: &'ar Type<'ar>,
+    res_ty: &'a Type<'a>,
     /// The overall flattened type, where for each ty_i in args, we have
     /// ty_0 -> ty_1 -> ... ty_arity -> res_ty
-    ty: &'ar Type<'ar>,
+    ty: &'a Type<'a>,
 }
 
 /// A partially elaborated ast::FnBinding
-struct PartialFnBinding<'s, 'ar> {
+struct PartialFnBinding<'s, 'a> {
     /// Function body
     expr: &'s ast::Expr,
     /// List of bound patterns `fun merge xs ys` = [xs, ys]
-    pats: Vec<Pat<'ar>>,
+    pats: Vec<Pat<'a>>,
     /// A list of variables bound in `pats`, and fresh type variables
     /// to be associated with those symbols
-    bindings: Vec<(Symbol, &'ar Type<'ar>)>,
+    bindings: Vec<(Symbol, &'a Type<'a>)>,
     span: Span,
 }
 
@@ -109,32 +109,11 @@ pub struct Namespace {
     infix: HashMap<Symbol, Fixity>,
 }
 
-pub enum ElabErrorKind {
-    Unbound(Symbol),
-    Arity(usize, usize),
-}
-
-pub struct ElabError {
-    span: Span,
-    msg: String,
-    kind: ElabErrorKind,
-}
-
-impl ElabError {
-    pub fn new<S: AsRef<str>>(span: Span, kind: ElabErrorKind, msg: S) -> ElabError {
-        ElabError {
-            span,
-            kind,
-            msg: msg.as_ref().into(),
-        }
-    }
-}
-
 /// An elaboration context, holding the namespace and type definitions
 /// for the program we are elaborating
-pub struct Context<'ar> {
+pub struct Context<'a> {
     // stacks for alpha-renaming of explicity named type variables 'a
-    tyvars: Vec<(Symbol, &'ar TypeVar<'ar>)>,
+    tyvars: Vec<(Symbol, &'a TypeVar<'a>)>,
 
     // A list of [`Namespace`] structs, but this is a not stack. Namespaces can
     // be pushed onto the end, but they may never be deleted or re-ordered
@@ -143,15 +122,15 @@ pub struct Context<'ar> {
     current: usize,
 
     // All defined types live here, indexed by `TypeId`
-    types: Vec<TypeStructure<'ar>>,
+    types: Vec<TypeStructure<'a>>,
     // All defined values live here, indexed by `ExprId`
-    values: Vec<(Scheme<'ar>, IdStatus)>,
+    values: Vec<(Scheme<'a>, IdStatus)>,
 
     tyvar_rank: usize,
 
-    pub(crate) arena: &'ar CoreArena<'ar>,
-    pub diags: Vec<Diagnostic>,
-    pub unification_errors: Vec<CantUnify<'ar>>,
+    pub(crate) arena: &'a CoreArena<'a>,
+    elab_errors: Vec<ElabError>,
+    unification_errors: Vec<CantUnify<'a>>,
 }
 
 impl Namespace {
@@ -165,8 +144,8 @@ impl Namespace {
     }
 }
 
-impl<'ar> Context<'ar> {
-    pub fn new(arena: &'ar CoreArena<'ar>) -> Context<'ar> {
+impl<'a> Context<'a> {
+    pub fn new(arena: &'a CoreArena<'a>) -> Context<'a> {
         let mut ctx = Context {
             tyvars: Vec::default(),
             namespaces: Vec::default(),
@@ -174,7 +153,7 @@ impl<'ar> Context<'ar> {
             tyvar_rank: 0,
             types: Vec::default(),
             values: Vec::default(),
-            diags: Vec::default(),
+            elab_errors: Vec::default(),
             unification_errors: Vec::default(),
             arena,
         };
@@ -186,7 +165,7 @@ impl<'ar> Context<'ar> {
     /// Keep track of the type variable stack, while executing the combinator
     /// function `f` on `self`. Any stack growth is popped off after `f`
     /// returns.
-    fn with_tyvars<T, F: FnMut(&mut Context<'ar>) -> T>(&mut self, mut f: F) -> T {
+    fn with_tyvars<T, F: FnMut(&mut Context<'a>) -> T>(&mut self, mut f: F) -> T {
         let n = self.tyvars.len();
         let r = f(self);
         while self.tyvars.len() != n {
@@ -198,7 +177,7 @@ impl<'ar> Context<'ar> {
     /// Handle namespacing. The method creates a new child namespace, enters it
     /// and then calls `f`. After `f` has returned, the current scope is
     /// returned to it's previous value
-    fn with_scope<T, F: FnOnce(&mut Context<'ar>) -> T>(&mut self, f: F) -> T {
+    fn with_scope<T, F: FnOnce(&mut Context<'a>) -> T>(&mut self, f: F) -> T {
         let prev = self.current;
         let next = self.namespaces.len();
         self.namespaces.push(Namespace::with_parent(prev));
@@ -210,7 +189,7 @@ impl<'ar> Context<'ar> {
     }
 
     /// Globally define a type
-    pub(crate) fn define_type(&mut self, sym: Symbol, tystr: TypeStructure<'ar>) -> TypeId {
+    pub(crate) fn define_type(&mut self, sym: Symbol, tystr: TypeStructure<'a>) -> TypeId {
         let id = TypeId(self.types.len() as u32);
         self.types.push(tystr);
         self.namespaces[self.current].types.insert(sym, id);
@@ -221,7 +200,7 @@ impl<'ar> Context<'ar> {
     pub(crate) fn define_value(
         &mut self,
         sym: Symbol,
-        scheme: Scheme<'ar>,
+        scheme: Scheme<'a>,
         status: IdStatus,
     ) -> ExprId {
         let id = ExprId(self.values.len() as u32);
@@ -269,11 +248,11 @@ impl<'ar> Context<'ar> {
         }
     }
 
-    fn lookup_type(&self, sym: &Symbol) -> Option<&TypeStructure<'ar>> {
+    fn lookup_type(&self, sym: &Symbol) -> Option<&TypeStructure<'a>> {
         Some(&self.types[self.lookup_type_id(sym)?.0 as usize])
     }
 
-    fn lookup_value(&self, sym: &Symbol) -> Option<&(Scheme<'ar>, IdStatus)> {
+    fn lookup_value(&self, sym: &Symbol) -> Option<&(Scheme<'a>, IdStatus)> {
         let mut ptr = &self.namespaces[self.current];
         loop {
             match ptr.values.get(sym) {
@@ -283,7 +262,7 @@ impl<'ar> Context<'ar> {
         }
     }
 
-    fn lookup_tyvar(&mut self, s: &Symbol, allow_unbound: bool) -> Option<&'ar TypeVar<'ar>> {
+    fn lookup_tyvar(&mut self, s: &Symbol, allow_unbound: bool) -> Option<&'a TypeVar<'a>> {
         for (sym, tv) in self.tyvars.iter().rev() {
             if sym == s {
                 return Some(tv);
@@ -298,7 +277,7 @@ impl<'ar> Context<'ar> {
         }
     }
 
-    pub(crate) fn fresh_tyvar(&self) -> &'ar Type<'ar> {
+    pub(crate) fn fresh_tyvar(&self) -> &'a Type<'a> {
         self.arena.types.fresh_var(self.tyvar_rank)
     }
 
@@ -306,7 +285,7 @@ impl<'ar> Context<'ar> {
         self.arena.exprs.allocate_id()
     }
 
-    fn const_ty(&self, c: &Const) -> &'ar Type<'ar> {
+    fn const_ty(&self, c: &Const) -> &'a Type<'a> {
         match c {
             Const::Char(_) => self.arena.types.char(),
             Const::Int(_) => self.arena.types.int(),
@@ -317,7 +296,7 @@ impl<'ar> Context<'ar> {
 
     /// Generic function to elaborate an ast::Row<T> into a core::Row<S>
     /// where T might be ast::Type and S is core::Type, for instance
-    fn elab_row<T, S, F: FnMut(&mut Context<'ar>, &T) -> S>(
+    fn elab_row<T, S, F: FnMut(&mut Context<'a>, &T) -> S>(
         &mut self,
         mut f: F,
         row: &ast::Row<T>,
@@ -329,45 +308,87 @@ impl<'ar> Context<'ar> {
         }
     }
 
-    pub fn diagnostics(&mut self, interner: &sml_util::interner::Interner) -> Vec<Diagnostic> {
-        let mut diags = std::mem::replace(&mut self.diags, Vec::new());
+    pub fn diagnostics(&mut self, interner: &Interner) -> Vec<Diagnostic> {
+        // let mut diags = std::mem::replace(&mut self.diags, Vec::new());
+        let mut diags = Vec::new();
         let mut pp = crate::pretty_print::PrettyPrinter::new(interner);
+        diags.extend(
+            self.elab_errors
+                .drain(..)
+                .filter_map(|e| e.convert_err(&mut pp)),
+        );
         diags.extend(
             self.unification_errors
                 .drain(..)
-                .filter_map(|e| convert_err(e, &mut pp)),
+                .filter_map(|e| e.convert_err(&mut pp)),
         );
         diags
     }
 }
 
-fn convert_err(err: CantUnify<'_>, pp: &mut pretty_print::PrettyPrinter<'_>) -> Option<Diagnostic> {
-    let mut map = HashMap::new();
-
-    let mut buffer = String::new();
-    let sp = err.originating?;
-    use std::fmt::Write;
-    write!(
-        &mut buffer,
-        "Type unification: {}. {}: ",
-        err.message, err.reason
-    )
-    .ok()?;
-    err.ty1
-        .print_rename(pp, &mut map)
-        .write_fmt(&mut buffer)
-        .ok()?;
-    write!(&mut buffer, ", ").ok()?;
-    err.ty2
-        .print_rename(pp, &mut map)
-        .write_fmt(&mut buffer)
-        .ok()?;
-    Some(Diagnostic::error(sp, buffer))
+pub struct ElabError {
+    sp: Span,
+    message: String,
+    kind: ErrorKind,
 }
 
-pub struct CantUnify<'ar> {
-    pub ty1: &'ar Type<'ar>,
-    pub ty2: &'ar Type<'ar>,
+pub enum ErrorKind {
+    Unbound(Symbol),
+    Rebound(Symbol),
+    Escape(Symbol),
+    Arity(usize, usize),
+    Message,
+}
+
+impl ElabError {
+    pub fn new(sp: Span, msg: &str) -> ElabError {
+        ElabError {
+            sp,
+            message: msg.into(),
+            kind: ErrorKind::Message,
+        }
+    }
+
+    pub fn kind(mut self, kind: ErrorKind) -> Self {
+        self.kind = kind;
+        self
+    }
+
+    fn convert_err(self, pp: &mut pretty_print::PrettyPrinter<'_>) -> Option<Diagnostic> {
+        let mut buffer = String::new();
+        match self.kind {
+            ErrorKind::Unbound(sym) => {
+                write!(&mut buffer, "unbound {}: ", self.message).ok()?;
+                pp.print(&sym).write_fmt(&mut buffer).ok()?;
+            }
+            ErrorKind::Rebound(sym) => {
+                write!(&mut buffer, "rebound {}: ", self.message).ok()?;
+                pp.print(&sym).write_fmt(&mut buffer).ok()?;
+                return Some(Diagnostic::warn(self.sp, buffer));
+            }
+            ErrorKind::Escape(sym) => {
+                write!(&mut buffer, "{}: ", self.message).ok()?;
+                pp.print(&sym).write_fmt(&mut buffer).ok()?;
+            }
+            ErrorKind::Arity(expect, got) => {
+                write!(
+                    &mut buffer,
+                    "arity mismatch in {}. Expected {}, got {}",
+                    self.message, expect, got
+                )
+                .ok()?;
+            }
+            _ => {
+                buffer = self.message;
+            }
+        }
+        Some(Diagnostic::error(self.sp, buffer))
+    }
+}
+
+struct CantUnify<'a> {
+    pub ty1: &'a Type<'a>,
+    pub ty2: &'a Type<'a>,
     pub sp1: Option<Span>,
     pub sp2: Option<Span>,
     pub message: String,
@@ -375,8 +396,8 @@ pub struct CantUnify<'ar> {
     pub originating: Option<Span>,
 }
 
-impl<'ar> CantUnify<'ar> {
-    pub fn new(ty1: &'ar Type<'ar>, ty2: &'ar Type<'ar>) -> CantUnify<'ar> {
+impl<'a> CantUnify<'a> {
+    pub fn new(ty1: &'a Type<'a>, ty2: &'a Type<'a>) -> CantUnify<'a> {
         CantUnify {
             ty1,
             ty2,
@@ -388,12 +409,12 @@ impl<'ar> CantUnify<'ar> {
         }
     }
 
-    pub fn add_message<S: Into<String>>(mut self, s: S) -> Self {
+    pub fn message<S: Into<String>>(mut self, s: S) -> Self {
         self.message = s.into();
         self
     }
 
-    pub fn add_reason<S: Into<String>>(mut self, s: S) -> Self {
+    pub fn reason<S: Into<String>>(mut self, s: S) -> Self {
         self.reason = s.into();
         self
     }
@@ -408,13 +429,36 @@ impl<'ar> CantUnify<'ar> {
         self.sp2 = Some(s2);
         self
     }
+
+    fn convert_err(self, pp: &mut pretty_print::PrettyPrinter<'_>) -> Option<Diagnostic> {
+        let mut map = HashMap::new();
+
+        let mut buffer = String::new();
+        let sp = self.originating?;
+        write!(
+            &mut buffer,
+            "Type unification: {}. {}: ",
+            self.message, self.reason
+        )
+        .ok()?;
+        self.ty1
+            .print_rename(pp, &mut map)
+            .write_fmt(&mut buffer)
+            .ok()?;
+        write!(&mut buffer, ", ").ok()?;
+        self.ty2
+            .print_rename(pp, &mut map)
+            .write_fmt(&mut buffer)
+            .ok()?;
+        Some(Diagnostic::error(sp, buffer))
+    }
 }
 
-impl<'ar> Context<'ar> {
+impl<'a> Context<'a> {
     /// Note that this can only be called once per type variable!
-    fn bind<F>(&mut self, var: &'ar TypeVar<'ar>, ty: &'ar Type<'ar>, f: &F)
+    fn bind<F>(&mut self, var: &'a TypeVar<'a>, ty: &'a Type<'a>, f: &F)
     where
-        F: Fn() -> CantUnify<'ar>,
+        F: Fn() -> CantUnify<'a>,
     {
         if let Type::Var(v2) = ty {
             // TODO: Ensure that testing on id alone is ok - I believe it should be
@@ -423,7 +467,7 @@ impl<'ar> Context<'ar> {
             }
         }
         if ty.occurs_check(var) {
-            let err = f().add_reason("Cyclic type detected");
+            let err = f().reason("Cyclic type detected");
             self.unification_errors.push(err);
         } else {
             // Move into else block, so that even if occurs check fails, we can
@@ -434,17 +478,17 @@ impl<'ar> Context<'ar> {
 
     fn unify_records<F>(
         &mut self,
-        r1: &SortedRecord<&'ar Type<'ar>>,
-        r2: &SortedRecord<&'ar Type<'ar>>,
-        ty1: &'ar Type<'ar>,
-        ty2: &'ar Type<'ar>,
+        r1: &SortedRecord<&'a Type<'a>>,
+        r2: &SortedRecord<&'a Type<'a>>,
+        ty1: &'a Type<'a>,
+        ty2: &'a Type<'a>,
         f: &F,
     ) where
-        F: Fn(CantUnify<'ar>) -> CantUnify<'ar>,
+        F: Fn(CantUnify<'a>) -> CantUnify<'a>,
     {
         if r1.len() != r2.len() {
-            let err = f(CantUnify::new(ty1, ty2))
-                .add_reason("Record types have differing number of fields");
+            let err =
+                f(CantUnify::new(ty1, ty2)).reason("Record types have differing number of fields");
             self.unification_errors.push(err);
             return;
         }
@@ -452,18 +496,18 @@ impl<'ar> Context<'ar> {
         for (ra, rb) in r1.iter().zip(r2.iter()) {
             if ra.label != rb.label {
                 let err = f(CantUnify::new(&ra.data, &rb.data))
-                    .add_reason("Record labels don't match")
+                    .reason("Record labels don't match")
                     .add_spans(ra.span, rb.span);
                 self.unification_errors.push(err);
                 return;
             }
-            self.unify(&ra.data, &rb.data, f); //&|c| f(c).add_reason("Record fields have differing types").add_spans(ra.span, rb.span));
+            self.unify(&ra.data, &rb.data, f); //&|c| f(c).reason("Record fields have differing types").add_spans(ra.span, rb.span));
         }
     }
 
-    pub fn unify<F>(&mut self, a: &'ar Type<'ar>, b: &'ar Type<'ar>, f: &F)
+    fn unify<F>(&mut self, a: &'a Type<'a>, b: &'a Type<'a>, f: &F)
     where
-        F: Fn(CantUnify<'ar>) -> CantUnify<'ar>,
+        F: Fn(CantUnify<'a>) -> CantUnify<'a>,
     {
         match (a, b) {
             (Type::Var(a1), Type::Var(b1)) => match (a1.ty(), b1.ty()) {
@@ -482,11 +526,11 @@ impl<'ar> Context<'ar> {
             },
             (Type::Con(tc1, a_args), Type::Con(tc2, b_args)) => {
                 if tc1 != tc2 {
-                    let err = f(CantUnify::new(a, b)).add_reason("Type constructors differ");
+                    let err = f(CantUnify::new(a, b)).reason("Type constructors differ");
                     self.unification_errors.push(err);
                 } else if a_args.len() != b_args.len() {
                     let err = f(CantUnify::new(a, b))
-                        .add_reason("Argument lengths to type constructors differ");
+                        .reason("Argument lengths to type constructors differ");
                     self.unification_errors.push(err);
                 } else {
                     for (c, d) in a_args.into_iter().zip(b_args) {
@@ -496,25 +540,25 @@ impl<'ar> Context<'ar> {
             }
             (Type::Record(r1), Type::Record(r2)) => self.unify_records(r1, r2, a, b, f),
             (a, b) => {
-                let err = f(CantUnify::new(a, b)).add_reason("Can't unify these types");
+                let err = f(CantUnify::new(a, b)).reason("Can't unify these types");
                 self.unification_errors.push(err);
             }
         }
     }
 
-    pub fn unify_list(&mut self, sp: Span, tys: &[&'ar Type<'ar>]) {
+    fn unify_list(&mut self, sp: Span, tys: &[&'a Type<'a>]) {
         if tys.len() == 1 {
             return;
         }
         let fst = &tys[0];
         for ty in tys {
             self.unify(ty, fst, &|c| {
-                c.span(sp).add_message("List has items of differing types")
+                c.span(sp).message("List has items of differing types")
             });
         }
     }
 
-    pub fn generalize(&self, ty: &'ar Type<'ar>) -> Scheme<'ar> {
+    fn generalize(&self, ty: &'a Type<'a>) -> Scheme<'a> {
         let ftv = ty.ftv_rank(self.tyvar_rank);
 
         match ftv.len() {
@@ -523,7 +567,7 @@ impl<'ar> Context<'ar> {
         }
     }
 
-    pub fn instantiate(&self, scheme: &Scheme<'ar>) -> &'ar Type<'ar> {
+    fn instantiate(&self, scheme: &Scheme<'a>) -> &'a Type<'a> {
         match scheme {
             Scheme::Mono(ty) => ty,
             Scheme::Poly(vars, ty) => {
@@ -533,7 +577,7 @@ impl<'ar> Context<'ar> {
         }
     }
 
-    pub fn check_type_names(&mut self, sp: Span, ty: &'ar Type<'ar>) {
+    fn check_type_names(&mut self, sp: Span, ty: &'a Type<'a>) {
         let mut names = Vec::new();
         ty.visit(|f| match f {
             Type::Con(tc, _) => names.push(*tc),
@@ -542,24 +586,23 @@ impl<'ar> Context<'ar> {
 
         for tycon in names {
             if self.lookup_type(&tycon.name).is_none() {
-                self.diags.push(Diagnostic::error(
-                    sp,
-                    format!("type {:?} escapes inner scope!", tycon.name),
-                ));
+                self.elab_errors.push(
+                    ElabError::new(sp, "type escapes scope").kind(ErrorKind::Escape(tycon.name)),
+                )
             }
         }
     }
 
-    pub fn elaborate_type(&mut self, ty: &ast::Type, allow_unbound: bool) -> &'ar Type<'ar> {
+    fn elaborate_type(&mut self, ty: &ast::Type, allow_unbound: bool) -> &'a Type<'a> {
         use ast::TypeKind::*;
         match &ty.data {
             Var(s) => match self.lookup_tyvar(s, allow_unbound) {
                 Some(tv) => self.arena.types.alloc(Type::Var(tv)),
                 None => {
-                    self.diags.push(Diagnostic::error(
-                        ty.span,
-                        format!("unbound type variable {:?}", s),
-                    ));
+                    self.elab_errors.push(
+                        ElabError::new(ty.span, "type variable").kind(ErrorKind::Unbound(*s)),
+                    );
+
                     self.fresh_tyvar()
                 }
             },
@@ -572,10 +615,9 @@ impl<'ar> Context<'ar> {
                 let con = match self.lookup_type(s) {
                     Some(t) => t.clone(),
                     None => {
-                        self.diags.push(Diagnostic::error(
-                            ty.span,
-                            format!("unbound type variable {:?}", s),
-                        ));
+                        self.elab_errors.push(
+                            ElabError::new(ty.span, "type variable").kind(ErrorKind::Unbound(*s)),
+                        );
                         TypeStructure::Tycon(Tycon {
                             name: self.fresh_var(),
                             arity: args.len(),
@@ -584,16 +626,9 @@ impl<'ar> Context<'ar> {
                 };
 
                 if con.arity() != args.len() {
-                    self.diags.push(
-                        Diagnostic::error(
-                            ty.span,
-                            format!(
-                                "type constructor requires {} arguments, but {} are supplied",
-                                con.arity(),
-                                args.len()
-                            ),
-                        )
-                        .message(ty.span, format!("in type {:?}", ty)),
+                    self.elab_errors.push(
+                        ElabError::new(ty.span, "type constructor")
+                            .kind(ErrorKind::Arity(con.arity(), args.len())),
                     );
                 }
                 con.apply(&self.arena.types, args)
@@ -607,8 +642,8 @@ impl<'ar> Context<'ar> {
     }
 }
 
-impl<'ar> Context<'ar> {
-    fn elab_if(&mut self, sp: Span, e1: Expr<'ar>, e2: Expr<'ar>, e3: Expr<'ar>) -> Expr<'ar> {
+impl<'a> Context<'a> {
+    fn elab_if(&mut self, sp: Span, e1: Expr<'a>, e2: Expr<'a>, e3: Expr<'a>) -> Expr<'a> {
         let tru = Rule {
             pat: Pat::new(
                 self.arena
@@ -632,12 +667,12 @@ impl<'ar> Context<'ar> {
 
         self.unify(e1.ty, self.arena.types.bool(), &|c| {
             c.span(e1.span)
-                .add_message("conditional doesn't have type `bool`")
+                .message("conditional doesn't have type `bool`")
         });
         self.unify(e2.ty, e3.ty, &|c| {
             c.span(e2.span)
                 .add_spans(e2.span, e3.span)
-                .add_message("branches of `if` expression don't have the same types")
+                .message("branches of `if` expression don't have the same types")
         });
 
         Expr::new(
@@ -647,17 +682,13 @@ impl<'ar> Context<'ar> {
         )
     }
 
-    fn elab_rule(&mut self, rule: &ast::Rule, bind: bool) -> Rule<'ar> {
+    fn elab_rule(&mut self, rule: &ast::Rule, bind: bool) -> Rule<'a> {
         let (pat, _) = self.elaborate_pat(&rule.pat, bind);
         let expr = self.elaborate_expr(&rule.expr);
         Rule { pat, expr }
     }
 
-    pub fn elab_rules(
-        &mut self,
-        sp: Span,
-        rules: &[ast::Rule],
-    ) -> (Vec<Rule<'ar>>, &'ar Type<'ar>) {
+    fn elab_rules(&mut self, sp: Span, rules: &[ast::Rule]) -> (Vec<Rule<'a>>, &'a Type<'a>) {
         self.with_scope(|ctx| {
             let rules = rules
                 .into_iter()
@@ -675,7 +706,7 @@ impl<'ar> Context<'ar> {
         })
     }
 
-    pub fn elaborate_expr(&mut self, expr: &ast::Expr) -> Expr<'ar> {
+    fn elaborate_expr(&mut self, expr: &ast::Expr) -> Expr<'a> {
         match &expr.data {
             ast::ExprKind::Andalso(e1, e2) => {
                 let e1 = self.elaborate_expr(e1);
@@ -697,7 +728,7 @@ impl<'ar> Context<'ar> {
                 self.unify(e1.ty, self.arena.types.arrow(e2.ty, f), &|c| {
                     c.span(expr.span)
                         .add_spans(e1.span, e2.span)
-                        .add_message("can't unify function with argument types")
+                        .message("can't unify function with argument types")
                 });
                 Expr::new(self.arena.exprs.alloc(ExprKind::App(e1, e2)), f, expr.span)
             }
@@ -713,7 +744,7 @@ impl<'ar> Context<'ar> {
                         let arr = self.arena.types.arrow(dom, rng);
                         self.unify(ty, arr, &|c| {
                             c.span(expr.span)
-                                .add_message("something wrong with match rules")
+                                .message("something wrong with match rules")
                         });
                         (dom, rng)
                     }
@@ -721,7 +752,7 @@ impl<'ar> Context<'ar> {
 
                 self.unify(casee.ty, arg, &|c| {
                     c.span(scrutinee.span)
-                        .add_message("`case` expression and patterns don't have the same type")
+                        .message("`case` expression and patterns don't have the same type")
                 });
                 crate::match_compile::case(self, casee, res, rules, scrutinee.span)
             }
@@ -735,7 +766,7 @@ impl<'ar> Context<'ar> {
                 self.unify(ex.ty, ty_, &|c| {
                     c.span(expr.span)
                         .add_spans(ex.span, ty.span)
-                        .add_message("expression type and constraint don't match")
+                        .message("expression type and constraint don't match")
                 });
                 ex
             }
@@ -744,22 +775,24 @@ impl<'ar> Context<'ar> {
                     Ok(p) => p,
                     Err(err) => {
                         match err {
-                            precedence::Error::EndsInfix => self.diags.push(Diagnostic::error(
+                            precedence::Error::EndsInfix => self.elab_errors.push(ElabError::new(
                                 expr.span,
                                 "application expr ends with an infix operator",
                             )),
-                            precedence::Error::InfixInPrefix => self.diags.push(Diagnostic::error(
-                                expr.span,
-                                "application expr starts with an infix operator",
-                            )),
+                            precedence::Error::InfixInPrefix => {
+                                self.elab_errors.push(ElabError::new(
+                                    expr.span,
+                                    "application expr starts with an infix operator",
+                                ))
+                            }
                             precedence::Error::SamePrecedence => {
-                                self.diags.push(Diagnostic::error(
+                                self.elab_errors.push(ElabError::new(
                                     expr.span,
                                     "application expr mixes operators of equal precedence",
                                 ))
                             }
                             precedence::Error::InvalidOperator => {
-                                self.diags.push(Diagnostic::error(
+                                self.elab_errors.push(ElabError::new(
                                     expr.span,
                                     "application expr doesn't contain infix operator",
                                 ))
@@ -784,7 +817,7 @@ impl<'ar> Context<'ar> {
                         let arr = self.arena.types.arrow(dom, rng);
                         self.unify(ty, arr, &|c| {
                             c.span(expr.span)
-                                .add_message("something wrong with match rules")
+                                .message("something wrong with match rules")
                         });
                         (dom, rng)
                     }
@@ -815,7 +848,7 @@ impl<'ar> Context<'ar> {
                         let arr = self.arena.types.arrow(dom, rng);
                         self.unify(ty, arr, &|c| {
                             c.span(expr.span)
-                                .add_message("something wrong with match rules")
+                                .message("something wrong with match rules")
                         });
                         (dom, rng)
                     }
@@ -823,11 +856,11 @@ impl<'ar> Context<'ar> {
 
                 self.unify(tryy.ty, res, &|c| {
                     c.span(tryy.span)
-                        .add_message("`try` expression and handler result types don't match")
+                        .message("`try` expression and handler result types don't match")
                 });
                 self.unify(arg, self.arena.types.exn(), &|c| {
                     c.span(expr.span)
-                        .add_message("handler match rules don't have `exn` type")
+                        .message("handler match rules don't have `exn` type")
                 });
                 // tryy handle case $gensym of |...
                 let gensym = self.fresh_var();
@@ -900,7 +933,7 @@ impl<'ar> Context<'ar> {
                 let ex = self.elaborate_expr(expr);
                 self.unify(ex.ty, self.arena.types.exn(), &|c| {
                     c.span(expr.span)
-                        .add_message("expression in `raise` is not an exception")
+                        .message("expression in `raise` is not an exception")
                 });
                 Expr::new(self.arena.exprs.alloc(ExprKind::Raise(ex)), ty, expr.span)
             }
@@ -947,7 +980,7 @@ impl<'ar> Context<'ar> {
                 for ex in &exprs[..exprs.len().saturating_sub(2)] {
                     self.unify(ex.ty, self.arena.types.unit(), &|c| {
                         c.span(expr.span)
-                            .add_message("expressions in a sequence must have type `unit`")
+                            .message("expressions in a sequence must have type `unit`")
                     });
                 }
                 let ty = exprs.last().unwrap().ty;
@@ -960,10 +993,8 @@ impl<'ar> Context<'ar> {
                     Expr::new(self.arena.exprs.alloc(ExprKind::Var(*sym)), ty, expr.span)
                 }
                 None => {
-                    self.diags.push(Diagnostic::error(
-                        expr.span,
-                        format!("unbound variable {:?}", sym),
-                    ));
+                    self.elab_errors
+                        .push(ElabError::new(expr.span, "variable").kind(ErrorKind::Unbound(*sym)));
                     Expr::new(
                         self.arena.exprs.fresh_var(),
                         self.arena.types.fresh_var(self.tyvar_rank),
@@ -979,17 +1010,17 @@ impl<'ar> Context<'ar> {
     }
 }
 
-impl<'ar> Context<'ar> {
-    pub fn elaborate_pat(
+impl<'a> Context<'a> {
+    fn elaborate_pat(
         &mut self,
         pat: &ast::Pat,
         bind: bool,
-    ) -> (Pat<'ar>, Vec<(Symbol, &'ar Type<'ar>)>) {
+    ) -> (Pat<'a>, Vec<(Symbol, &'a Type<'a>)>) {
         let mut bindings = Vec::new();
         (self.elaborate_pat_inner(pat, bind, &mut bindings), bindings)
     }
 
-    fn delist(&self, pats: Vec<Pat<'ar>>, ty: &'ar Type<'ar>, sp: Span) -> Pat<'ar> {
+    fn delist(&self, pats: Vec<Pat<'a>>, ty: &'a Type<'a>, sp: Span) -> Pat<'a> {
         let nil = Pat::new(
             self.arena
                 .pats
@@ -1010,12 +1041,12 @@ impl<'ar> Context<'ar> {
         })
     }
 
-    pub(crate) fn elaborate_pat_inner(
+    fn elaborate_pat_inner(
         &mut self,
         pat: &ast::Pat,
         bind: bool,
-        bindings: &mut Vec<(Symbol, &'ar Type<'ar>)>,
-    ) -> Pat<'ar> {
+        bindings: &mut Vec<(Symbol, &'a Type<'a>)>,
+    ) -> Pat<'a> {
         use ast::PatKind::*;
         match &pat.data {
             App(con, p) => {
@@ -1031,7 +1062,7 @@ impl<'ar> Context<'ar> {
                                 let (dom, rng) = (self.fresh_tyvar(), self.fresh_tyvar());
                                 let arr = self.arena.types.arrow(dom, rng);
                                 self.unify(inst, arr, &|c| {
-                                    c.span(pat.span).add_message(
+                                    c.span(pat.span).message(
                                         "can't unify pattern application and argument types",
                                     )
                                 });
@@ -1039,9 +1070,8 @@ impl<'ar> Context<'ar> {
                             }
                         };
                         self.unify(arg, p.ty, &|c| {
-                            c.span(pat.span).add_message(
-                                "pattern constructor and argument have different types",
-                            )
+                            c.span(pat.span)
+                                .message("pattern constructor and argument have different types")
                         });
                         Pat::new(
                             self.arena.pats.alloc(PatKind::App(constr, Some(p))),
@@ -1050,9 +1080,9 @@ impl<'ar> Context<'ar> {
                         )
                     }
                     _ => {
-                        self.diags.push(Diagnostic::error(
+                        self.elab_errors.push(ElabError::new(
                             pat.span,
-                            format!("Non-constructor applied to pattern"),
+                            "Non-constructor applied to pattern",
                         ));
                         Pat::new(
                             self.arena.pats.wild(),
@@ -1068,7 +1098,7 @@ impl<'ar> Context<'ar> {
                 self.unify(p.ty, ty_, &|c| {
                     c.span(pat.span)
                         .add_spans(p.span, ty.span)
-                        .add_message("pattern type and constraint type don't match")
+                        .message("pattern type and constraint type don't match")
                 });
                 p
             }
@@ -1081,22 +1111,24 @@ impl<'ar> Context<'ar> {
                     Ok(p) => p,
                     Err(err) => {
                         match err {
-                            precedence::Error::EndsInfix => self.diags.push(Diagnostic::error(
+                            precedence::Error::EndsInfix => self.elab_errors.push(ElabError::new(
                                 pat.span,
                                 "application pattern ends with an infix operator",
                             )),
-                            precedence::Error::InfixInPrefix => self.diags.push(Diagnostic::error(
-                                pat.span,
-                                "application pattern starts with an infix operator",
-                            )),
+                            precedence::Error::InfixInPrefix => {
+                                self.elab_errors.push(ElabError::new(
+                                    pat.span,
+                                    "application pattern starts with an infix operator",
+                                ))
+                            }
                             precedence::Error::SamePrecedence => {
-                                self.diags.push(Diagnostic::error(
+                                self.elab_errors.push(ElabError::new(
                                     pat.span,
                                     "application pattern mixes operators of equal precedence",
                                 ))
                             }
                             precedence::Error::InvalidOperator => {
-                                self.diags.push(Diagnostic::error(
+                                self.elab_errors.push(ElabError::new(
                                     pat.span,
                                     "application pattern doesn't contain infix operator",
                                 ))
@@ -1169,7 +1201,7 @@ impl<'ar> Context<'ar> {
     }
 }
 
-impl<'ar> Context<'ar> {
+impl<'a> Context<'a> {
     fn elab_decl_fixity(&mut self, fixity: &ast::Fixity, bp: u8, sym: Symbol) {
         let fix = match fixity {
             ast::Fixity::Infix => Fixity::Infix(bp, bp + 1),
@@ -1179,7 +1211,7 @@ impl<'ar> Context<'ar> {
         self.namespaces[self.current].infix.insert(sym, fix);
     }
 
-    fn elab_decl_local(&mut self, decls: &ast::Decl, body: &ast::Decl, elab: &mut Vec<Decl<'ar>>) {
+    fn elab_decl_local(&mut self, decls: &ast::Decl, body: &ast::Decl, elab: &mut Vec<Decl<'a>>) {
         // TODO: Check for type escape
         self.with_scope(|ctx| {
             ctx.elaborate_decl_inner(decls, elab);
@@ -1187,13 +1219,13 @@ impl<'ar> Context<'ar> {
         })
     }
 
-    fn elab_decl_seq(&mut self, decls: &[ast::Decl], elab: &mut Vec<Decl<'ar>>) {
+    fn elab_decl_seq(&mut self, decls: &[ast::Decl], elab: &mut Vec<Decl<'a>>) {
         for d in decls {
             self.elaborate_decl_inner(d, elab);
         }
     }
 
-    fn elab_decl_type(&mut self, tbs: &[ast::Typebind], _elab: &mut Vec<Decl<'ar>>) {
+    fn elab_decl_type(&mut self, tbs: &[ast::Typebind], _elab: &mut Vec<Decl<'a>>) {
         for typebind in tbs {
             let scheme = if !typebind.tyvars.is_empty() {
                 self.with_tyvars(|ctx| {
@@ -1223,14 +1255,14 @@ impl<'ar> Context<'ar> {
         }
     }
 
-    fn elab_decl_conbind(&mut self, db: &ast::Datatype, elab: &mut Vec<Decl<'ar>>) {
+    fn elab_decl_conbind(&mut self, db: &ast::Datatype, elab: &mut Vec<Decl<'a>>) {
         let tycon = Tycon::new(db.tycon, db.tyvars.len());
 
         // This is safe to unwrap, because we already bound it.
         let type_id = self.lookup_type_id(&db.tycon).unwrap();
 
         // Should be safe to unwrap here as well, since the caller has bound db.tyvars
-        let tyvars: Vec<&'ar TypeVar<'ar>> = db
+        let tyvars: Vec<&'a TypeVar<'a>> = db
             .tyvars
             .iter()
             .map(|sym| self.lookup_tyvar(sym, false).unwrap())
@@ -1239,11 +1271,11 @@ impl<'ar> Context<'ar> {
         let mut constructors = Vec::new();
         for (tag, con) in db.constructors.iter().enumerate() {
             if self.lookup_value(&con.label).is_some() {
-                self.diags.push(Diagnostic::warn(
-                    con.span,
-                    format!("rebinding of data constructor {:?}", con.label),
-                ));
-                return;
+                self.elab_errors.push(
+                    ElabError::new(con.span, "data constructor")
+                        .kind(ErrorKind::Rebound(con.label)),
+                );
+                // return;
             }
 
             let cons = Constructor {
@@ -1292,7 +1324,7 @@ impl<'ar> Context<'ar> {
         elab.push(Decl::Datatype(dt));
     }
 
-    fn elab_decl_datatype(&mut self, dbs: &[ast::Datatype], elab: &mut Vec<Decl<'ar>>) {
+    fn elab_decl_datatype(&mut self, dbs: &[ast::Datatype], elab: &mut Vec<Decl<'a>>) {
         // Add all of the type constructors to the environment first, so that
         // we can construct data constructor arguments (e.g. recursive/mutually
         // recursive datatypes)
@@ -1311,7 +1343,7 @@ impl<'ar> Context<'ar> {
         }
     }
 
-    fn elab_decl_exception(&mut self, exns: &[ast::Variant], elab: &mut Vec<Decl<'ar>>) {
+    fn elab_decl_exception(&mut self, exns: &[ast::Variant], elab: &mut Vec<Decl<'a>>) {
         for exn in exns {
             let con = Constructor {
                 name: exn.label,
@@ -1350,10 +1382,10 @@ impl<'ar> Context<'ar> {
         name: Symbol,
         arity: usize,
         fbs: &'s [ast::FnBinding],
-    ) -> PartialFun<'s, 'ar> {
+    ) -> PartialFun<'s, 'a> {
         let arg_tys = (0..arity)
             .map(|_| self.fresh_tyvar())
-            .collect::<Vec<&'ar Type<'ar>>>();
+            .collect::<Vec<&'a Type<'a>>>();
         let res_ty = self.fresh_tyvar();
         let mut clauses = Vec::new();
         for clause in fbs {
@@ -1361,7 +1393,7 @@ impl<'ar> Context<'ar> {
                 let t = self.elaborate_type(&ty, false);
                 self.unify(res_ty, t, &|c| {
                     c.span(ty.span)
-                        .add_message("function clause with result constraint of different type")
+                        .message("function clause with result constraint of different type")
                 });
             }
 
@@ -1371,7 +1403,7 @@ impl<'ar> Context<'ar> {
                 let pat = self.elaborate_pat_inner(pat, false, &mut bindings);
                 self.unify(arg_tys[idx], pat.ty, &|c| {
                     c.span(pat.span)
-                        .add_message("function clause with argument of different type")
+                        .message("function clause with argument of different type")
                 });
                 pats.push(pat);
             }
@@ -1398,7 +1430,7 @@ impl<'ar> Context<'ar> {
         }
     }
 
-    fn elab_decl_fnbind(&mut self, fun: PartialFun<'_, 'ar>) -> Lambda<'ar> {
+    fn elab_decl_fnbind(&mut self, fun: PartialFun<'_, 'a>) -> Lambda<'a> {
         let PartialFun {
             clauses,
             res_ty,
@@ -1430,7 +1462,7 @@ impl<'ar> Context<'ar> {
             // Unify function clause body with result type
             self.unify(res_ty, expr.ty, &|c| {
                 c.span(span)
-                    .add_message("function clause body doesn't match with return type")
+                    .message("function clause body doesn't match with return type")
             });
 
             let tuple_ty = self.arena.types.tuple(pats.iter().map(|pat| pat.ty));
@@ -1490,7 +1522,7 @@ impl<'ar> Context<'ar> {
         }
     }
 
-    fn elab_decl_fun(&mut self, tyvars: &[Symbol], fbs: &[ast::Fun], elab: &mut Vec<Decl<'ar>>) {
+    fn elab_decl_fun(&mut self, tyvars: &[Symbol], fbs: &[ast::Fun], elab: &mut Vec<Decl<'a>>) {
         self.with_tyvars(|ctx| {
             let mut vars = Vec::new();
             ctx.tyvar_rank += 1;
@@ -1527,7 +1559,7 @@ impl<'ar> Context<'ar> {
         tyvars: &[Symbol],
         pat: &ast::Pat,
         expr: &ast::Expr,
-        elab: &mut Vec<Decl<'ar>>,
+        elab: &mut Vec<Decl<'a>>,
     ) {
         self.with_tyvars(|ctx| {
             ctx.tyvar_rank += 1;
@@ -1543,7 +1575,7 @@ impl<'ar> Context<'ar> {
             let non_expansive = expr.non_expansive();
             ctx.unify(pat.ty, expr.ty, &|c| {
                 c.span(expr.span)
-                    .add_message("pattern and expression have different types in `val` declaration")
+                    .message("pattern and expression have different types in `val` declaration")
             });
             for (var, tv) in bindings {
                 let sch = match non_expansive {
@@ -1559,7 +1591,7 @@ impl<'ar> Context<'ar> {
         })
     }
 
-    pub fn elaborate_decl_inner(&mut self, decl: &ast::Decl, elab: &mut Vec<Decl<'ar>>) {
+    fn elaborate_decl_inner(&mut self, decl: &ast::Decl, elab: &mut Vec<Decl<'a>>) {
         match &decl.data {
             ast::DeclKind::Datatype(dbs) => self.elab_decl_datatype(dbs, elab),
             ast::DeclKind::Type(tbs) => self.elab_decl_type(tbs, elab),
@@ -1572,14 +1604,14 @@ impl<'ar> Context<'ar> {
         }
     }
 
-    pub fn elaborate_decl(&mut self, decl: &ast::Decl) -> Vec<Decl<'ar>> {
+    pub fn elaborate_decl(&mut self, decl: &ast::Decl) -> Vec<Decl<'a>> {
         let mut elab = Vec::new();
         self.elaborate_decl_inner(decl, &mut elab);
         elab
     }
 }
 
-impl<'ar> Query<ast::Pat> for &Context<'ar> {
+impl<'a> Query<ast::Pat> for &Context<'a> {
     fn fixity(&self, t: &ast::Pat) -> Fixity {
         match &t.data {
             ast::PatKind::Variable(s) => self.lookup_infix(s).unwrap_or(Fixity::Nonfix),
@@ -1611,7 +1643,7 @@ impl<'ar> Query<ast::Pat> for &Context<'ar> {
     }
 }
 
-impl<'ar> Query<ast::Expr> for &Context<'ar> {
+impl<'a> Query<ast::Expr> for &Context<'a> {
     fn fixity(&self, t: &ast::Expr) -> Fixity {
         match &t.data {
             ast::ExprKind::Var(s) => self.lookup_infix(s).unwrap_or(Fixity::Nonfix),
@@ -1642,7 +1674,7 @@ impl<'ar> Query<ast::Expr> for &Context<'ar> {
     }
 }
 
-impl<'ar> Context<'ar> {
+impl<'a> Context<'a> {
     pub(crate) fn expr_precedence(
         &self,
         exprs: Vec<ast::Expr>,

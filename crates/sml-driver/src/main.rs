@@ -74,9 +74,11 @@ impl<'a> Compiler<'a> {
         let mut out = sio.lock();
         match res {
             Ok(d) => {
-                let mut check = sml_core::check::Check::default();
-                self.measure("checking", |_| check.check_decl(&d));
-                diags.extend(check.diags);
+                self.measure("checking", |c| {
+                    let mut check = sml_core::check::Check::new(&c.interner);
+                    check.check_decl(&d);
+                    diags.extend(check.diags);
+                });
 
                 let decls = self.measure("elaboration", |c| c.elab.elaborate_decl(&d));
                 diags.extend(self.elab.diagnostics(&self.interner));
