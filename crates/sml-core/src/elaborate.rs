@@ -129,7 +129,7 @@ pub struct Context<'a> {
     tyvar_rank: usize,
 
     pub(crate) arena: &'a CoreArena<'a>,
-    elab_errors: Vec<ElabError>,
+    pub elab_errors: Vec<ElabError>,
     unification_errors: Vec<CantUnify<'a>>,
 }
 
@@ -337,6 +337,8 @@ pub enum ErrorKind {
     Rebound(Symbol),
     Escape(Symbol),
     Arity(usize, usize),
+    Redundant,
+    Inexhaustive,
     Message,
 }
 

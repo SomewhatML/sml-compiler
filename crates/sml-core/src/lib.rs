@@ -125,6 +125,13 @@ impl<'ar> Expr<'ar> {
             _ => false,
         }
     }
+
+    pub fn as_symbol(&self) -> Symbol {
+        match &self.expr {
+            ExprKind::Var(s) => *s,
+            _ => panic!("BUG: Expr::as_symbol()"),
+        }
+    }
 }
 
 impl<'ar> Pat<'ar> {

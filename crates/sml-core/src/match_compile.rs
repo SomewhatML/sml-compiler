@@ -14,13 +14,13 @@
 //! * `vars` contains the current "in-scope" destructured variables
 
 use super::*;
-use elaborate::Context;
+use elaborate::{Context, ElabError, ErrorKind};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 pub type Var<'a> = (Symbol, &'a Type<'a>);
 
 pub fn case<'a>(
-    ctx: &Context<'a>,
+    ctx: &mut Context<'a>,
     scrutinee: Expr<'a>,
     ret_ty: &'a Type<'a>,
     rules: Vec<Rule<'a>>,
@@ -28,7 +28,9 @@ pub fn case<'a>(
 ) -> Expr<'a> {
     let test = ctx.fresh_var();
     let pats = rules.iter().map(|r| vec![r.pat]).collect();
-    let (mut decls, rules) = preflight(ctx, rules);
+
+    let mut diags = MatchDiags::with_capacity(span, rules.len());
+    let (mut decls, rules) = preflight(ctx, rules, &mut diags);
 
     decls.push(Decl::Val(Rule {
         pat: ctx.arena.pat_var(test, scrutinee.ty),
@@ -45,7 +47,8 @@ pub fn case<'a>(
     };
 
     let mut facts = Facts::default();
-    let expr = mat.compile(&mut facts);
+    let expr = mat.compile(&mut facts, &mut diags);
+    diags.emit_diagnostics(ctx);
     Expr::new(
         ctx.arena.exprs.alloc(ExprKind::Let(decls, expr)),
         expr.ty,
@@ -54,7 +57,7 @@ pub fn case<'a>(
 }
 
 pub fn fun<'a>(
-    ctx: &Context<'a>,
+    ctx: &mut Context<'a>,
     ret_ty: &'a Type<'a>,
     vars: Vec<Var<'a>>,
     pats: Vec<Vec<Pat<'a>>>,
@@ -62,7 +65,8 @@ pub fn fun<'a>(
     span: Span,
 ) -> Expr<'a> {
     let test = ctx.fresh_var();
-    let (decls, rules) = preflight(ctx, rules);
+    let mut diags = MatchDiags::with_capacity(span, rules.len());
+    let (decls, rules) = preflight(ctx, rules, &mut diags);
 
     let rec = SortedRecord::new_unchecked(
         vars.iter()
@@ -88,7 +92,8 @@ pub fn fun<'a>(
         vars,
     };
 
-    let expr = mat.compile(&mut facts);
+    let expr = mat.compile(&mut facts, &mut diags);
+    diags.emit_diagnostics(ctx);
     Expr::new(
         ctx.arena.exprs.alloc(ExprKind::Let(decls, expr)),
         expr.ty,
@@ -117,7 +122,11 @@ pub fn fun<'a>(
 ///     case x of
 ///        ...
 /// ```
-fn preflight<'a>(ctx: &Context<'a>, rules: Vec<Rule<'a>>) -> (Vec<Decl<'a>>, Vec<Rule<'a>>) {
+fn preflight<'a>(
+    ctx: &Context<'a>,
+    rules: Vec<Rule<'a>>,
+    diags: &mut MatchDiags,
+) -> (Vec<Decl<'a>>, Vec<Rule<'a>>) {
     let mut finished = Vec::new();
     let mut decls = Vec::new();
     for Rule { pat, expr } in rules {
@@ -158,7 +167,9 @@ fn preflight<'a>(ctx: &Context<'a>, rules: Vec<Rule<'a>>) -> (Vec<Decl<'a>>, Vec
         finished.push(Rule {
             pat,
             expr: ctx.arena.expr_var(name, ty),
-        })
+        });
+
+        diags.renamed.push((expr.span, name));
     }
     (decls, finished)
 }
@@ -218,6 +229,42 @@ impl Facts {
     }
 }
 
+pub struct MatchDiags {
+    span: Span,
+    // mapping from match arm index to renamed/abstracted arms
+    renamed: Vec<(Span, Symbol)>,
+    // Which arms were reached
+    reached: HashSet<Symbol>,
+    // Did we emit a `raise Match`?
+    inexhaustive: bool,
+}
+
+impl MatchDiags {
+    pub fn with_capacity(span: Span, capacity: usize) -> MatchDiags {
+        MatchDiags {
+            span,
+            renamed: Vec::with_capacity(capacity),
+            reached: HashSet::with_capacity(capacity),
+            inexhaustive: false,
+        }
+    }
+
+    pub fn emit_diagnostics(self, ctx: &mut Context<'_>) {
+        for (sp, sym) in self.renamed {
+            if !self.reached.contains(&sym) {
+                ctx.elab_errors
+                    .push(ElabError::new(sp, "unreachable match arm").kind(ErrorKind::Redundant));
+            }
+        }
+        if self.inexhaustive {
+            ctx.elab_errors.push(
+                ElabError::new(self.span, "inexhaustive `case` expression")
+                    .kind(ErrorKind::Redundant),
+            );
+        }
+    }
+}
+
 pub struct Matrix<'a, 'ctx> {
     // ref to the context so we can allocate stuff in arenas
     ctx: &'ctx Context<'a>,
@@ -264,7 +311,12 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
     /// Deconstruct a record or tuple pattern, binding each field to a fresh
     /// variable, and flattening all of the record patterns in the first column
     /// [{a, b, c}, ...] --> [a, b, c, ...]
-    fn record_rule(&self, facts: &mut Facts, fields: &SortedRecord<Pat<'a>>) -> Expr<'a> {
+    fn record_rule(
+        &self,
+        facts: &mut Facts,
+        diags: &mut MatchDiags,
+        fields: &SortedRecord<Pat<'a>>,
+    ) -> Expr<'a> {
         // This part is a little tricky. We need to generate a fresh variable
         // for every field in the pattern
         let mut vars = self.vars.clone();
@@ -310,7 +362,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
         mat.vars = vars;
         self.ctx
             .arena
-            .let_derecord(record, base.0, mat.compile(facts))
+            .let_derecord(record, base.0, mat.compile(facts, diags))
     }
 
     /// This is basically the same thing as the record rule, but for data
@@ -320,6 +372,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
     fn specialize(
         &self,
         facts: &mut Facts,
+        diags: &mut MatchDiags,
         head: &Constructor,
         arity: Option<Var<'a>>,
     ) -> Expr<'a> {
@@ -352,11 +405,11 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
             }
         }
         // mat.test = mat.vars[0].0;
-        mat.compile(facts)
+        mat.compile(facts, diags)
     }
 
     /// Generate a case expression for the data constructors in the first column
-    fn sum_rule(&self, facts: &mut Facts) -> Expr<'a> {
+    fn sum_rule(&self, facts: &mut Facts, diags: &mut MatchDiags) -> Expr<'a> {
         // Generate the set of constructors appearing in the column
         let mut set = HashMap::new();
         let mut type_arity = 0;
@@ -374,7 +427,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
         for (con, arg_ty) in set {
             let fresh = self.ctx.fresh_var();
             let mut f = facts.clone();
-            let expr = self.specialize(&mut f, con, arg_ty.map(|ty| (fresh, ty)));
+            let expr = self.specialize(&mut f, diags, con, arg_ty.map(|ty| (fresh, ty)));
 
             let arg = match arg_ty {
                 Some(ty) => Some(self.ctx.arena.pat_var(fresh, ty)),
@@ -391,7 +444,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
         // If we don't have an exhaustive match, generate a default matrix
         if !exhaustive {
             let pat = self.mk_wild(self.pats[0][0].ty);
-            let expr = self.default_matrix(facts);
+            let expr = self.default_matrix(facts, diags);
             rules.push(Rule { pat, expr });
         }
 
@@ -409,7 +462,12 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
     /// constructors. We want to select all of the rows in the first column
     /// that will match the constructor `head` (e.g. `head` itself, and
     /// wildcard)
-    fn specialize_const(&self, facts: &mut Facts, head: &Const) -> Expr<'a> {
+    fn specialize_const(
+        &self,
+        facts: &mut Facts,
+        diags: &mut MatchDiags,
+        head: &Const,
+    ) -> Expr<'a> {
         let mut mat = self.shallow();
         for (idx, row) in self.pats.iter().enumerate() {
             match &row[0].pat {
@@ -422,11 +480,11 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
             mat.pats.push(new_row);
         }
         mat.vars.remove(0);
-        mat.compile(facts)
+        mat.compile(facts, diags)
     }
 
     /// Generate a case expression for the data constructors in the first column
-    fn const_rule(&self, facts: &mut Facts) -> Expr<'a> {
+    fn const_rule(&self, facts: &mut Facts, diags: &mut MatchDiags) -> Expr<'a> {
         // Generate the set of constructors appearing in the column
         let mut set = HashSet::new();
         for row in &self.pats {
@@ -444,7 +502,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
         for con in set {
             // Clone facts so we don't polute other branches with identical bound
             let mut f = facts.clone();
-            let expr = self.specialize_const(&mut f, con);
+            let expr = self.specialize_const(&mut f, diags, con);
 
             let pat = Pat::new(
                 self.ctx.arena.pats.alloc(PatKind::Const(*con)),
@@ -455,7 +513,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
         }
 
         let pat = self.mk_wild(self.pats[0][0].ty);
-        let expr = self.default_matrix(facts);
+        let expr = self.default_matrix(facts, diags);
         rules.push(Rule { pat, expr });
 
         Expr::new(
@@ -469,7 +527,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
     }
 
     /// Compute the "default" matrix
-    fn default_matrix(&self, facts: &mut Facts) -> Expr<'a> {
+    fn default_matrix(&self, facts: &mut Facts, diags: &mut MatchDiags) -> Expr<'a> {
         let mut mat = self.shallow();
         mat.vars.remove(0);
 
@@ -480,11 +538,11 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
             }
         }
         // mat.test = mat.vars[0].0;
-        mat.compile(facts)
+        mat.compile(facts, diags)
     }
 
     /// Compile a [`Matrix`] into a source-level expression
-    fn compile(&mut self, facts: &mut Facts) -> Expr<'a> {
+    fn compile(&mut self, facts: &mut Facts, diags: &mut MatchDiags) -> Expr<'a> {
         if self.pats.is_empty() {
             // We have an in-exhaustive case expression
             // TODO: Emit better diagnostics
@@ -498,6 +556,8 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
                 self.ret_ty,
                 Span::zero(),
             );
+
+            diags.inexhaustive = true;
 
             Expr::new(
                 self.ctx.arena.exprs.alloc(ExprKind::Raise(matchh)),
@@ -530,6 +590,8 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
                 })),
             };
 
+            diags.reached.insert(self.rules[0].expr.as_symbol());
+
             // TODO: Check types just in case
             Expr::new(
                 self.ctx
@@ -543,9 +605,9 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
             // There is at least one non-wild pattern in the matrix somewhere
             for row in &self.pats {
                 match &row[0].pat {
-                    PatKind::Record(fields) => return self.record_rule(facts, fields),
-                    PatKind::App(_, _) => return self.sum_rule(facts),
-                    PatKind::Const(_) => return self.const_rule(facts),
+                    PatKind::Record(fields) => return self.record_rule(facts, diags, fields),
+                    PatKind::App(_, _) => return self.sum_rule(facts, diags),
+                    PatKind::Const(_) => return self.const_rule(facts, diags),
                     PatKind::Wild | PatKind::Var(_) => continue,
                 }
             }
@@ -571,9 +633,9 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
                 }
                 // Swap variables as well
                 self.vars.swap(0, col);
-                self.compile(facts)
+                self.compile(facts, diags)
             } else {
-                self.default_matrix(facts)
+                self.default_matrix(facts, diags)
             }
         }
     }

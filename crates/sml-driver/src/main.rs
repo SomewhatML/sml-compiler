@@ -133,10 +133,9 @@ fn main() {
     let owned_arena = sml_core::arenas::OwnedCoreArena::new();
     let borrow = owned_arena.borrow();
 
-    let args = std::env::args();
-    if args.len() > 1 {
-        let ArgParse { builder, files } = ArgParse::parse(args);
-        let mut compiler = builder.build(&borrow);
+    let ArgParse { builder, files } = ArgParse::parse(std::env::args());
+    let mut compiler = builder.build(&borrow);
+    if !files.is_empty() {
         for f in files {
             let file = std::fs::read_to_string(&f).unwrap();
             compiler.run(&file);
@@ -148,7 +147,6 @@ fn main() {
     }
 
     println!("SomewhatML (c) 2020");
-    let mut compiler = CompilerBuilder::default().verbosity(2).build(&borrow);
     loop {
         let mut buffer = String::new();
         print!("repl: ");
