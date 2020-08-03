@@ -2,10 +2,10 @@
 
 -- expected stderr:
 -- Error
--- 18,21 Cyclic type detected: 'i#1 interned symbol
+-- 18,21 Type unification: can't unify function with argument types. Cyclic type detected: 'a list, 'a
 -- 
 -- Error
--- 18,5 Cyclic type detected: 'i#1 interned symbol
+-- 18,5 Type unification: function clause body doesn't match with return type. Cyclic type detected: 'a, 'a list
 
 -- expected stdout:
 -- 0 warnings, 2 errors

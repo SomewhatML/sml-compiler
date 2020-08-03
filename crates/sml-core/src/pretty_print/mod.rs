@@ -98,6 +98,47 @@ impl<'a> PrettyPrinter<'a> {
         Ok(())
     }
 
+    pub fn write_fmt<W: std::fmt::Write>(&mut self, w: &mut W) -> std::fmt::Result {
+        while let Some(cmd) = self.commands.pop_front() {
+            use Command::*;
+            match cmd {
+                Indent(w) => {
+                    self.indent += w;
+                }
+                Dedent(w) => {
+                    self.indent -= w;
+                }
+                Wrap(width) => {
+                    self.prev_max.push(self.max);
+                    self.max = width;
+                }
+                Unwrap => {
+                    // should never fail anyway
+                    self.max = self.prev_max.pop().unwrap_or(120);
+                }
+                Line => {
+                    if self.width == self.indent {
+                        continue;
+                    }
+                    let spaces = (0..self.indent).map(|_| ' ').collect::<String>();
+                    write!(w, "\n{}", spaces)?;
+                    self.width = self.indent;
+                }
+                Text(s) => {
+                    if self.width + s.len() >= self.max {
+                        let spaces = (0..self.indent).map(|_| ' ').collect::<String>();
+                        write!(w, "\n{}{}", spaces, s)?;
+                        self.width = self.indent + s.len();
+                    } else {
+                        self.width += s.len();
+                        write!(w, "{}", s)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn wrap<F>(&mut self, width: usize, f: F) -> &mut Self
     where
         for<'b> F: Fn(&'b mut PrettyPrinter<'a>) -> &'b mut PrettyPrinter<'a>,

@@ -137,7 +137,7 @@ impl<'a> Print for Type<'a> {
 }
 
 impl<'a> Type<'a> {
-    fn print_rename<'b, 'c>(
+    pub fn print_rename<'b, 'c>(
         &self,
         pp: &'b mut PrettyPrinter<'c>,
         map: &mut HashMap<usize, String>,

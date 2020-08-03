@@ -75,11 +75,11 @@ impl<'a> Compiler<'a> {
         match res {
             Ok(d) => {
                 let mut check = sml_core::check::Check::default();
-                self.measure("checking", |c| check.check_decl(&d));
+                self.measure("checking", |_| check.check_decl(&d));
                 diags.extend(check.diags);
 
                 let decls = self.measure("elaboration", |c| c.elab.elaborate_decl(&d));
-                diags.extend(std::mem::replace(&mut self.elab.diags, Vec::new()));
+                diags.extend(self.elab.diagnostics(&self.interner));
 
                 match self.verbosity {
                     0 => {}

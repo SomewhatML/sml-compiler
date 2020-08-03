@@ -54,7 +54,7 @@ fun merge xs [] = xs
   | merge (x::xs) (y::ys) = x::y::(merge xs ys);
 
 (* example from Compiling Pattern Matching *)
-let 
+val _ = let 
   datatype u = T | F
   val x = (T, F, T) 
 in 
