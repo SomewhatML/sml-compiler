@@ -1187,13 +1187,26 @@ impl<'a> Context<'a> {
                 }
                 _ => {
                     // Rule 34
-                    // let tvar = self.arena.types.fresh_type_var(self.tyvar_rank);
+                    let mut name = *sym;
+                    if bindings
+                        .iter()
+                        .map(|(s, _)| s)
+                        .find(|s| s == &sym)
+                        .is_some()
+                    {
+                        name = self.fresh_var();
+                        self.elab_errors.push(ElabError::new(
+                            pat.span,
+                            "duplicate variable in pattern, emitting bogus value",
+                        ));
+                    }
                     let ty = self.fresh_tyvar();
                     if bind {
-                        self.define_value(*sym, Scheme::Mono(ty), IdStatus::Var);
+                        self.define_value(name, Scheme::Mono(ty), IdStatus::Var);
                     }
-                    bindings.push((*sym, ty));
-                    Pat::new(self.arena.pats.alloc(PatKind::Var(*sym)), ty, pat.span)
+
+                    bindings.push((name, ty));
+                    Pat::new(self.arena.pats.alloc(PatKind::Var(name)), ty, pat.span)
                 }
             },
             Wild => Pat::new(self.arena.pats.wild(), self.fresh_tyvar(), pat.span),
@@ -1399,6 +1412,7 @@ impl<'a> Context<'a> {
 
             let mut pats = Vec::new();
             let mut bindings = Vec::new();
+
             for (idx, pat) in clause.pats.iter().enumerate() {
                 let pat = self.elaborate_pat_inner(pat, false, &mut bindings);
                 self.unify(arg_tys[idx], pat.ty, &|c| {
@@ -1406,6 +1420,16 @@ impl<'a> Context<'a> {
                         .message("function clause with argument of different type")
                 });
                 pats.push(pat);
+            }
+            if pats.len() < arity {
+                for idx in pats.len()..arity {
+                    let wild = Pat::new(self.arena.pats.wild(), self.fresh_tyvar(), clause.span);
+                    self.unify(arg_tys[idx], wild.ty, &|c| {
+                        c.span(wild.span)
+                            .message("function clause with argument of different type")
+                    });
+                    pats.push(wild);
+                }
             }
             clauses.push(PartialFnBinding {
                 expr: &clause.expr,
@@ -1536,9 +1560,9 @@ impl<'a> Context<'a> {
             // Check to make sure all of the function clauses are consistent within each
             // binding group
             for f in fbs {
-                let n = f[0].name;
-                let a = f[0].pats.len();
-                let fns = ctx.elab_decl_fnbind_ty(n, a, f);
+                let name = f[0].name;
+                let arity = f.iter().map(|fb| fb.pats.len()).max().unwrap_or(1);
+                let fns = ctx.elab_decl_fnbind_ty(name, arity, f);
 
                 ctx.define_value(fns.name, Scheme::Mono(fns.ty), IdStatus::Var);
                 info.push(fns);

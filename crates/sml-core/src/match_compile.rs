@@ -368,15 +368,10 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
         }
         let mut set = set.into_iter().collect::<Vec<_>>();
         set.sort_by(|a, b| a.0.name.cmp(&b.0.name));
-        // We only use `true` and `false` or `cons` and `nil`, so we know
-        // there are only 2 constructors in each datatype. Otherwise we
-        // would need to query a context to determine this
+
         let exhaustive = set.len() == type_arity as usize;
         let mut rules = Vec::new();
         for (con, arg_ty) in set {
-            // In a real system, we would have some context to pull the number
-            // of data constructors for a datatype, and the arity of each
-            // data constructor. We just mock it instead
             let fresh = self.ctx.fresh_var();
             let mut f = facts.clone();
             let expr = self.specialize(&mut f, con, arg_ty.map(|ty| (fresh, ty)));
@@ -442,6 +437,8 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
                 _ => continue,
             }
         }
+        let mut set = set.into_iter().collect::<Vec<_>>();
+        set.sort_by(|a, b| a.cmp(&b));
 
         let mut rules = Vec::new();
         for con in set {

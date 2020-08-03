@@ -230,7 +230,7 @@ impl<'a> Check<'a> {
         let mut names = HashSet::new();
         for f in fbs {
             let n = f[0].name;
-            let a = f[0].pats.len();
+            let a = f.iter().map(|fb| fb.pats.len()).max().unwrap_or(1);
             for fb in f.iter() {
                 if n != fb.name {
                     self.diags.push(Diagnostic::error(
@@ -243,13 +243,17 @@ impl<'a> Check<'a> {
                     ));
                 }
                 if a != fb.pats.len() {
-                    self.diags.push(Diagnostic::error(
-                        fb.span,
-                        format!(
-                            "function clause with a different number of args; expected: {}, found {}",
-                            a, fb.pats.len()
-                        )
-                    ));
+                    if fb.pats.len() == 1 && fb.pats[0].data == PatKind::Wild {
+                        // okay, need to expand it
+                    } else {
+                        self.diags.push(Diagnostic::error(
+                            fb.span,
+                            format!(
+                                "function clause with a different number of args; expected: {}, found {}",
+                                a, fb.pats.len()
+                            )
+                        ));
+                    }
                 }
             }
             if !names.insert(n) {
