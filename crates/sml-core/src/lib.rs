@@ -99,7 +99,7 @@ pub struct Rule<'ar> {
     pub expr: Expr<'ar>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Datatype<'ar> {
     pub tycon: Tycon,
     pub tyvars: Vec<usize>,

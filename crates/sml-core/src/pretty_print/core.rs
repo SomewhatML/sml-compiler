@@ -195,6 +195,10 @@ impl<'a> Type<'a> {
                     }
                 },
             },
+            Type::Flex(flex) => match flex.ty() {
+                Some(ty) => ty.print_rename(pp, map),
+                None => Type::Record(flex.constraints.clone()).print_rename(pp, map),
+            },
         }
     }
 }

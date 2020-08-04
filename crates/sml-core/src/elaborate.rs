@@ -37,7 +37,7 @@ pub enum IdStatus {
 
 /// Essentially a minimized Value Environment (VE) containing only datatype
 /// constructors, and without the indirection of going from names->id->def
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Cons<'a> {
     name: Symbol,
     scheme: Scheme<'a>,
@@ -45,7 +45,7 @@ pub struct Cons<'a> {
 
 /// TyStr, a [`TypeStructure`] from the Defn. This is a component of the
 /// Type Environment, TE
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum TypeStructure<'a> {
     /// TyStr (t, VE), a datatype
     Datatype(Tycon, Vec<Cons<'a>>),
