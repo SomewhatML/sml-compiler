@@ -74,8 +74,6 @@ pub enum PatKind<'ar> {
     App(Constructor, Option<Pat<'ar>>),
     /// Constant
     Const(Const),
-    /// Literal list
-    // List(Vec<Pat<'ar>>),
     /// Record
     Record(SortedRecord<Pat<'ar>>),
     /// Variable binding
@@ -156,8 +154,8 @@ impl<'ar> Pat<'ar> {
     }
 
     pub fn flexible(&self) -> bool {
-        if let Type::Flex(_) = self.ty {
-            return true;
+        if self.ty.unresolved_flex() {
+            true
         } else {
             match &self.kind {
                 PatKind::App(_, Some(p)) => p.flexible(),

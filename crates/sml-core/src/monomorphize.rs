@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
+#![allow(unused_variables)]
 use crate::elaborate::{Context, ElabError, ErrorKind};
 use crate::types::{Constructor, Type};
 use crate::{Decl, Expr, ExprKind, Lambda, Pat, PatKind, Row, Rule, SortedRecord};

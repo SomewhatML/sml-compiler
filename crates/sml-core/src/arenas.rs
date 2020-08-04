@@ -3,6 +3,7 @@ use super::*;
 use std::cell::Cell;
 use typed_arena::Arena;
 
+#[derive(Default)]
 pub struct OwnedCoreArena<'arena> {
     types: Arena<Type<'arena>>,
     vars: Arena<TypeVar<'arena>>,

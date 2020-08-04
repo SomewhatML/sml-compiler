@@ -9,7 +9,7 @@ fn define_constructor<'arena>(
     con: Constructor,
     sch: Scheme<'arena>,
 ) {
-    ctx.define_value(con.name, sch, IdStatus::Con(con));
+    ctx.define_value(con.name, Span::dummy(), sch, IdStatus::Con(con));
 }
 
 /// This is not pretty, but we have to handle builtins for elaboration somehow

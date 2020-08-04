@@ -7,7 +7,7 @@ use std::io::prelude::*;
 use std::time::Instant;
 
 mod config;
-use config::{ArgParse, CompilerBuilder};
+use config::ArgParse;
 
 fn report(verb: u8, diags: Vec<Diagnostic>, src: &str) {
     let mut warns = Vec::new();

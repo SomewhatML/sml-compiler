@@ -130,9 +130,8 @@ impl<T: std::fmt::Debug, Q: Query<T>> Precedence<T, Q> {
         };
 
         let first = items.remove(0);
-        match prec.query.fixity(&first) {
-            Fixity::Infix(_, _) => return Err(Error::InfixInPrefix),
-            _ => {}
+        if let Fixity::Infix(_, _) = prec.query.fixity(&first) {
+            return Err(Error::InfixInPrefix);
         }
         prec.stack.push(Element::Nonfix(first));
 

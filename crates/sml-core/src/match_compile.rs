@@ -207,7 +207,7 @@ impl Facts {
         while let Some((var, pat)) = queue.pop_front() {
             match pat.kind {
                 PatKind::Var(x) => {
-                    if let Some(_) = map.insert(*x, (*var, pat.ty)) {
+                    if map.insert(*x, (*var, pat.ty)).is_some() {
                         panic!("Bug: Facts.bind rebinding")
                     }
                 }
@@ -548,10 +548,6 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
     /// Compile a [`Matrix`] into a source-level expression
     fn compile(&mut self, facts: &mut Facts, diags: &mut MatchDiags) -> Expr<'a> {
         if self.pats.is_empty() {
-            // We have an in-exhaustive case expression
-            // TODO: Emit better diagnostics
-            // self.ctx.diags.push(Diagnostic::error(self.span, "inexhaustive pattern
-            // matching"));
             let matchh = Expr::new(
                 self.ctx
                     .arena
@@ -596,7 +592,6 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
 
             diags.reached.insert(self.rules[0].expr.as_symbol());
 
-            // TODO: Check types just in case
             Expr::new(
                 self.ctx
                     .arena

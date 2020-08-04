@@ -1,5 +1,5 @@
 use crate::types::Type;
-use crate::{Decl, Expr, ExprKind, Pat, PatKind, Row, Rule, SortedRecord};
+use crate::{Decl, Expr, ExprKind, Pat, PatKind, Rule, SortedRecord};
 use sml_util::interner::Symbol;
 use sml_util::pretty_print::{PrettyPrinter, Print};
 
@@ -174,7 +174,7 @@ impl<'a> Type<'a> {
                     Some(s) => pp.text(s),
                     None => {
                         let x = map.len();
-                        let last = ((x % 26) as u8 + 'a' as u8) as char;
+                        let last = ((x % 26) as u8 + b'a' as u8) as char;
                         let name = format!(
                             "'{}",
                             (0..x / 26)
@@ -252,7 +252,7 @@ impl<'a> Print for Decl<'a> {
                     _ => {
                         pp.text("datatype (");
                         for (idx, tyvar) in dt.tyvars.iter().enumerate() {
-                            let last = ((idx % 26) as u8 + 'a' as u8) as char;
+                            let last = ((idx % 26) as u8 + b'a' as u8) as char;
                             let name = format!(
                                 "'{}",
                                 (0..idx / 26)

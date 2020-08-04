@@ -52,6 +52,7 @@ pub enum Type<'a> {
 pub struct Tycon {
     pub name: Symbol,
     pub arity: usize,
+    pub scope_depth: usize,
 }
 
 /// A data constructor
@@ -91,6 +92,19 @@ impl<'a> Type<'a> {
             }
             _ => None,
         }
+    }
+
+    /// Return true if the type-graph contains any unresolved flex variables
+    pub fn unresolved_flex(&self) -> bool {
+        let mut unres = false;
+        self.visit(|ty| {
+            if let Type::Flex(flex) = ty {
+                if flex.ty().is_none() {
+                    unres = true;
+                }
+            }
+        });
+        unres
     }
 
     /// Pre-order BFS
@@ -190,7 +204,7 @@ impl<'a> Type<'a> {
             },
             Type::Con(tc, vars) => arena.alloc(Type::Con(
                 *tc,
-                vars.into_iter().map(|ty| ty.apply(arena, map)).collect(),
+                vars.iter().map(|ty| ty.apply(arena, map)).collect(),
             )),
             Type::Record(rows) => arena.alloc(Type::Record(rows.fmap(|ty| ty.apply(arena, map)))),
             Type::Flex(flex) => {
@@ -236,7 +250,7 @@ impl<'a> Type<'a> {
 }
 
 pub fn fresh_name(x: usize) -> String {
-    let last = ((x % 26) as u8 + 'a' as u8) as char;
+    let last = ((x % 26) as u8 + b'a' as u8) as char;
     (0..x / 26)
         .map(|_| 'z')
         .chain(std::iter::once(last))
@@ -244,8 +258,12 @@ pub fn fresh_name(x: usize) -> String {
 }
 
 impl Tycon {
-    pub const fn new(name: Symbol, arity: usize) -> Tycon {
-        Tycon { name, arity }
+    pub const fn new(name: Symbol, arity: usize, scope_depth: usize) -> Tycon {
+        Tycon {
+            name,
+            arity,
+            scope_depth,
+        }
     }
 }
 

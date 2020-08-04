@@ -74,6 +74,7 @@ pub enum Token {
 
     /// Errors
     Invalid(char),
+    MissingDelimiter(char),
     EOF,
 }
 
