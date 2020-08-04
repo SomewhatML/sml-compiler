@@ -13,8 +13,12 @@
 //!       lifted to an enclosing level and converted to functions
 //! * `vars` contains the current "in-scope" destructured variables
 
-use super::*;
-use elaborate::{Context, ElabError, ErrorKind};
+use crate::elaborate::{Context, ElabError, ErrorKind};
+use crate::types::{Constructor, Type};
+use crate::{Decl, Expr, ExprKind, Lambda, Pat, PatKind, Row, Rule, SortedRecord};
+use sml_frontend::ast::Const;
+use sml_util::interner::Symbol;
+use sml_util::span::Span;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 pub type Var<'a> = (Symbol, &'a Type<'a>);

@@ -1,5 +1,12 @@
 #![allow(dead_code)]
-use super::*;
+#![allow(unused_imports)]
+use crate::elaborate::{Context, ElabError, ErrorKind};
+use crate::types::{Constructor, Type};
+use crate::{Decl, Expr, ExprKind, Lambda, Pat, PatKind, Row, Rule, SortedRecord};
+use sml_frontend::ast::Const;
+use sml_util::interner::Symbol;
+use sml_util::span::Span;
+use std::collections::HashMap;
 
 #[derive(Default)]
 pub struct Cache<'a> {

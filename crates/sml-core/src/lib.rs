@@ -20,7 +20,6 @@ use sml_frontend::ast::Const;
 use sml_util::interner::Symbol;
 use sml_util::span::Span;
 use std::collections::HashMap;
-use std::fmt;
 
 pub mod arenas;
 pub mod builtin;
@@ -31,8 +30,6 @@ pub mod monomorphize;
 pub mod pretty_print;
 pub mod types;
 use types::{Constructor, Scheme, Tycon, Type, TypeVar};
-
-pub use arenas::CoreArena;
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, PartialOrd, Eq, Hash)]
 pub struct TypeId(pub u32);

@@ -1,13 +1,18 @@
 //! Elaboration from AST to an explicity typed, Core ML language
 //!
 
-use super::arenas::*;
-use super::builtin::*;
-use super::*;
-use sml_frontend::ast;
+use crate::arenas::{CoreArena, TypeArena};
+use crate::builtin::{constructors, populate_context};
+use crate::pretty_print::PrettyPrinter;
+use crate::types::{Constructor, Flex, Scheme, Tycon, Type, TypeVar};
+use crate::{
+    Datatype, Decl, Expr, ExprId, ExprKind, Lambda, Pat, PatKind, Row, Rule, SortedRecord, TypeId,
+};
+use sml_frontend::ast::{self, Const};
 use sml_frontend::parser::precedence::{self, Fixity, Precedence, Query};
 use sml_util::diagnostics::Diagnostic;
-use sml_util::interner::Interner;
+use sml_util::interner::{Interner, Symbol};
+use sml_util::span::Span;
 use std::collections::HashMap;
 use std::fmt::Write;
 
@@ -158,7 +163,7 @@ impl<'a> Context<'a> {
             arena,
         };
         ctx.namespaces.push(Namespace::default());
-        builtin::populate_context(&mut ctx);
+        populate_context(&mut ctx);
         ctx.elab_decl_fixity(&ast::Fixity::Infixr, 4, constructors::C_CONS.name);
         ctx
     }
@@ -356,7 +361,7 @@ impl ElabError {
         self
     }
 
-    fn convert_err(self, pp: &mut pretty_print::PrettyPrinter<'_>) -> Option<Diagnostic> {
+    fn convert_err(self, pp: &mut PrettyPrinter<'_>) -> Option<Diagnostic> {
         let mut buffer = String::new();
         match self.kind {
             ErrorKind::Unbound(sym) => {
@@ -432,7 +437,7 @@ impl<'a> CantUnify<'a> {
         self
     }
 
-    fn convert_err(self, pp: &mut pretty_print::PrettyPrinter<'_>) -> Option<Diagnostic> {
+    fn convert_err(self, pp: &mut PrettyPrinter<'_>) -> Option<Diagnostic> {
         let mut map = HashMap::new();
 
         let mut buffer = String::new();
@@ -1026,17 +1031,16 @@ impl<'a> Context<'a> {
         let nil = Pat::new(
             self.arena
                 .pats
-                .alloc(PatKind::App(crate::builtin::constructors::C_NIL, None)),
+                .alloc(PatKind::App(constructors::C_NIL, None)),
             ty,
             sp,
         );
         pats.into_iter().fold(nil, |xs, x| {
             let cons = Pat::new(self.arena.pats.tuple([x, xs].iter().copied()), x.ty, x.span);
             Pat::new(
-                self.arena.pats.alloc(PatKind::App(
-                    crate::builtin::constructors::C_CONS,
-                    Some(cons),
-                )),
+                self.arena
+                    .pats
+                    .alloc(PatKind::App(constructors::C_CONS, Some(cons))),
                 ty,
                 sp,
             )
@@ -1171,7 +1175,10 @@ impl<'a> Context<'a> {
                 // TODO: Figure out how to support flex records
                 let ty = match flex {
                     false => self.arena.types.alloc(Type::Record(SortedRecord::new(tys))),
-                    true => self.arena.types.alloc(Type::Record(SortedRecord::new(tys))),
+                    true => self
+                        .arena
+                        .types
+                        .alloc(Type::Flex(Flex::new(SortedRecord::new(tys)))),
                 };
                 Pat::new(
                     self.arena

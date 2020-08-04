@@ -1,7 +1,5 @@
 use sml_util::interner::{Interner, Symbol};
 use std::collections::VecDeque;
-use std::fmt;
-use std::io::prelude::*;
 
 mod ast;
 mod core;
