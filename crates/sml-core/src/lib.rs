@@ -190,6 +190,15 @@ impl<T> SortedRecord<T> {
     pub fn iter(&self) -> std::slice::Iter<Row<T>> {
         self.rows.iter()
     }
+
+    pub fn contains(&self, lab: &Symbol) -> Option<&Row<T>> {
+        for row in self.iter() {
+            if &row.label == lab {
+                return Some(row);
+            }
+        }
+        None
+    }
 }
 
 impl<T> std::iter::IntoIterator for SortedRecord<T> {

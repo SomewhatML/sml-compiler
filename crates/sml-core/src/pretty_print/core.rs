@@ -18,7 +18,7 @@ impl<T: Print> Print for &[Row<T>] {
         } else {
             pp.text("{");
             for (idx, row) in self.iter().enumerate() {
-                pp.print(&row.label).text(": ").print(&row.data);
+                pp.print(&row.label).text("= ").print(&row.data);
                 if idx != self.len() - 1 {
                     pp.text(", ");
                 }
@@ -197,7 +197,15 @@ impl<'a> Type<'a> {
             },
             Type::Flex(flex) => match flex.ty() {
                 Some(ty) => ty.print_rename(pp, map),
-                None => Type::Record(flex.constraints.clone()).print_rename(pp, map),
+                None => {
+                    pp.text("{");
+                    for row in flex.constraints.iter() {
+                        pp.print(&row.label).text(": ");
+                        row.data.print_rename(pp, map);
+                        pp.text(", ");
+                    }
+                    pp.text("... }")
+                }
             },
         }
     }

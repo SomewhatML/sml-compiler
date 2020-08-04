@@ -444,7 +444,7 @@ impl<'a> CantUnify<'a> {
         let sp = self.originating?;
         write!(
             &mut buffer,
-            "Type unification: {}. {}: ",
+            "Type unification: {}\n{}: ",
             self.message, self.reason
         )
         .ok()?;
@@ -512,6 +512,34 @@ impl<'a> Context<'a> {
         }
     }
 
+    /// Check that every constraint in the flexible record type unifies
+    /// with the rigid record
+    fn one_flex<F>(
+        &mut self,
+        rigid: &SortedRecord<&'a Type<'a>>,
+        flex: &Flex<'a>,
+        rigid_ty: &'a Type<'a>,
+        flex_ty: &'a Type<'a>,
+        f: &F,
+    ) where
+        F: Fn(CantUnify<'a>) -> CantUnify<'a>,
+    {
+        for field in flex.constraints.iter() {
+            match rigid.contains(&field.label) {
+                Some(row) => {
+                    self.unify(&field.data, &row.data, f);
+                }
+                None => {
+                    let err = f(CantUnify::new(rigid_ty, flex_ty))
+                        .reason("Flexible record constraint not in rigid record");
+                    self.unification_errors.push(err);
+                    return;
+                }
+            }
+        }
+        flex.unified.set(Some(rigid_ty));
+    }
+
     fn unify<F>(&mut self, a: &'a Type<'a>, b: &'a Type<'a>, f: &F)
     where
         F: Fn(CantUnify<'a>) -> CantUnify<'a>,
@@ -546,6 +574,14 @@ impl<'a> Context<'a> {
                 }
             }
             (Type::Record(r1), Type::Record(r2)) => self.unify_records(r1, r2, a, b, f),
+            (Type::Flex(flex), Type::Record(rec)) => match flex.ty() {
+                Some(r1) => self.unify(r1, b, f),
+                None => self.one_flex(rec, flex, b, a, f),
+            },
+            (Type::Record(rec), Type::Flex(flex)) => match flex.ty() {
+                Some(r1) => self.unify(r1, b, f),
+                None => self.one_flex(rec, flex, a, b, f),
+            },
             (a, b) => {
                 let err = f(CantUnify::new(a, b)).reason("Can't unify these types");
                 self.unification_errors.push(err);

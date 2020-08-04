@@ -5,7 +5,9 @@
 
 -- expected stderr:
 -- Error
--- 33,9 Type unification: can't unify function with argument types. Type constructors differ: int, string
+-- 35,9 Type unification: can't unify function with argument types
+-- Type constructors differ: int, string
+
 *)
 
 datatype 'a option = Some of 'a | None
