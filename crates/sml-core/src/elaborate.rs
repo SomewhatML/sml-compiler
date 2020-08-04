@@ -1699,7 +1699,6 @@ impl<'a> Context<'a> {
 
             let (pat, bindings) = ctx.elaborate_pat(pat, false);
             ctx.tyvar_rank -= 1;
-
             ctx.unify(pat.ty, expr.ty, &|c| {
                 c.span(expr.span)
                     .message("pattern and expression have different types in `val` declaration")
