@@ -9,7 +9,7 @@ use crate::{
 };
 use sml_frontend::ast;
 use sml_frontend::parser::precedence::{self, Fixity, Precedence, Query};
-use sml_util::diagnostics::Diagnostic;
+use sml_util::diagnostics::{Diagnostic, Level};
 use sml_util::interner::{Interner, Symbol};
 use sml_util::pretty_print::PrettyPrinter;
 use sml_util::span::Span;
@@ -201,7 +201,7 @@ impl<'a> Context<'a> {
     }
 
     #[inline]
-    fn scope_depth(&self) -> usize {
+    pub fn scope_depth(&self) -> usize {
         self.namespaces[self.current].depth
     }
 
@@ -370,6 +370,7 @@ pub struct ElabError {
     sp: Span,
     message: String,
     kind: ErrorKind,
+    level: Level,
 }
 
 pub enum ErrorKind {
@@ -389,11 +390,17 @@ impl ElabError {
             sp,
             message: msg.into(),
             kind: ErrorKind::Message,
+            level: Level::Error,
         }
     }
 
     pub fn kind(mut self, kind: ErrorKind) -> Self {
         self.kind = kind;
+        self
+    }
+
+    pub fn level(mut self, level: Level) -> Self {
+        self.level = level;
         self
     }
 
@@ -428,7 +435,11 @@ impl ElabError {
                 buffer = self.message;
             }
         }
-        Some(Diagnostic::error(self.sp, buffer))
+        match self.level {
+            Level::Warn => Some(Diagnostic::warn(self.sp, buffer)),
+            Level::Error => Some(Diagnostic::error(self.sp, buffer)),
+            Level::Bug => Some(Diagnostic::bug(self.sp, buffer)),
+        }
     }
 }
 
@@ -1705,7 +1716,7 @@ impl<'a> Context<'a> {
             });
 
             let dontgeneralize = !expr.non_expansive() || pat.flexible();
-            for (var, tv) in bindings {
+            for (var, tv) in &bindings {
                 let sch = match dontgeneralize {
                     false => ctx.generalize(tv),
                     true => {
@@ -1713,10 +1724,20 @@ impl<'a> Context<'a> {
                         Scheme::Mono(tv)
                     }
                 };
-                ctx.define_value(var, pat.span, sch, IdStatus::Var);
+                ctx.define_value(*var, pat.span, sch, IdStatus::Var);
             }
 
-            elab.push(Decl::Val(Rule { pat, expr }));
+            match pat.kind {
+                PatKind::Var(_) | PatKind::Wild => {
+                    elab.push(Decl::Val(Rule { pat, expr }));
+                }
+                _ => {
+                    // If we have some kind of compound binding, go ahead and
+                    // do a source->source rewrite
+                    let rule = crate::match_compile::val(ctx, expr, pat, &bindings);
+                    elab.push(Decl::Val(rule));
+                }
+            }
         })
     }
 

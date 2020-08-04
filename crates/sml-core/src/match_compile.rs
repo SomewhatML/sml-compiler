@@ -17,6 +17,7 @@ use crate::builtin::constructors::{C_BIND, C_MATCH};
 use crate::elaborate::{Context, ElabError, ErrorKind};
 use crate::types::{Constructor, Type};
 use crate::{Decl, Expr, ExprKind, Lambda, Pat, PatKind, Row, Rule, SortedRecord};
+use sml_util::diagnostics::Level;
 use sml_util::interner::Symbol;
 use sml_util::span::Span;
 use sml_util::Const;
@@ -117,12 +118,7 @@ pub fn val<'a>(
     let test = ctx.fresh_var();
 
     let (ret_ty, rpat, rexpr) = match bindings.len() {
-        0 => {
-            return Rule {
-                pat,
-                expr: scrutinee,
-            }
-        }
+        0 => (pat.ty, pat, scrutinee),
         1 => {
             let (sym, ty) = bindings[0];
             let p = Pat::new(ctx.arena.pats.alloc(PatKind::Var(sym)), ty, Span::dummy());
@@ -134,6 +130,8 @@ pub fn val<'a>(
             (ty, p, e)
         }
         _ => {
+            // This is incredibly ugly, maybe clean it up at cost of performance?
+
             let mut vt = Vec::new();
             let mut vp = Vec::new();
             let mut ve = Vec::new();
@@ -175,8 +173,6 @@ pub fn val<'a>(
             (t, p, e)
         }
     };
-
-    // let expr = crate::match_compile::case(ctx, expr, rw_ty, vec![Rule { pat, expr: rw_expr}], pat.span + expr.span);
 
     let pats = vec![vec![pat]];
     let mut diags = MatchDiags::with_capacity(span, 1, C_BIND);
@@ -367,10 +363,25 @@ impl MatchDiags {
             }
         }
         if self.inexhaustive {
-            ctx.elab_errors.push(
-                ElabError::new(self.span, "inexhaustive `case` expression")
-                    .kind(ErrorKind::Redundant),
-            );
+            match self.constr {
+                C_BIND => {
+                    let level = match ctx.scope_depth() {
+                        0 => Level::Warn,
+                        _ => Level::Error,
+                    };
+                    ctx.elab_errors.push(
+                        ElabError::new(self.span, "inexhaustive `val` binding")
+                            .kind(ErrorKind::Inexhaustive)
+                            .level(level),
+                    );
+                }
+                _ => {
+                    ctx.elab_errors.push(
+                        ElabError::new(self.span, "inexhaustive `case` expression")
+                            .kind(ErrorKind::Inexhaustive),
+                    );
+                }
+            }
         }
     }
 }
@@ -609,7 +620,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
         set.sort_by(|a, b| a.cmp(&b));
 
         let mut rules = Vec::new();
-        for con in set {
+        for &con in &set {
             // Clone facts so we don't polute other branches with identical bound
             let mut f = facts.clone();
             let expr = self.specialize_const(&mut f, diags, con);
@@ -622,9 +633,13 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
             rules.push(Rule { pat, expr });
         }
 
-        let pat = self.mk_wild(self.pats[0][0].ty);
-        let expr = self.default_matrix(facts, diags);
-        rules.push(Rule { pat, expr });
+        if set.len() == 1 && set[0] == &Const::Unit {
+            // Unit is exhaustive
+        } else {
+            let pat = self.mk_wild(self.pats[0][0].ty);
+            let expr = self.default_matrix(facts, diags);
+            rules.push(Rule { pat, expr });
+        }
 
         Expr::new(
             self.ctx.arena.exprs.alloc(ExprKind::Case(
@@ -658,7 +673,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
                 self.ctx
                     .arena
                     .exprs
-                    .alloc(ExprKind::Con(crate::builtin::constructors::C_MATCH, vec![])),
+                    .alloc(ExprKind::Con(diags.constr, vec![])),
                 self.ret_ty,
                 Span::zero(),
             );

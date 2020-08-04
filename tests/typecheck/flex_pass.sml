@@ -3,7 +3,7 @@
 -- args: --v
 -- expected stdout:
 -- val record: {x: int, y: bool, c: string, d: int ref}
--- val {x= x, y= y}: {x: int, y: bool, c: string, d: int ref}
+-- val (x, y): int * bool
 
 *)
 
