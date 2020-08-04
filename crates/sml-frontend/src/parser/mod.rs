@@ -4,6 +4,7 @@ use super::tokens::*;
 use sml_util::diagnostics::Diagnostic;
 use sml_util::interner::*;
 use sml_util::span::{Span, Spanned};
+use sml_util::Const;
 use std::iter::Peekable;
 mod decls;
 mod exprs;
@@ -51,7 +52,7 @@ impl Error {
             ExpectedExpr => format!("expected expression, but encountered {:?}", self.token),
             ExpectedDecl => format!("expected declaration, but encountered {:?}", self.token),
             Internal => format!("internal parser error! last token was {:?}", self.token),
-            EOF => format!("EOF?"),
+            EOF => "EOF?".to_string(),
         };
         Diagnostic::error(self.span, message)
     }

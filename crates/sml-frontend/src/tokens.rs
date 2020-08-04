@@ -1,5 +1,5 @@
-use super::ast::Const;
 use sml_util::interner::Symbol;
+use sml_util::Const;
 
 #[allow(dead_code)]
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
@@ -74,6 +74,7 @@ pub enum Token {
 
     /// Errors
     Invalid(char),
+    MissingDelimiter(char),
     EOF,
 }
 

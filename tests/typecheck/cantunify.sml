@@ -10,7 +10,8 @@
 
 -- expected stderr:
 -- Error
--- 22,9 Type unification: can't unify function with argument types. Type constructors differ: int, bool
+-- 23,9 Type unification: can't unify function with argument types
+-- Type constructors differ: int, bool
 
 *)
 

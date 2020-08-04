@@ -3,24 +3,59 @@ use super::*;
 use std::cell::Cell;
 use std::collections::{HashSet, VecDeque};
 
-pub struct TypeVar<'ar> {
+/// A type variable
+///
+/// Each type variable has a unique identifier by which it is referred to.
+/// Type vars also have a rank, indicating the lexical scope at which they
+/// are introduced, which allows for optimal generalization (polymorphization)
+/// of introduced type variables.
+///
+/// Each type variable also contains an interior-mutable `Cell`. If the cell
+/// contains a `Some(Type)`, then that indicates that this type variable
+/// has been unified to some other type (or type var, etc). We allocate type
+/// variables in an arena, so that [`Type`]s may store a reference to a type
+/// variable. When combined with the interior mutability aspect, we get
+/// maximal sharing of type unification information.
+///
+/// Invariants: it is important that `data` is set at *most* one time.
+pub struct TypeVar<'a> {
     pub id: usize,
     rank: Cell<usize>,
-    pub data: Cell<Option<&'ar Type<'ar>>>,
+    pub data: Cell<Option<&'a Type<'a>>>,
 }
 
-pub enum Type<'ar> {
-    Var(&'ar TypeVar<'ar>),
-    Con(Tycon, Vec<&'ar Type<'ar>>),
-    Record(SortedRecord<&'ar Type<'ar>>),
+/// A flexible record type.
+///
+/// Flexible records cannot be generalized, so they behave like something
+/// with the value restriction. We allow the maximum possible scope to resolve
+/// flex records. Similar to [`TypeVar`], it is critical that `unified` is set
+/// at *most* once. We impose an additional restriction that the unified type
+/// must always be a Record type
+pub struct Flex<'a> {
+    pub constraints: SortedRecord<&'a Type<'a>>,
+    pub unified: Cell<Option<&'a Type<'a>>>,
 }
 
+pub enum Type<'a> {
+    /// Type variable
+    Var(&'a TypeVar<'a>),
+    /// An n-ary type constructor, like `int`, `bool`, `list`, etc
+    Con(Tycon, Vec<&'a Type<'a>>),
+    /// A record, or tuple type
+    Record(SortedRecord<&'a Type<'a>>),
+    /// A flexible record type
+    Flex(Flex<'a>),
+}
+
+/// A type constructor
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq)]
 pub struct Tycon {
     pub name: Symbol,
     pub arity: usize,
+    pub scope_depth: usize,
 }
 
+/// A data constructor
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq, Hash)]
 pub struct Constructor {
     pub name: Symbol,
@@ -31,13 +66,13 @@ pub struct Constructor {
 }
 
 #[derive(Clone)]
-pub enum Scheme<'ar> {
-    Mono(&'ar Type<'ar>),
-    Poly(Vec<usize>, &'ar Type<'ar>),
+pub enum Scheme<'a> {
+    Mono(&'a Type<'a>),
+    Poly(Vec<usize>, &'a Type<'a>),
 }
 
-impl<'ar> Type<'ar> {
-    pub fn as_tyvar(&self) -> &TypeVar<'ar> {
+impl<'a> Type<'a> {
+    pub fn as_tyvar(&self) -> &TypeVar<'a> {
         match self {
             Type::Var(tv) => tv,
             _ => panic!("internal compiler error: Type::as_tyvar"),
@@ -45,7 +80,7 @@ impl<'ar> Type<'ar> {
     }
 
     /// 'de-arrow' an arrow type, returning the argument and result type
-    pub fn de_arrow(&self) -> Option<(&'_ Type<'ar>, &'_ Type<'ar>)> {
+    pub fn de_arrow(&self) -> Option<(&'_ Type<'a>, &'_ Type<'a>)> {
         match self {
             Type::Con(builtin::tycons::T_ARROW, v) => Some((v[0], v[1])),
             Type::Var(tv) => {
@@ -59,8 +94,21 @@ impl<'ar> Type<'ar> {
         }
     }
 
+    /// Return true if the type-graph contains any unresolved flex variables
+    pub fn unresolved_flex(&self) -> bool {
+        let mut unres = false;
+        self.visit(|ty| {
+            if let Type::Flex(flex) = ty {
+                if flex.ty().is_none() {
+                    unres = true;
+                }
+            }
+        });
+        unres
+    }
+
     /// Pre-order BFS
-    pub fn visit<F: FnMut(&Type<'ar>)>(&self, mut f: F) {
+    pub fn visit<F: FnMut(&Type<'a>)>(&self, mut f: F) {
         let mut queue = VecDeque::new();
         queue.push_back(self);
 
@@ -82,14 +130,22 @@ impl<'ar> Type<'ar> {
                         queue.push_back(&row.data);
                     }
                 }
+                Type::Flex(flex) => {
+                    if let Some(link) = flex.ty() {
+                        queue.push_back(link);
+                    } else {
+                        for row in flex.constraints.iter() {
+                            queue.push_back(&row.data);
+                        }
+                    }
+                }
             }
         }
     }
 
     /// Perform a breadth-first traversal of a type, collecting it's
     /// associated type variables that have a rank greater than `rank`
-    pub fn ftv_rank(&self, rank: usize) -> Vec<usize> {
-        let mut set = Vec::new();
+    pub fn ftv_rank(&self, rank: usize) -> HashSet<usize> {
         let mut uniq = HashSet::new();
         let mut queue = VecDeque::new();
         queue.push_back(self);
@@ -98,8 +154,8 @@ impl<'ar> Type<'ar> {
             match ty {
                 Type::Var(x) => match x.ty() {
                     None => {
-                        if x.rank() > rank && uniq.insert(x.id) {
-                            set.push(x.id);
+                        if x.rank() > rank {
+                            uniq.insert(x.id);
                         }
                     }
                     Some(link) => {
@@ -116,17 +172,25 @@ impl<'ar> Type<'ar> {
                         queue.push_back(&row.data);
                     }
                 }
+                Type::Flex(flex) => {
+                    if let Some(link) = flex.ty() {
+                        queue.push_back(link)
+                    } else {
+                        // Do nothing, we don't want to cause flexible record
+                        // types to become generalized
+                    }
+                }
             }
         }
-        set
+        uniq
     }
 
     /// Apply a substitution to a type
     pub fn apply(
-        &'ar self,
-        arena: &'ar TypeArena<'ar>,
-        map: &HashMap<usize, &'ar Type<'ar>>,
-    ) -> &'ar Type<'ar> {
+        &'a self,
+        arena: &'a TypeArena<'a>,
+        map: &HashMap<usize, &'a Type<'a>>,
+    ) -> &'a Type<'a> {
         match self {
             Type::Var(x) => match x.ty() {
                 Some(ty) => ty.apply(arena, map),
@@ -140,9 +204,18 @@ impl<'ar> Type<'ar> {
             },
             Type::Con(tc, vars) => arena.alloc(Type::Con(
                 *tc,
-                vars.into_iter().map(|ty| ty.apply(arena, map)).collect(),
+                vars.iter().map(|ty| ty.apply(arena, map)).collect(),
             )),
             Type::Record(rows) => arena.alloc(Type::Record(rows.fmap(|ty| ty.apply(arena, map)))),
+            Type::Flex(flex) => {
+                match flex.ty() {
+                    Some(ty) => ty.apply(arena, map),
+                    None => {
+                        // TODO: Do we need to do anything here?
+                        self
+                    }
+                }
+            }
         }
     }
 
@@ -168,56 +241,33 @@ impl<'ar> Type<'ar> {
             }
             Type::Con(_, tys) => tys.iter().any(|ty| ty.occurs_check(tyvar)),
             Type::Record(rows) => rows.iter().any(|r| r.data.occurs_check(tyvar)),
+            Type::Flex(flex) => match flex.ty() {
+                Some(ty) => ty.occurs_check(tyvar),
+                None => flex.constraints.iter().any(|r| r.data.occurs_check(tyvar)),
+            },
         }
     }
 }
 
 pub fn fresh_name(x: usize) -> String {
-    let last = ((x % 26) as u8 + 'a' as u8) as char;
+    let last = ((x % 26) as u8 + b'a' as u8) as char;
     (0..x / 26)
         .map(|_| 'z')
         .chain(std::iter::once(last))
         .collect::<String>()
 }
 
-impl<'ar> fmt::Debug for Type<'ar> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use Type::*;
-        match self {
-            Var(tv) => match tv.ty() {
-                Some(ty) => write!(f, "{:?}", ty),
-                None => write!(f, "'{}#{}", fresh_name(tv.id), tv.rank()),
-            },
-            Con(tc, args) => match tc {
-                &crate::builtin::tycons::T_ARROW => write!(f, "{:?} -> {:?}", args[0], args[1]),
-                _ => write!(
-                    f,
-                    "{} {:?}",
-                    args.into_iter()
-                        .map(|x| format!("{:?}", x))
-                        .collect::<String>(),
-                    tc.name
-                ),
-            },
-            Record(rows) => write!(
-                f,
-                "{{{}}}",
-                rows.iter()
-                    .map(|r| format!("{:?}:{:?}", r.label, r.data))
-                    .collect::<Vec<String>>()
-                    .join(",")
-            ),
+impl Tycon {
+    pub const fn new(name: Symbol, arity: usize, scope_depth: usize) -> Tycon {
+        Tycon {
+            name,
+            arity,
+            scope_depth,
         }
     }
 }
 
-impl Tycon {
-    pub const fn new(name: Symbol, arity: usize) -> Tycon {
-        Tycon { name, arity }
-    }
-}
-
-impl<'ar> Scheme<'ar> {
+impl<'a> Scheme<'a> {
     pub fn arity(&self) -> usize {
         match self {
             Scheme::Mono(_) => 0,
@@ -225,7 +275,7 @@ impl<'ar> Scheme<'ar> {
         }
     }
 
-    pub fn apply(&self, arena: &'ar TypeArena<'ar>, args: Vec<&'ar Type<'ar>>) -> &'ar Type<'ar> {
+    pub fn apply(&self, arena: &'a TypeArena<'a>, args: Vec<&'a Type<'a>>) -> &'a Type<'a> {
         match self {
             Scheme::Mono(ty) => ty,
             Scheme::Poly(vars, ty) => {
@@ -236,7 +286,7 @@ impl<'ar> Scheme<'ar> {
                         .iter()
                         .copied()
                         .zip(args.into_iter())
-                        .collect::<HashMap<usize, &'ar Type<'ar>>>();
+                        .collect::<HashMap<usize, &'a Type<'a>>>();
                     ty.apply(arena, &map)
                 } else {
                     panic!("internal compiler error, not checking scheme arity")
@@ -245,7 +295,7 @@ impl<'ar> Scheme<'ar> {
         }
     }
 
-    pub fn new(ty: &'ar Type<'ar>, tyvars: Vec<usize>) -> Scheme<'ar> {
+    pub fn new(ty: &'a Type<'a>, tyvars: Vec<usize>) -> Scheme<'a> {
         match tyvars.len() {
             0 => Scheme::Mono(ty),
             _ => Scheme::Poly(tyvars, ty),
@@ -253,8 +303,8 @@ impl<'ar> Scheme<'ar> {
     }
 }
 
-impl<'ar> TypeVar<'ar> {
-    pub fn new(id: usize, rank: usize) -> TypeVar<'ar> {
+impl<'a> TypeVar<'a> {
+    pub fn new(id: usize, rank: usize) -> TypeVar<'a> {
         let data = Cell::new(None);
         TypeVar {
             id,
@@ -263,7 +313,7 @@ impl<'ar> TypeVar<'ar> {
         }
     }
 
-    pub fn ty(&self) -> Option<&'ar Type<'ar>> {
+    pub fn ty(&self) -> Option<&'a Type<'a>> {
         self.data.get()
     }
 
@@ -272,19 +322,15 @@ impl<'ar> TypeVar<'ar> {
     }
 }
 
-impl<'ar> fmt::Debug for Scheme<'ar> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Scheme::Poly(tys, ty) => write!(
-                f,
-                "∀{}. ({:?})",
-                tys.into_iter()
-                    .map(|x| fresh_name(*x))
-                    .collect::<Vec<String>>()
-                    .join(","),
-                ty
-            ),
-            Scheme::Mono(ty) => write!(f, "{:?}", ty),
+impl<'a> Flex<'a> {
+    pub fn new(constraints: SortedRecord<&'a Type<'a>>) -> Flex<'a> {
+        Flex {
+            constraints,
+            unified: Cell::new(None),
         }
+    }
+
+    pub fn ty(&self) -> Option<&'a Type<'a>> {
+        self.unified.get()
     }
 }

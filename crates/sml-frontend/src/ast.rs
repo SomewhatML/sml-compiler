@@ -1,13 +1,6 @@
 use sml_util::interner::Symbol;
 use sml_util::span::{Span, Spanned};
-
-#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq, Hash, Ord)]
-pub enum Const {
-    Unit,
-    Int(usize),
-    Char(char),
-    String(Symbol),
-}
+use sml_util::Const;
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub struct Datatype {

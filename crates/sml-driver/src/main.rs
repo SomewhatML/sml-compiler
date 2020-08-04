@@ -1,13 +1,13 @@
 use sml_core::elaborate::Context;
-use sml_core::pretty_print::PrettyPrinter;
 use sml_frontend::parser::Parser;
 use sml_util::diagnostics::{Diagnostic, Level};
 use sml_util::interner::*;
+use sml_util::pretty_print::PrettyPrinter;
 use std::io::prelude::*;
 use std::time::Instant;
 
 mod config;
-use config::{ArgParse, CompilerBuilder};
+use config::ArgParse;
 
 fn report(verb: u8, diags: Vec<Diagnostic>, src: &str) {
     let mut warns = Vec::new();
@@ -44,7 +44,7 @@ fn report(verb: u8, diags: Vec<Diagnostic>, src: &str) {
 
 pub struct Compiler<'a> {
     arena: &'a sml_core::arenas::CoreArena<'a>,
-    elab: sml_core::elaborate::Context<'a>,
+    elab: Context<'a>,
     interner: Interner,
     measure: bool,
     verbosity: u8,

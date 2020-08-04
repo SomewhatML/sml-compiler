@@ -1,13 +1,19 @@
 //! Elaboration from AST to an explicity typed, Core ML language
 //!
 
-use super::arenas::*;
-use super::builtin::*;
-use super::*;
+use crate::arenas::{CoreArena, TypeArena};
+use crate::builtin::{constructors, populate_context};
+use crate::types::{Constructor, Flex, Scheme, Tycon, Type, TypeVar};
+use crate::{
+    Datatype, Decl, Expr, ExprId, ExprKind, Lambda, Pat, PatKind, Row, Rule, SortedRecord, TypeId,
+};
 use sml_frontend::ast;
 use sml_frontend::parser::precedence::{self, Fixity, Precedence, Query};
 use sml_util::diagnostics::Diagnostic;
-use sml_util::interner::Interner;
+use sml_util::interner::{Interner, Symbol};
+use sml_util::pretty_print::PrettyPrinter;
+use sml_util::span::Span;
+use sml_util::Const;
 use std::collections::HashMap;
 use std::fmt::Write;
 
@@ -37,7 +43,7 @@ pub enum IdStatus {
 
 /// Essentially a minimized Value Environment (VE) containing only datatype
 /// constructors, and without the indirection of going from names->id->def
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Cons<'a> {
     name: Symbol,
     scheme: Scheme<'a>,
@@ -45,7 +51,7 @@ pub struct Cons<'a> {
 
 /// TyStr, a [`TypeStructure`] from the Defn. This is a component of the
 /// Type Environment, TE
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum TypeStructure<'a> {
     /// TyStr (t, VE), a datatype
     Datatype(Tycon, Vec<Cons<'a>>),
@@ -104,6 +110,7 @@ struct PartialFnBinding<'s, 'a> {
 #[derive(Default, Debug)]
 pub struct Namespace {
     parent: Option<usize>,
+    depth: usize,
     types: HashMap<Symbol, TypeId>,
     values: HashMap<Symbol, ExprId>,
     infix: HashMap<Symbol, Fixity>,
@@ -127,6 +134,7 @@ pub struct Context<'a> {
     values: Vec<(Scheme<'a>, IdStatus)>,
 
     tyvar_rank: usize,
+    local_depth: usize,
 
     pub(crate) arena: &'a CoreArena<'a>,
     pub elab_errors: Vec<ElabError>,
@@ -134,9 +142,10 @@ pub struct Context<'a> {
 }
 
 impl Namespace {
-    pub fn with_parent(id: usize) -> Namespace {
+    pub fn with_parent(id: usize, depth: usize) -> Namespace {
         Namespace {
             parent: Some(id),
+            depth,
             types: HashMap::with_capacity(32),
             values: HashMap::with_capacity(64),
             infix: HashMap::with_capacity(16),
@@ -151,6 +160,7 @@ impl<'a> Context<'a> {
             namespaces: Vec::default(),
             current: 0,
             tyvar_rank: 0,
+            local_depth: 0,
             types: Vec::default(),
             values: Vec::default(),
             elab_errors: Vec::default(),
@@ -158,10 +168,11 @@ impl<'a> Context<'a> {
             arena,
         };
         ctx.namespaces.push(Namespace::default());
-        builtin::populate_context(&mut ctx);
+        populate_context(&mut ctx);
         ctx.elab_decl_fixity(&ast::Fixity::Infixr, 4, constructors::C_CONS.name);
         ctx
     }
+
     /// Keep track of the type variable stack, while executing the combinator
     /// function `f` on `self`. Any stack growth is popped off after `f`
     /// returns.
@@ -180,7 +191,8 @@ impl<'a> Context<'a> {
     fn with_scope<T, F: FnOnce(&mut Context<'a>) -> T>(&mut self, f: F) -> T {
         let prev = self.current;
         let next = self.namespaces.len();
-        self.namespaces.push(Namespace::with_parent(prev));
+        self.namespaces
+            .push(Namespace::with_parent(prev, self.scope_depth() + 1));
         self.current = next;
         let r = f(self);
 
@@ -188,11 +200,21 @@ impl<'a> Context<'a> {
         r
     }
 
+    #[inline]
+    fn scope_depth(&self) -> usize {
+        self.namespaces[self.current].depth
+    }
+
     /// Globally define a type
     pub(crate) fn define_type(&mut self, sym: Symbol, tystr: TypeStructure<'a>) -> TypeId {
         let id = TypeId(self.types.len() as u32);
         self.types.push(tystr);
-        self.namespaces[self.current].types.insert(sym, id);
+        let ns = if self.local_depth > 0 {
+            self.namespaces[self.current].parent.unwrap_or(self.current)
+        } else {
+            self.current
+        };
+        self.namespaces[ns].types.insert(sym, id);
         id
     }
 
@@ -200,13 +222,31 @@ impl<'a> Context<'a> {
     pub(crate) fn define_value(
         &mut self,
         sym: Symbol,
+        span: Span,
         scheme: Scheme<'a>,
         status: IdStatus,
     ) -> ExprId {
         let id = ExprId(self.values.len() as u32);
+        let scheme = self.check_scheme(span, scheme);
         self.values.push((scheme, status));
-        self.namespaces[self.current].values.insert(sym, id);
+        let ns = if self.local_depth > 0 {
+            self.namespaces[self.current].parent.unwrap_or(self.current)
+        } else {
+            self.current
+        };
+        self.namespaces[ns].values.insert(sym, id);
         id
+    }
+
+    fn check_scheme(&mut self, span: Span, scheme: Scheme<'a>) -> Scheme<'a> {
+        if self.local_depth > 0 {
+            // is scope_depth() - 1 correct, or do we modify by local_depth
+            match scheme {
+                Scheme::Mono(ty) => self.check_type_names(span, ty, self.scope_depth() - 1),
+                Scheme::Poly(_, ty) => self.check_type_names(span, ty, self.scope_depth() - 1),
+            }
+        }
+        scheme
     }
 
     /// Unbind a value, replacing it's currently defined scheme with
@@ -311,7 +351,7 @@ impl<'a> Context<'a> {
     pub fn diagnostics(&mut self, interner: &Interner) -> Vec<Diagnostic> {
         // let mut diags = std::mem::replace(&mut self.diags, Vec::new());
         let mut diags = Vec::new();
-        let mut pp = crate::pretty_print::PrettyPrinter::new(interner);
+        let mut pp = PrettyPrinter::new(interner);
         diags.extend(
             self.elab_errors
                 .drain(..)
@@ -339,6 +379,7 @@ pub enum ErrorKind {
     Arity(usize, usize),
     Redundant,
     Inexhaustive,
+    Generalize,
     Message,
 }
 
@@ -356,7 +397,7 @@ impl ElabError {
         self
     }
 
-    fn convert_err(self, pp: &mut pretty_print::PrettyPrinter<'_>) -> Option<Diagnostic> {
+    fn convert_err(self, pp: &mut PrettyPrinter<'_>) -> Option<Diagnostic> {
         let mut buffer = String::new();
         match self.kind {
             ErrorKind::Unbound(sym) => {
@@ -379,6 +420,9 @@ impl ElabError {
                     self.message, expect, got
                 )
                 .ok()?;
+            }
+            ErrorKind::Generalize => {
+                return Some(Diagnostic::warn(self.sp, self.message));
             }
             _ => {
                 buffer = self.message;
@@ -432,14 +476,14 @@ impl<'a> CantUnify<'a> {
         self
     }
 
-    fn convert_err(self, pp: &mut pretty_print::PrettyPrinter<'_>) -> Option<Diagnostic> {
+    fn convert_err(self, pp: &mut PrettyPrinter<'_>) -> Option<Diagnostic> {
         let mut map = HashMap::new();
 
         let mut buffer = String::new();
         let sp = self.originating?;
         write!(
             &mut buffer,
-            "Type unification: {}. {}: ",
+            "Type unification: {}\n{}: ",
             self.message, self.reason
         )
         .ok()?;
@@ -474,7 +518,13 @@ impl<'a> Context<'a> {
         } else {
             // Move into else block, so that even if occurs check fails, we can
             // proceed with type checking without creating a cycle
-            var.data.set(Some(ty));
+            match ty {
+                Type::Flex(flex) => match flex.ty() {
+                    Some(ty) => var.data.set(Some(ty)),
+                    None => var.data.set(Some(ty)),
+                },
+                _ => var.data.set(Some(ty)),
+            }
         }
     }
 
@@ -507,6 +557,34 @@ impl<'a> Context<'a> {
         }
     }
 
+    /// Check that every constraint in the flexible record type unifies
+    /// with the rigid record
+    fn one_flex<F>(
+        &mut self,
+        rigid: &SortedRecord<&'a Type<'a>>,
+        flex: &Flex<'a>,
+        rigid_ty: &'a Type<'a>,
+        flex_ty: &'a Type<'a>,
+        f: &F,
+    ) where
+        F: Fn(CantUnify<'a>) -> CantUnify<'a>,
+    {
+        for field in flex.constraints.iter() {
+            match rigid.contains(&field.label) {
+                Some(row) => {
+                    self.unify(&field.data, &row.data, f);
+                }
+                None => {
+                    let err = f(CantUnify::new(rigid_ty, flex_ty))
+                        .reason("Flexible record constraint not in rigid record");
+                    self.unification_errors.push(err);
+                    return;
+                }
+            }
+        }
+        flex.unified.set(Some(rigid_ty));
+    }
+
     fn unify<F>(&mut self, a: &'a Type<'a>, b: &'a Type<'a>, f: &F)
     where
         F: Fn(CantUnify<'a>) -> CantUnify<'a>,
@@ -535,12 +613,20 @@ impl<'a> Context<'a> {
                         .reason("Argument lengths to type constructors differ");
                     self.unification_errors.push(err);
                 } else {
-                    for (c, d) in a_args.into_iter().zip(b_args) {
+                    for (c, d) in a_args.iter().zip(b_args) {
                         self.unify(c, d, f);
                     }
                 }
             }
             (Type::Record(r1), Type::Record(r2)) => self.unify_records(r1, r2, a, b, f),
+            (Type::Flex(flex), Type::Record(rec)) => match flex.ty() {
+                Some(r1) => self.unify(r1, b, f),
+                None => self.one_flex(rec, flex, b, a, f),
+            },
+            (Type::Record(rec), Type::Flex(flex)) => match flex.ty() {
+                Some(r1) => self.unify(r1, b, f),
+                None => self.one_flex(rec, flex, a, b, f),
+            },
             (a, b) => {
                 let err = f(CantUnify::new(a, b)).reason("Can't unify these types");
                 self.unification_errors.push(err);
@@ -565,7 +651,7 @@ impl<'a> Context<'a> {
 
         match ftv.len() {
             0 => Scheme::Mono(ty),
-            _ => Scheme::Poly(ftv, ty),
+            _ => Scheme::Poly(ftv.into_iter().collect(), ty),
         }
     }
 
@@ -573,21 +659,22 @@ impl<'a> Context<'a> {
         match scheme {
             Scheme::Mono(ty) => ty,
             Scheme::Poly(vars, ty) => {
-                let map = vars.into_iter().map(|v| (*v, self.fresh_tyvar())).collect();
+                let map = vars.iter().map(|v| (*v, self.fresh_tyvar())).collect();
                 ty.apply(&self.arena.types, &map)
             }
         }
     }
 
-    fn check_type_names(&mut self, sp: Span, ty: &'a Type<'a>) {
+    fn check_type_names(&mut self, sp: Span, ty: &'a Type<'a>, depth: usize) {
         let mut names = Vec::new();
-        ty.visit(|f| match f {
-            Type::Con(tc, _) => names.push(*tc),
-            _ => {}
+        ty.visit(|f| {
+            if let Type::Con(tc, _) = f {
+                names.push(*tc);
+            }
         });
 
         for tycon in names {
-            if self.lookup_type(&tycon.name).is_none() {
+            if tycon.scope_depth > depth {
                 self.elab_errors.push(
                     ElabError::new(sp, "type escapes scope").kind(ErrorKind::Escape(tycon.name)),
                 )
@@ -623,6 +710,7 @@ impl<'a> Context<'a> {
                         TypeStructure::Tycon(Tycon {
                             name: self.fresh_var(),
                             arity: args.len(),
+                            scope_depth: self.scope_depth(),
                         })
                     }
                 };
@@ -636,7 +724,7 @@ impl<'a> Context<'a> {
                 con.apply(&self.arena.types, args)
             }
             Record(rows) => self.arena.types.alloc(Type::Record(SortedRecord::new(
-                rows.into_iter()
+                rows.iter()
                     .map(|row| self.elab_row(|f, r| f.elaborate_type(r, allow_unbound), row))
                     .collect::<Vec<Row<_>>>(),
             ))),
@@ -693,7 +781,7 @@ impl<'a> Context<'a> {
     fn elab_rules(&mut self, sp: Span, rules: &[ast::Rule]) -> (Vec<Rule<'a>>, &'a Type<'a>) {
         self.with_scope(|ctx| {
             let rules = rules
-                .into_iter()
+                .iter()
                 .map(|r| ctx.elab_rule(r, true))
                 .collect::<Vec<Rule>>();
 
@@ -888,7 +976,7 @@ impl<'a> Context<'a> {
                     }
                     ctx.elaborate_expr(body)
                 });
-                self.check_type_names(body.span, body.ty);
+                self.check_type_names(body.span, body.ty, self.scope_depth());
                 Expr::new(
                     self.arena.exprs.alloc(ExprKind::Let(elab, body)),
                     body.ty,
@@ -897,7 +985,7 @@ impl<'a> Context<'a> {
             }
             ast::ExprKind::List(exprs) => {
                 let exprs = exprs
-                    .into_iter()
+                    .iter()
                     .map(|ex| self.elaborate_expr(ex))
                     .collect::<Vec<_>>();
 
@@ -975,7 +1063,7 @@ impl<'a> Context<'a> {
             }
             ast::ExprKind::Seq(exprs) => {
                 let exprs = exprs
-                    .into_iter()
+                    .iter()
                     .map(|ex| self.elaborate_expr(ex))
                     .collect::<Vec<_>>();
                 // exprs.len() >= 2, but we'll use saturating_sub just to be safe
@@ -992,7 +1080,13 @@ impl<'a> Context<'a> {
                 Some((scheme, _)) => {
                     let ty = self.instantiate(scheme);
                     // println!("inst {:?} [{:?}] -> {:?}", sym, scheme, ty);
-                    Expr::new(self.arena.exprs.alloc(ExprKind::Var(*sym)), ty, expr.span)
+                    Expr::new(
+                        self.arena
+                            .exprs
+                            .alloc(ExprKind::Var(std::cell::Cell::new(*sym))),
+                        ty,
+                        expr.span,
+                    )
                 }
                 None => {
                     self.elab_errors
@@ -1026,17 +1120,16 @@ impl<'a> Context<'a> {
         let nil = Pat::new(
             self.arena
                 .pats
-                .alloc(PatKind::App(crate::builtin::constructors::C_NIL, None)),
+                .alloc(PatKind::App(constructors::C_NIL, None)),
             ty,
             sp,
         );
         pats.into_iter().fold(nil, |xs, x| {
             let cons = Pat::new(self.arena.pats.tuple([x, xs].iter().copied()), x.ty, x.span);
             Pat::new(
-                self.arena.pats.alloc(PatKind::App(
-                    crate::builtin::constructors::C_CONS,
-                    Some(cons),
-                )),
+                self.arena
+                    .pats
+                    .alloc(PatKind::App(constructors::C_CONS, Some(cons))),
                 ty,
                 sp,
             )
@@ -1155,7 +1248,7 @@ impl<'a> Context<'a> {
             }
             Record(rows, flex) => {
                 let pats: Vec<Row<Pat>> = rows
-                    .into_iter()
+                    .iter()
                     .map(|r| self.elab_row(|f, rho| f.elaborate_pat_inner(rho, bind, bindings), r))
                     .collect::<Vec<_>>();
 
@@ -1168,10 +1261,12 @@ impl<'a> Context<'a> {
                     })
                     .collect::<Vec<Row<_>>>();
 
-                // TODO: Figure out how to support flex records
                 let ty = match flex {
                     false => self.arena.types.alloc(Type::Record(SortedRecord::new(tys))),
-                    true => self.arena.types.alloc(Type::Record(SortedRecord::new(tys))),
+                    true => self
+                        .arena
+                        .types
+                        .alloc(Type::Flex(Flex::new(SortedRecord::new(tys)))),
                 };
                 Pat::new(
                     self.arena
@@ -1190,12 +1285,7 @@ impl<'a> Context<'a> {
                 _ => {
                     // Rule 34
                     let mut name = *sym;
-                    if bindings
-                        .iter()
-                        .map(|(s, _)| s)
-                        .find(|s| s == &sym)
-                        .is_some()
-                    {
+                    if bindings.iter().map(|(s, _)| s).any(|s| s == sym) {
                         name = self.fresh_var();
                         self.elab_errors.push(ElabError::new(
                             pat.span,
@@ -1204,7 +1294,7 @@ impl<'a> Context<'a> {
                     }
                     let ty = self.fresh_tyvar();
                     if bind {
-                        self.define_value(name, Scheme::Mono(ty), IdStatus::Var);
+                        self.define_value(name, pat.span, Scheme::Mono(ty), IdStatus::Var);
                     }
 
                     bindings.push((name, ty));
@@ -1227,10 +1317,11 @@ impl<'a> Context<'a> {
     }
 
     fn elab_decl_local(&mut self, decls: &ast::Decl, body: &ast::Decl, elab: &mut Vec<Decl<'a>>) {
-        // TODO: Check for type escape
         self.with_scope(|ctx| {
             ctx.elaborate_decl_inner(decls, elab);
-            ctx.elaborate_decl_inner(body, elab)
+            ctx.local_depth += 1;
+            ctx.elaborate_decl_inner(body, elab);
+            ctx.local_depth -= 1;
         })
     }
 
@@ -1271,7 +1362,7 @@ impl<'a> Context<'a> {
     }
 
     fn elab_decl_conbind(&mut self, db: &ast::Datatype, elab: &mut Vec<Decl<'a>>) {
-        let tycon = Tycon::new(db.tycon, db.tyvars.len());
+        let tycon = Tycon::new(db.tycon, db.tyvars.len(), self.scope_depth());
 
         // This is safe to unwrap, because we already bound it.
         let type_id = self.lookup_type_id(&db.tycon).unwrap();
@@ -1329,7 +1420,7 @@ impl<'a> Context<'a> {
                 0 => Scheme::Mono(ty),
                 _ => Scheme::Poly(tyvars.iter().map(|tv| tv.id).collect(), ty),
             };
-            self.define_value(con.label, s, IdStatus::Con(cons));
+            self.define_value(con.label, con.span, s, IdStatus::Con(cons));
         }
         let dt = Datatype {
             tycon,
@@ -1344,7 +1435,7 @@ impl<'a> Context<'a> {
         // we can construct data constructor arguments (e.g. recursive/mutually
         // recursive datatypes)
         for db in dbs {
-            let tycon = Tycon::new(db.tycon, db.tyvars.len());
+            let tycon = Tycon::new(db.tycon, db.tyvars.len(), self.scope_depth());
             self.define_type(db.tycon, TypeStructure::Tycon(tycon));
         }
         for db in dbs {
@@ -1374,6 +1465,7 @@ impl<'a> Context<'a> {
                     elab.push(Decl::Exn(con, Some(ty)));
                     self.define_value(
                         exn.label,
+                        exn.span,
                         Scheme::Mono(self.arena.types.arrow(ty, self.arena.types.exn())),
                         IdStatus::Exn(con),
                     );
@@ -1382,6 +1474,7 @@ impl<'a> Context<'a> {
                     elab.push(Decl::Exn(con, None));
                     self.define_value(
                         exn.label,
+                        exn.span,
                         Scheme::Mono(self.arena.types.exn()),
                         IdStatus::Exn(con),
                     );
@@ -1464,6 +1557,7 @@ impl<'a> Context<'a> {
             ..
         } = fun;
 
+        let mut dontgeneralize = false;
         let mut patterns = Vec::new();
         let mut rules = Vec::new();
         let mut total_sp = clauses[0].span;
@@ -1480,7 +1574,7 @@ impl<'a> Context<'a> {
             self.tyvar_rank += 1;
             let expr = self.with_scope(move |ctx| {
                 for (var, tv) in bindings {
-                    ctx.define_value(var, Scheme::Mono(tv), IdStatus::Var);
+                    ctx.define_value(var, span, Scheme::Mono(tv), IdStatus::Var);
                 }
                 ctx.elaborate_expr(&expr)
             });
@@ -1497,6 +1591,10 @@ impl<'a> Context<'a> {
                 pat: tuple_pat,
                 expr,
             };
+
+            if pats.iter().any(|p| p.flexible()) {
+                dontgeneralize = true;
+            }
 
             total_sp += span;
             patterns.push(pats);
@@ -1537,9 +1635,12 @@ impl<'a> Context<'a> {
         // Rebind with final type. Unbind first so that generalization happens properly
         self.unbind_value(fun.name);
         let ty = self.arena.types.arrow(t, ty);
-        let sch = self.generalize(ty);
+        let sch = match dontgeneralize {
+            true => Scheme::Mono(ty),
+            false => self.generalize(ty),
+        };
 
-        self.define_value(fun.name, sch, IdStatus::Var);
+        self.define_value(fun.name, total_sp, sch, IdStatus::Var);
 
         Lambda {
             arg: a,
@@ -1566,7 +1667,7 @@ impl<'a> Context<'a> {
                 let arity = f.iter().map(|fb| fb.pats.len()).max().unwrap_or(1);
                 let fns = ctx.elab_decl_fnbind_ty(name, arity, f);
 
-                ctx.define_value(fns.name, Scheme::Mono(fns.ty), IdStatus::Var);
+                ctx.define_value(fns.name, f.span, Scheme::Mono(fns.ty), IdStatus::Var);
                 info.push(fns);
             }
             ctx.tyvar_rank -= 1;
@@ -1598,20 +1699,22 @@ impl<'a> Context<'a> {
 
             let (pat, bindings) = ctx.elaborate_pat(pat, false);
             ctx.tyvar_rank -= 1;
-            let non_expansive = expr.non_expansive();
             ctx.unify(pat.ty, expr.ty, &|c| {
                 c.span(expr.span)
                     .message("pattern and expression have different types in `val` declaration")
             });
-            for (var, tv) in bindings {
-                let sch = match non_expansive {
-                    true => ctx.generalize(tv),
-                    false => Scheme::Mono(tv),
-                };
-                ctx.define_value(var, sch, IdStatus::Var);
-            }
 
-            // crate::match_compile::case(self, scrutinee, ret_ty, rules, span)
+            let dontgeneralize = !expr.non_expansive() || pat.flexible();
+            for (var, tv) in bindings {
+                let sch = match dontgeneralize {
+                    false => ctx.generalize(tv),
+                    true => {
+                        // ctx.elab_errors.push(ElabError::new(pat.span, "type variables not generalized!").kind(ErrorKind::Generalize));
+                        Scheme::Mono(tv)
+                    }
+                };
+                ctx.define_value(var, pat.span, sch, IdStatus::Var);
+            }
 
             elab.push(Decl::Val(Rule { pat, expr }));
         })

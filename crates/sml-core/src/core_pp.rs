@@ -1,10 +1,11 @@
-use super::{PrettyPrinter, Print, Symbol};
 use crate::types::Type;
-use crate::{Const, Decl, Expr, ExprKind, Pat, PatKind, Row, Rule};
+use crate::{Decl, Expr, ExprKind, Pat, PatKind, Rule, SortedRecord};
+use sml_util::interner::Symbol;
+use sml_util::pretty_print::{PrettyPrinter, Print};
 
 use std::collections::HashMap;
 
-impl<T: Print> Print for &[Row<T>] {
+impl<T: Print> Print for &SortedRecord<T> {
     fn print<'a, 'b>(&self, pp: &'a mut PrettyPrinter<'b>) -> &'a mut PrettyPrinter<'b> {
         if let Symbol::Tuple(_) = self[0].label {
             pp.text("(");
@@ -18,23 +19,12 @@ impl<T: Print> Print for &[Row<T>] {
         } else {
             pp.text("{");
             for (idx, row) in self.iter().enumerate() {
-                pp.print(&row.label).text(": ").print(&row.data);
+                pp.print(&row.label).text("= ").print(&row.data);
                 if idx != self.len() - 1 {
                     pp.text(", ");
                 }
             }
             pp.text("}")
-        }
-    }
-}
-
-impl Print for &Const {
-    fn print<'a, 'b>(&self, pp: &'a mut PrettyPrinter<'b>) -> &'a mut PrettyPrinter<'b> {
-        match self {
-            Const::Unit => pp.text("()"),
-            Const::Char(c) => pp.text(format!("#'{}'", c)),
-            Const::String(s) => pp.print(s),
-            Const::Int(i) => pp.text(i.to_string()),
         }
     }
 }
@@ -45,7 +35,7 @@ impl<'a> Print for Pat<'a> {
             PatKind::App(con, Some(pat)) => pp.print(&con.name).text(" ").print(pat),
             PatKind::App(con, None) => pp.print(&con.name),
             PatKind::Const(constant) => pp.print(&constant),
-            PatKind::Record(record) => pp.print(&record.rows.as_slice()),
+            PatKind::Record(record) => pp.print(&record),
             PatKind::Var(sym) => pp.print(sym),
             PatKind::Wild => pp.text("_"),
         }
@@ -113,7 +103,10 @@ impl<'a> Print for Expr<'a> {
             }
             Primitive(sym) => pp.print(sym),
             Raise(e) => pp.text("raise ").print(e),
-            Record(rows) => pp.print(&rows.as_slice()),
+            Record(rows) => {
+                let rec = SortedRecord::new_unchecked(rows.clone());
+                pp.print(&&rec)
+            }
             Seq(exprs) => {
                 pp.text("(");
                 for (idx, expr) in exprs.iter().enumerate() {
@@ -124,7 +117,7 @@ impl<'a> Print for Expr<'a> {
                 }
                 pp.text(")")
             }
-            Var(s) => pp.print(s),
+            Var(s) => pp.print(&s.get()),
         }
     }
 }
@@ -181,7 +174,7 @@ impl<'a> Type<'a> {
                     Some(s) => pp.text(s),
                     None => {
                         let x = map.len();
-                        let last = ((x % 26) as u8 + 'a' as u8) as char;
+                        let last = ((x % 26) as u8 + b'a' as u8) as char;
                         let name = format!(
                             "'{}",
                             (0..x / 26)
@@ -194,6 +187,18 @@ impl<'a> Type<'a> {
                         pp
                     }
                 },
+            },
+            Type::Flex(flex) => match flex.ty() {
+                Some(ty) => ty.print_rename(pp, map),
+                None => {
+                    pp.text("{");
+                    for row in flex.constraints.iter() {
+                        pp.print(&row.label).text(": ");
+                        row.data.print_rename(pp, map);
+                        pp.text(", ");
+                    }
+                    pp.text("... }")
+                }
             },
         }
     }
@@ -247,7 +252,7 @@ impl<'a> Print for Decl<'a> {
                     _ => {
                         pp.text("datatype (");
                         for (idx, tyvar) in dt.tyvars.iter().enumerate() {
-                            let last = ((idx % 26) as u8 + 'a' as u8) as char;
+                            let last = ((idx % 26) as u8 + b'a' as u8) as char;
                             let name = format!(
                                 "'{}",
                                 (0..idx / 26)

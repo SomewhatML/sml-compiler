@@ -37,7 +37,7 @@ pub struct ArgParse {
 
 impl ArgParse {
     pub fn parse(args: env::Args) -> ArgParse {
-        let mut stack = args.into_iter().skip(1).rev().collect::<Vec<String>>();
+        let mut stack = args.skip(1).rev().collect::<Vec<String>>();
         let mut files = Vec::new();
         let mut builder = CompilerBuilder::default();
         while !stack.is_empty() {

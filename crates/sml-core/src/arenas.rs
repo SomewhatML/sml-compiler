@@ -3,6 +3,7 @@ use super::*;
 use std::cell::Cell;
 use typed_arena::Arena;
 
+#[derive(Default)]
 pub struct OwnedCoreArena<'arena> {
     types: Arena<Type<'arena>>,
     vars: Arena<TypeVar<'arena>>,
@@ -179,7 +180,11 @@ impl<'a> CoreArena<'a> {
     }
 
     pub fn expr_var(&self, var: Symbol, ty: &'a Type<'a>) -> Expr<'a> {
-        Expr::new(self.exprs.alloc(ExprKind::Var(var)), ty, Span::dummy())
+        Expr::new(
+            self.exprs.alloc(ExprKind::Var(Cell::new(var))),
+            ty,
+            Span::dummy(),
+        )
     }
 
     /// Create a `let val var_name : (ty1, ty2, ty3) = (s1, ... sN) in expr`
@@ -190,7 +195,10 @@ impl<'a> CoreArena<'a> {
         var_name: Symbol,
         body: Expr<'a>,
     ) -> Expr<'a> {
-        let expr = self.expr_tuple(iter.into_iter().map(|(sym, ty)| (ExprKind::Var(sym), ty)));
+        let expr = self.expr_tuple(
+            iter.into_iter()
+                .map(|(sym, ty)| (ExprKind::Var(Cell::new(sym)), ty)),
+        );
         let decl = Decl::Val(Rule {
             pat: self.pat_var(var_name, expr.ty),
             expr,
@@ -264,7 +272,8 @@ impl<'ar> ExprArena<'ar> {
     }
 
     pub fn fresh_var(&self) -> &'ar ExprKind<'ar> {
-        self.arena.alloc(ExprKind::Var(self.allocate_id()))
+        self.arena
+            .alloc(ExprKind::Var(Cell::new(self.allocate_id())))
     }
 
     pub fn allocate_id(&self) -> Symbol {

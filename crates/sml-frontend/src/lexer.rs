@@ -1,7 +1,7 @@
-use super::ast::Const;
 use super::tokens::*;
 use sml_util::interner::*;
 use sml_util::span::{Location, Span, Spanned};
+use sml_util::Const;
 use std::char;
 use std::iter::Peekable;
 use std::str::Chars;
@@ -166,7 +166,9 @@ impl<'s, 'sym> Lexer<'s, 'sym> {
     fn string_lit(&mut self) -> Option<Spanned<Token>> {
         self.consume()?;
         let (s, sp) = self.consume_while(|c| c != '"');
-        self.consume()?;
+        if self.consume().is_none() {
+            return Some(Spanned::new(Token::MissingDelimiter('"'), sp));
+        }
         Some(Spanned::new(
             Token::Const(Const::String(self.interner.intern(s))),
             sp,
@@ -189,24 +191,32 @@ impl<'s, 'sym> Lexer<'s, 'sym> {
             '"' => {}
             c => return Some(Spanned::new(Token::Invalid(c), Span::new(sp, self.current))),
         }
+        // TODO: return invalid on fail
         let ch = self.consume()?;
-        match self.consume()? {
-            '"' => Some(Spanned::new(
+        match self.consume() {
+            Some('"') => Some(Spanned::new(
                 Token::Const(Const::Char(ch)),
                 Span::new(sp, self.current),
             )),
-            c => Some(Spanned::new(Token::Invalid(c), Span::new(sp, self.current))),
+            Some(c) => Some(Spanned::new(Token::Invalid(c), Span::new(sp, self.current))),
+            None => Some(Spanned::new(
+                Token::MissingDelimiter('\''),
+                Span::new(sp, self.current),
+            )),
         }
     }
 
     fn comment(&mut self) -> Option<Spanned<Token>> {
-        self.consume_while(|ch| ch != '*');
+        let (_, sp) = self.consume_while(|ch| ch != '*');
         self.consume()?;
-        if let Some(')') = self.peek() {
-            self.consume();
-            return self.lex();
+        match self.peek() {
+            Some(')') => {
+                self.consume();
+                self.lex()
+            }
+            Some(_) => self.comment(),
+            None => Some(Spanned::new(Token::MissingDelimiter('*'), sp)),
         }
-        self.comment()
     }
 
     pub fn lex(&mut self) -> Option<Spanned<Token>> {

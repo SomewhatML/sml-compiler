@@ -13,8 +13,12 @@
 //!       lifted to an enclosing level and converted to functions
 //! * `vars` contains the current "in-scope" destructured variables
 
-use super::*;
-use elaborate::{Context, ElabError, ErrorKind};
+use crate::elaborate::{Context, ElabError, ErrorKind};
+use crate::types::{Constructor, Type};
+use crate::{Decl, Expr, ExprKind, Lambda, Pat, PatKind, Row, Rule, SortedRecord};
+use sml_util::interner::Symbol;
+use sml_util::span::Span;
+use sml_util::Const;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 pub type Var<'a> = (Symbol, &'a Type<'a>);
@@ -203,7 +207,7 @@ impl Facts {
         while let Some((var, pat)) = queue.pop_front() {
             match pat.kind {
                 PatKind::Var(x) => {
-                    if let Some(_) = map.insert(*x, (*var, pat.ty)) {
+                    if map.insert(*x, (*var, pat.ty)).is_some() {
                         panic!("Bug: Facts.bind rebinding")
                     }
                 }
@@ -544,10 +548,6 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
     /// Compile a [`Matrix`] into a source-level expression
     fn compile(&mut self, facts: &mut Facts, diags: &mut MatchDiags) -> Expr<'a> {
         if self.pats.is_empty() {
-            // We have an in-exhaustive case expression
-            // TODO: Emit better diagnostics
-            // self.ctx.diags.push(Diagnostic::error(self.span, "inexhaustive pattern
-            // matching"));
             let matchh = Expr::new(
                 self.ctx
                     .arena
@@ -586,13 +586,12 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
                 }
                 _ => self.ctx.arena.expr_tuple(vars.into_iter().map(|(sym, ty)| {
                     let (bound, _) = map.get(&sym).expect("Bug: Facts.bind");
-                    (ExprKind::Var(*bound), ty)
+                    (ExprKind::Var(std::cell::Cell::new(*bound)), ty)
                 })),
             };
 
             diags.reached.insert(self.rules[0].expr.as_symbol());
 
-            // TODO: Check types just in case
             Expr::new(
                 self.ctx
                     .arena

@@ -16,23 +16,21 @@
 //!     variables as arguments, and lifted into an enclosing scope to prevent
 //!     code blow-up.
 
-use sml_frontend::ast::Const;
 use sml_util::interner::Symbol;
 use sml_util::span::Span;
+use sml_util::Const;
+use std::cell::Cell;
 use std::collections::HashMap;
-use std::fmt;
+use types::{Constructor, Scheme, Tycon, Type, TypeVar};
 
 pub mod arenas;
 pub mod builtin;
 pub mod check;
+pub mod core_pp;
 pub mod elaborate;
 pub mod match_compile;
 pub mod monomorphize;
-pub mod pretty_print;
 pub mod types;
-use types::{Constructor, Scheme, Tycon, Type, TypeVar};
-
-pub use arenas::CoreArena;
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, PartialOrd, Eq, Hash)]
 pub struct TypeId(pub u32);
@@ -54,7 +52,7 @@ pub enum ExprKind<'ar> {
     Raise(Expr<'ar>),
     Record(Vec<Row<Expr<'ar>>>),
     Seq(Vec<Expr<'ar>>),
-    Var(Symbol),
+    Var(Cell<Symbol>),
 }
 
 #[derive(Copy, Clone)]
@@ -76,8 +74,6 @@ pub enum PatKind<'ar> {
     App(Constructor, Option<Pat<'ar>>),
     /// Constant
     Const(Const),
-    /// Literal list
-    // List(Vec<Pat<'ar>>),
     /// Record
     Record(SortedRecord<Pat<'ar>>),
     /// Variable binding
@@ -99,7 +95,7 @@ pub struct Rule<'ar> {
     pub expr: Expr<'ar>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Datatype<'ar> {
     pub tycon: Tycon,
     pub tyvars: Vec<usize>,
@@ -146,7 +142,7 @@ impl<'ar> Expr<'ar> {
 
     pub fn as_symbol(&self) -> Symbol {
         match &self.kind {
-            ExprKind::Var(s) => *s,
+            ExprKind::Var(s) => s.get(),
             _ => panic!("BUG: Expr::as_symbol()"),
         }
     }
@@ -155,6 +151,18 @@ impl<'ar> Expr<'ar> {
 impl<'ar> Pat<'ar> {
     pub fn new(kind: &'ar PatKind<'ar>, ty: &'ar Type<'ar>, span: Span) -> Pat<'ar> {
         Pat { kind, ty, span }
+    }
+
+    pub fn flexible(&self) -> bool {
+        if self.ty.unresolved_flex() {
+            true
+        } else {
+            match &self.kind {
+                PatKind::App(_, Some(p)) => p.flexible(),
+                PatKind::Record(rows) => rows.iter().any(|r| r.data.flexible()),
+                _ => false,
+            }
+        }
     }
 }
 
@@ -192,6 +200,15 @@ impl<T> SortedRecord<T> {
 
     pub fn iter(&self) -> std::slice::Iter<Row<T>> {
         self.rows.iter()
+    }
+
+    pub fn contains(&self, lab: &Symbol) -> Option<&Row<T>> {
+        for row in self.iter() {
+            if &row.label == lab {
+                return Some(row);
+            }
+        }
+        None
     }
 }
 

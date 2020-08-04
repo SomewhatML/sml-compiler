@@ -6,8 +6,8 @@ members = [
     "crates/sml-util",
 ]
 
-
 [profile.release]
+incremental = true
 debug = false
 opt-level = 3
 debug-assertions = false

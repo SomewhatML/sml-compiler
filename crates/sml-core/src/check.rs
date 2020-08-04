@@ -52,19 +52,17 @@ impl<'a> Check<'a> {
                     self.check_rows(rows, |c, p| c.check_pat(p));
                 }
                 Variable(sym) => {
-                    if !sym.builtin() {
-                        if !vars.insert(*sym) {
-                            self.diags.push(
-                                Diagnostic::error(
-                                    pattern.span,
-                                    format!(
-                                        "duplicate variable in pattern: '{}'",
-                                        self.interner.get(*sym).unwrap_or("?")
-                                    ),
-                                )
-                                .message(pat.span, "redefined here"),
-                            );
-                        }
+                    if !sym.builtin() && !vars.insert(*sym) {
+                        self.diags.push(
+                            Diagnostic::error(
+                                pattern.span,
+                                format!(
+                                    "duplicate variable in pattern: '{}'",
+                                    self.interner.get(*sym).unwrap_or("?")
+                                ),
+                            )
+                            .message(pat.span, "redefined here"),
+                        );
                     }
                 }
                 Wild => {}
@@ -276,7 +274,7 @@ impl<'a> Check<'a> {
                 if datbinds.len() >= 255 {
                     self.diags.push(Diagnostic::error(
                         decl.span,
-                        format!("maximum of 255 mutually recursive datatypes"),
+                        "maximum of 255 mutually recursive datatypes".to_string(),
                     ));
                 }
             }
@@ -288,7 +286,7 @@ impl<'a> Check<'a> {
                 if vars.len() >= 255 {
                     self.diags.push(Diagnostic::error(
                         decl.span,
-                        format!("maximum of 255 mutually recursive datatypes"),
+                        "maximum of 255 mutually recursive datatypes".to_string(),
                     ));
                 }
             }
