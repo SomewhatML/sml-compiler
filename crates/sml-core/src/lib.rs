@@ -1,3 +1,21 @@
+//! CoreML - explicitly typed Standard ML
+//!
+//! After elaboration from the (probably untyped) AST, the following invariants
+//! should hold, assuming that no errors were reported:
+//!
+//! *   Type safety: all expressions, patterns, and declarations are well-typed
+//!
+//! *   Annotaton: all expressions and patterns are explicitly annotated with
+//!     either a concrete type, or a type variabel
+//!
+//! *   Decision tree optimization: all `case`, `fn`, and `handle` expressions,
+//!     as well as `fun` declarations, have undergone a source -> source
+//!     rewrite to transform them into optimal decision trees, such that each
+//!     scrutinized expression is tested only once. Furthermore, match arm
+//!     bodies have been abstracted into functions taking any pattern-bound
+//!     variables as arguments, and lifted into an enclosing scope to prevent
+//!     code blow-up.
+
 use sml_frontend::ast::Const;
 use sml_util::interner::Symbol;
 use sml_util::span::Span;
@@ -41,7 +59,7 @@ pub enum ExprKind<'ar> {
 
 #[derive(Copy, Clone)]
 pub struct Expr<'ar> {
-    pub expr: &'ar ExprKind<'ar>,
+    pub kind: &'ar ExprKind<'ar>,
     pub ty: &'ar Type<'ar>,
     pub span: Span,
 }
@@ -70,7 +88,7 @@ pub enum PatKind<'ar> {
 
 #[derive(Copy, Clone)]
 pub struct Pat<'ar> {
-    pub pat: &'ar PatKind<'ar>,
+    pub kind: &'ar PatKind<'ar>,
     pub ty: &'ar Type<'ar>,
     pub span: Span,
 }
@@ -108,12 +126,12 @@ pub struct SortedRecord<T> {
 }
 
 impl<'ar> Expr<'ar> {
-    pub fn new(expr: &'ar ExprKind<'ar>, ty: &'ar Type<'ar>, span: Span) -> Expr<'ar> {
-        Expr { expr, ty, span }
+    pub fn new(kind: &'ar ExprKind<'ar>, ty: &'ar Type<'ar>, span: Span) -> Expr<'ar> {
+        Expr { kind, ty, span }
     }
 
     pub fn non_expansive(&self) -> bool {
-        match &self.expr {
+        match &self.kind {
             ExprKind::Con(builtin::constructors::C_REF, _) => false,
             ExprKind::Con(_, _) => true,
             ExprKind::Const(_) => true,
@@ -127,7 +145,7 @@ impl<'ar> Expr<'ar> {
     }
 
     pub fn as_symbol(&self) -> Symbol {
-        match &self.expr {
+        match &self.kind {
             ExprKind::Var(s) => *s,
             _ => panic!("BUG: Expr::as_symbol()"),
         }
@@ -135,8 +153,8 @@ impl<'ar> Expr<'ar> {
 }
 
 impl<'ar> Pat<'ar> {
-    pub fn new(pat: &'ar PatKind<'ar>, ty: &'ar Type<'ar>, span: Span) -> Pat<'ar> {
-        Pat { pat, ty, span }
+    pub fn new(kind: &'ar PatKind<'ar>, ty: &'ar Type<'ar>, span: Span) -> Pat<'ar> {
+        Pat { kind, ty, span }
     }
 }
 

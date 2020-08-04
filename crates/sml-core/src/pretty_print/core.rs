@@ -41,7 +41,7 @@ impl Print for &Const {
 
 impl<'a> Print for Pat<'a> {
     fn print<'c, 'b>(&self, pp: &'c mut PrettyPrinter<'b>) -> &'c mut PrettyPrinter<'b> {
-        match &self.pat {
+        match &self.kind {
             PatKind::App(con, Some(pat)) => pp.print(&con.name).text(" ").print(pat),
             PatKind::App(con, None) => pp.print(&con.name),
             PatKind::Const(constant) => pp.print(&constant),
@@ -55,7 +55,7 @@ impl<'a> Print for Pat<'a> {
 impl<'a> Print for Expr<'a> {
     fn print<'b, 'c>(&self, pp: &'b mut PrettyPrinter<'c>) -> &'b mut PrettyPrinter<'c> {
         use ExprKind::*;
-        match &self.expr {
+        match &self.kind {
             App(e1, e2) => pp.print(e1).text(" ").print(e2),
             Case(casee, rules) => pp.nest(2, |pp| {
                 pp.line().text("case ").print(casee).nest(2, |pp| {

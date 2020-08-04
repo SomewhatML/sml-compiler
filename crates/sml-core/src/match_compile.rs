@@ -201,7 +201,7 @@ impl Facts {
         let mut queue = VecDeque::new();
         queue.push_back((&var, &pat));
         while let Some((var, pat)) = queue.pop_front() {
-            match pat.pat {
+            match pat.kind {
                 PatKind::Var(x) => {
                     if let Some(_) = map.insert(*x, (*var, pat.ty)) {
                         panic!("Bug: Facts.bind rebinding")
@@ -283,7 +283,7 @@ pub struct Matrix<'a, 'ctx> {
 
 impl<'a> Pat<'a> {
     fn wild(&self) -> bool {
-        match self.pat {
+        match self.kind {
             PatKind::Wild | PatKind::Var(_) => true,
             _ => false,
         }
@@ -343,7 +343,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
         for (idx, row) in self.pats.iter().enumerate() {
             let mut new_row: Vec<Pat> = row.iter().skip(1).copied().collect();
 
-            match &row[0].pat {
+            match &row[0].kind {
                 PatKind::Record(bound) => {
                     for (idx, row) in bound.iter().enumerate() {
                         new_row.insert(idx, row.data);
@@ -379,7 +379,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
         let mut mat = self.shallow();
         for (idx, row) in self.pats.iter().enumerate() {
             let mut new_row: Vec<Pat> = row.iter().skip(1).copied().collect();
-            match &row[0].pat {
+            match &row[0].kind {
                 PatKind::App(con, Some(arg)) if con == head => {
                     new_row.insert(0, *arg);
                 }
@@ -414,7 +414,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
         let mut set = HashMap::new();
         let mut type_arity = 0;
         for row in &self.pats {
-            if let PatKind::App(con, p) = &row[0].pat {
+            if let PatKind::App(con, p) = &row[0].kind {
                 set.insert(con, p.map(|p| p.ty));
                 type_arity = con.type_arity;
             }
@@ -470,7 +470,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
     ) -> Expr<'a> {
         let mut mat = self.shallow();
         for (idx, row) in self.pats.iter().enumerate() {
-            match &row[0].pat {
+            match &row[0].kind {
                 PatKind::Const(c) if c == head => {}
                 PatKind::Wild | PatKind::Var(_) => {}
                 _ => continue,
@@ -488,7 +488,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
         // Generate the set of constructors appearing in the column
         let mut set = HashSet::new();
         for row in &self.pats {
-            match &row[0].pat {
+            match &row[0].kind {
                 PatKind::Const(con) => {
                     set.insert(con);
                 }
@@ -604,7 +604,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
         } else {
             // There is at least one non-wild pattern in the matrix somewhere
             for row in &self.pats {
-                match &row[0].pat {
+                match &row[0].kind {
                     PatKind::Record(fields) => return self.record_rule(facts, diags, fields),
                     PatKind::App(_, _) => return self.sum_rule(facts, diags),
                     PatKind::Const(_) => return self.const_rule(facts, diags),
@@ -646,7 +646,7 @@ fn collect_vars<'a>(pat: Pat<'a>) -> Vec<Var<'a>> {
     let mut queue = VecDeque::new();
     queue.push_back(pat);
     while let Some(pat) = queue.pop_front() {
-        match pat.pat {
+        match pat.kind {
             PatKind::Var(s) => v.push((*s, pat.ty)),
             PatKind::Record(fields) => queue.extend(fields.iter().map(|row| row.data)),
             PatKind::App(_, Some(pat)) => queue.push_back(*pat),
