@@ -4,6 +4,7 @@ use super::tokens::*;
 use sml_util::diagnostics::Diagnostic;
 use sml_util::interner::*;
 use sml_util::span::{Span, Spanned};
+use sml_util::Const;
 use std::iter::Peekable;
 mod decls;
 mod exprs;

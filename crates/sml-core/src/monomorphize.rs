@@ -3,9 +3,9 @@
 use crate::elaborate::{Context, ElabError, ErrorKind};
 use crate::types::{Constructor, Type};
 use crate::{Decl, Expr, ExprKind, Lambda, Pat, PatKind, Row, Rule, SortedRecord};
-use sml_frontend::ast::Const;
 use sml_util::interner::Symbol;
 use sml_util::span::Span;
+use sml_util::Const;
 use std::collections::HashMap;
 
 #[derive(Default)]
@@ -19,7 +19,7 @@ pub struct CacheEntry<'a> {
 }
 
 impl<'a> Cache<'a> {
-    pub fn visit_expr(&mut self, expr: Expr<'a>) -> Expr<'a> {
+    pub fn visit_expr(&mut self, expr: Expr<'a>) {
         match expr.kind {
             ExprKind::App(e1, e2) => todo!(),
             ExprKind::Case(casee, rules) => todo!(),
@@ -33,7 +33,9 @@ impl<'a> Cache<'a> {
             ExprKind::Raise(e) => todo!(),
             ExprKind::Record(rows) => todo!(),
             ExprKind::Seq(exprs) => todo!(),
-            ExprKind::Var(s) => todo!(),
+            ExprKind::Var(s) => {
+                s.set(Symbol::Gensym(0));
+            }
         }
     }
 }

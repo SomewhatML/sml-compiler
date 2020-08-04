@@ -1,5 +1,12 @@
-pub mod arena;
 pub mod diagnostics;
 pub mod interner;
+pub mod pretty_print;
 pub mod span;
-pub mod stack;
+
+#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq, Hash, Ord)]
+pub enum Const {
+    Unit,
+    Int(usize),
+    Char(char),
+    String(interner::Symbol),
+}

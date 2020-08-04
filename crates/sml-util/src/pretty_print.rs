@@ -1,8 +1,6 @@
-use sml_util::interner::{Interner, Symbol};
+use crate::interner::{Interner, Symbol};
+use crate::Const;
 use std::collections::VecDeque;
-
-mod ast;
-mod core;
 
 pub struct PrettyPrinter<'a> {
     indent: usize,
@@ -190,6 +188,17 @@ impl Print for Symbol {
             Symbol::Tuple(n) => pp.text(n.to_string()),
             Symbol::Gensym(n) => pp.text(fresh_name(*n % 100)),
             _ => pp.text(pp.interner.get(*self).unwrap_or("?")),
+        }
+    }
+}
+
+impl Print for &Const {
+    fn print<'a, 'b>(&self, pp: &'a mut PrettyPrinter<'b>) -> &'a mut PrettyPrinter<'b> {
+        match self {
+            Const::Unit => pp.text("()"),
+            Const::Char(c) => pp.text(format!("#'{}'", c)),
+            Const::String(s) => pp.print(s),
+            Const::Int(i) => pp.text(i.to_string()),
         }
     }
 }

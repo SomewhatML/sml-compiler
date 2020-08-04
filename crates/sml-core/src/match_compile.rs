@@ -16,9 +16,9 @@
 use crate::elaborate::{Context, ElabError, ErrorKind};
 use crate::types::{Constructor, Type};
 use crate::{Decl, Expr, ExprKind, Lambda, Pat, PatKind, Row, Rule, SortedRecord};
-use sml_frontend::ast::Const;
 use sml_util::interner::Symbol;
 use sml_util::span::Span;
+use sml_util::Const;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 pub type Var<'a> = (Symbol, &'a Type<'a>);
@@ -590,7 +590,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
                 }
                 _ => self.ctx.arena.expr_tuple(vars.into_iter().map(|(sym, ty)| {
                     let (bound, _) = map.get(&sym).expect("Bug: Facts.bind");
-                    (ExprKind::Var(*bound), ty)
+                    (ExprKind::Var(std::cell::Cell::new(*bound)), ty)
                 })),
             };
 

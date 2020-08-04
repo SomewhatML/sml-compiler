@@ -1,7 +1,7 @@
-use super::ast::Const;
 use super::tokens::*;
 use sml_util::interner::*;
 use sml_util::span::{Location, Span, Spanned};
+use sml_util::Const;
 use std::char;
 use std::iter::Peekable;
 use std::str::Chars;

@@ -3,17 +3,18 @@
 
 use crate::arenas::{CoreArena, TypeArena};
 use crate::builtin::{constructors, populate_context};
-use crate::pretty_print::PrettyPrinter;
 use crate::types::{Constructor, Flex, Scheme, Tycon, Type, TypeVar};
 use crate::{
     Datatype, Decl, Expr, ExprId, ExprKind, Lambda, Pat, PatKind, Row, Rule, SortedRecord, TypeId,
 };
-use sml_frontend::ast::{self, Const};
+use sml_frontend::ast;
 use sml_frontend::parser::precedence::{self, Fixity, Precedence, Query};
 use sml_util::diagnostics::Diagnostic;
 use sml_util::interner::{Interner, Symbol};
+use sml_util::pretty_print::PrettyPrinter;
 use sml_util::span::Span;
-use std::collections::HashMap;
+use sml_util::Const;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
 pub fn check_and_elaborate<'a>(
@@ -167,6 +168,7 @@ impl<'a> Context<'a> {
         ctx.elab_decl_fixity(&ast::Fixity::Infixr, 4, constructors::C_CONS.name);
         ctx
     }
+
     /// Keep track of the type variable stack, while executing the combinator
     /// function `f` on `self`. Any stack growth is popped off after `f`
     /// returns.
@@ -316,7 +318,7 @@ impl<'a> Context<'a> {
     pub fn diagnostics(&mut self, interner: &Interner) -> Vec<Diagnostic> {
         // let mut diags = std::mem::replace(&mut self.diags, Vec::new());
         let mut diags = Vec::new();
-        let mut pp = crate::pretty_print::PrettyPrinter::new(interner);
+        let mut pp = PrettyPrinter::new(interner);
         diags.extend(
             self.elab_errors
                 .drain(..)
@@ -603,6 +605,19 @@ impl<'a> Context<'a> {
 
     fn generalize(&self, ty: &'a Type<'a>) -> Scheme<'a> {
         let ftv = ty.ftv_rank(self.tyvar_rank);
+
+        match ftv.len() {
+            0 => Scheme::Mono(ty),
+            _ => Scheme::Poly(ftv.into_iter().collect(), ty),
+        }
+    }
+
+    fn generalize_except(&self, ty: &'a Type<'a>, set: HashSet<usize>) -> Scheme<'a> {
+        let ftv: Vec<usize> = ty
+            .ftv_rank(self.tyvar_rank)
+            .difference(&set)
+            .copied()
+            .collect();
 
         match ftv.len() {
             0 => Scheme::Mono(ty),
@@ -1033,7 +1048,13 @@ impl<'a> Context<'a> {
                 Some((scheme, _)) => {
                     let ty = self.instantiate(scheme);
                     // println!("inst {:?} [{:?}] -> {:?}", sym, scheme, ty);
-                    Expr::new(self.arena.exprs.alloc(ExprKind::Var(*sym)), ty, expr.span)
+                    Expr::new(
+                        self.arena
+                            .exprs
+                            .alloc(ExprKind::Var(std::cell::Cell::new(*sym))),
+                        ty,
+                        expr.span,
+                    )
                 }
                 None => {
                     self.elab_errors
@@ -1507,6 +1528,7 @@ impl<'a> Context<'a> {
             ..
         } = fun;
 
+        let mut dontgeneralize = false;
         let mut patterns = Vec::new();
         let mut rules = Vec::new();
         let mut total_sp = clauses[0].span;
@@ -1540,6 +1562,10 @@ impl<'a> Context<'a> {
                 pat: tuple_pat,
                 expr,
             };
+
+            if pats.iter().any(|p| p.flexible()) {
+                dontgeneralize = true;
+            }
 
             total_sp += span;
             patterns.push(pats);
@@ -1580,7 +1606,14 @@ impl<'a> Context<'a> {
         // Rebind with final type. Unbind first so that generalization happens properly
         self.unbind_value(fun.name);
         let ty = self.arena.types.arrow(t, ty);
-        let sch = self.generalize(ty);
+        // let set = t.flex_tyvars(self.tyvar_rank);
+        // dbg!(&set);
+
+        // let sch = self.generalize_except(ty, set);
+        let sch = match dontgeneralize {
+            true => Scheme::Mono(ty),
+            false => self.generalize(ty),
+        };
 
         self.define_value(fun.name, sch, IdStatus::Var);
 
@@ -1641,7 +1674,7 @@ impl<'a> Context<'a> {
 
             let (pat, bindings) = ctx.elaborate_pat(pat, false);
             ctx.tyvar_rank -= 1;
-            let non_expansive = expr.non_expansive();
+            let non_expansive = expr.non_expansive() || pat.flexible();
             ctx.unify(pat.ty, expr.ty, &|c| {
                 c.span(expr.span)
                     .message("pattern and expression have different types in `val` declaration")

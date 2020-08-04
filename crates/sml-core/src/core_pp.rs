@@ -1,10 +1,11 @@
-use super::{PrettyPrinter, Print, Symbol};
 use crate::types::Type;
-use crate::{Const, Decl, Expr, ExprKind, Pat, PatKind, Row, Rule};
+use crate::{Decl, Expr, ExprKind, Pat, PatKind, Row, Rule, SortedRecord};
+use sml_util::interner::Symbol;
+use sml_util::pretty_print::{PrettyPrinter, Print};
 
 use std::collections::HashMap;
 
-impl<T: Print> Print for &[Row<T>] {
+impl<T: Print> Print for &SortedRecord<T> {
     fn print<'a, 'b>(&self, pp: &'a mut PrettyPrinter<'b>) -> &'a mut PrettyPrinter<'b> {
         if let Symbol::Tuple(_) = self[0].label {
             pp.text("(");
@@ -28,24 +29,13 @@ impl<T: Print> Print for &[Row<T>] {
     }
 }
 
-impl Print for &Const {
-    fn print<'a, 'b>(&self, pp: &'a mut PrettyPrinter<'b>) -> &'a mut PrettyPrinter<'b> {
-        match self {
-            Const::Unit => pp.text("()"),
-            Const::Char(c) => pp.text(format!("#'{}'", c)),
-            Const::String(s) => pp.print(s),
-            Const::Int(i) => pp.text(i.to_string()),
-        }
-    }
-}
-
 impl<'a> Print for Pat<'a> {
     fn print<'c, 'b>(&self, pp: &'c mut PrettyPrinter<'b>) -> &'c mut PrettyPrinter<'b> {
         match &self.kind {
             PatKind::App(con, Some(pat)) => pp.print(&con.name).text(" ").print(pat),
             PatKind::App(con, None) => pp.print(&con.name),
             PatKind::Const(constant) => pp.print(&constant),
-            PatKind::Record(record) => pp.print(&record.rows.as_slice()),
+            PatKind::Record(record) => pp.print(&record),
             PatKind::Var(sym) => pp.print(sym),
             PatKind::Wild => pp.text("_"),
         }
@@ -113,7 +103,10 @@ impl<'a> Print for Expr<'a> {
             }
             Primitive(sym) => pp.print(sym),
             Raise(e) => pp.text("raise ").print(e),
-            Record(rows) => pp.print(&rows.as_slice()),
+            Record(rows) => {
+                let rec = SortedRecord::new_unchecked(rows.clone());
+                pp.print(&&rec)
+            }
             Seq(exprs) => {
                 pp.text("(");
                 for (idx, expr) in exprs.iter().enumerate() {
@@ -124,7 +117,7 @@ impl<'a> Print for Expr<'a> {
                 }
                 pp.text(")")
             }
-            Var(s) => pp.print(s),
+            Var(s) => pp.print(&s.get()),
         }
     }
 }
