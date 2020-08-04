@@ -20,22 +20,65 @@ pub struct CacheEntry<'a> {
 }
 
 impl<'a> Cache<'a> {
-    pub fn visit_expr(&mut self, expr: Expr<'a>) {
+    pub fn visit_decl(&mut self, decl: &Decl<'a>) {
+        match decl {
+            Decl::Val(Rule { pat, expr }) => {
+                self.visit_expr(expr);
+            }
+            Decl::Fun(_, funs) => {
+                for (name, lam) in funs {
+                    self.visit_expr(&lam.body);
+                }
+            }
+            _ => {}
+        }
+    }
+    pub fn visit_expr(&mut self, expr: &Expr<'a>) {
         match expr.kind {
-            ExprKind::App(e1, e2) => todo!(),
-            ExprKind::Case(casee, rules) => todo!(),
-            ExprKind::Con(con, tys) => todo!(),
-            ExprKind::Const(c) => todo!(),
-            ExprKind::Handle(tryy, sym, handler) => todo!(),
-            ExprKind::Lambda(lam) => todo!(),
-            ExprKind::Let(decls, body) => todo!(),
-            ExprKind::List(exprs) => todo!(),
-            ExprKind::Primitive(sym) => todo!(),
-            ExprKind::Raise(e) => todo!(),
-            ExprKind::Record(rows) => todo!(),
-            ExprKind::Seq(exprs) => todo!(),
+            ExprKind::App(e1, e2) => {
+                self.visit_expr(e1);
+                self.visit_expr(e2);
+            }
+            ExprKind::Case(casee, rules) => {
+                self.visit_expr(casee);
+                for rule in rules {
+                    self.visit_expr(&rule.expr);
+                }
+            }
+            ExprKind::Con(con, tys) => {}
+            ExprKind::Const(c) => {}
+            ExprKind::Handle(tryy, sym, handler) => {
+                self.visit_expr(tryy);
+                self.visit_expr(handler);
+            }
+            ExprKind::Lambda(lam) => {
+                self.visit_expr(&lam.body);
+            }
+            ExprKind::Let(decls, body) => {
+                for decl in decls {}
+                self.visit_expr(body);
+            }
+            ExprKind::List(exprs) => {
+                for expr in exprs {
+                    self.visit_expr(expr);
+                }
+            }
+            ExprKind::Primitive(sym) => {}
+            ExprKind::Raise(e) => {
+                self.visit_expr(e);
+            }
+            ExprKind::Record(rows) => {
+                for expr in rows {
+                    self.visit_expr(&expr.data);
+                }
+            }
+            ExprKind::Seq(exprs) => {
+                for expr in exprs {
+                    self.visit_expr(expr);
+                }
+            }
             ExprKind::Var(s) => {
-                s.set(Symbol::Gensym(0));
+                // s.set(Symbol::Gensym(0));
             }
         }
     }

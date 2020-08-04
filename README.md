@@ -16,13 +16,16 @@ We take an approach similar to MLton, where we will be performing whole-program 
 - [ ] Native code generation
 
 
-### Compilation speeds
+### Features
 
-Current speeds as of 6/30/2020:
+All of the core term language of Standard ML is supported. In addition, we support
+type checking of flexible record patterns, and values subject to the value restriction
+with the largest possible scope
 
-For a 10k line file:
+```sml
+fun extract {x, y, ...} = (x, y)
 
-Lexing and parsing takes ~10 ms
-Elaboration and type reconstruction takes ~30ms
+(* this is fine, extract will be given the type signature matching the record below *)
+val (x, _) = extract {x = 10, y = 12, z = false}
 
-Moving to an arena allocator for the CoreML language takes us down to around ~35 ms for elaboration
+```
