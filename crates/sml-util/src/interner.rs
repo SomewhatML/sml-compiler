@@ -77,7 +77,8 @@ globals!(
     S_TRUE,
     S_FALSE,
     S_UNIT,
-    S_MATCH
+    S_MATCH,
+    S_BIND
 );
 
 const BUILTIN_STRS: [&'static str; S_TOTAL_GLOBALS as usize] = [
@@ -144,6 +145,7 @@ const BUILTIN_STRS: [&'static str; S_TOTAL_GLOBALS as usize] = [
     "false",
     "unit",
     "Match",
+    "Bind",
 ];
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]

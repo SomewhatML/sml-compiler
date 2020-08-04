@@ -53,4 +53,12 @@ pub const C_MATCH: Constructor = Constructor {
     type_arity: 0,
 };
 
-pub const C_BUILTINS: [Constructor; 6] = [C_NIL, C_CONS, C_TRUE, C_FALSE, C_REF, C_MATCH];
+pub const C_BIND: Constructor = Constructor {
+    name: S_BIND,
+    type_id: TypeId(8),
+    tag: 0,
+    arity: 0,
+    type_arity: 0,
+};
+
+pub const C_BUILTINS: [Constructor; 7] = [C_NIL, C_CONS, C_TRUE, C_FALSE, C_REF, C_MATCH, C_BIND];

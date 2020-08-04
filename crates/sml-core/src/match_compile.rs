@@ -13,12 +13,14 @@
 //!       lifted to an enclosing level and converted to functions
 //! * `vars` contains the current "in-scope" destructured variables
 
+use crate::builtin::constructors::{C_BIND, C_MATCH};
 use crate::elaborate::{Context, ElabError, ErrorKind};
 use crate::types::{Constructor, Type};
 use crate::{Decl, Expr, ExprKind, Lambda, Pat, PatKind, Row, Rule, SortedRecord};
 use sml_util::interner::Symbol;
 use sml_util::span::Span;
 use sml_util::Const;
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 pub type Var<'a> = (Symbol, &'a Type<'a>);
@@ -33,7 +35,7 @@ pub fn case<'a>(
     let test = ctx.fresh_var();
     let pats = rules.iter().map(|r| vec![r.pat]).collect();
 
-    let mut diags = MatchDiags::with_capacity(span, rules.len());
+    let mut diags = MatchDiags::with_capacity(span, rules.len(), C_MATCH);
     let (mut decls, rules) = preflight(ctx, rules, &mut diags);
 
     decls.push(Decl::Val(Rule {
@@ -69,7 +71,7 @@ pub fn fun<'a>(
     span: Span,
 ) -> Expr<'a> {
     let test = ctx.fresh_var();
-    let mut diags = MatchDiags::with_capacity(span, rules.len());
+    let mut diags = MatchDiags::with_capacity(span, rules.len(), C_MATCH);
     let (decls, rules) = preflight(ctx, rules, &mut diags);
 
     let rec = SortedRecord::new_unchecked(
@@ -103,6 +105,108 @@ pub fn fun<'a>(
         expr.ty,
         expr.span,
     )
+}
+
+pub fn val<'a>(
+    ctx: &mut Context<'a>,
+    scrutinee: Expr<'a>,
+    pat: Pat<'a>,
+    bindings: &[Var<'a>],
+) -> Rule<'a> {
+    let span = pat.span + scrutinee.span;
+    let test = ctx.fresh_var();
+
+    let (ret_ty, rpat, rexpr) = match bindings.len() {
+        0 => {
+            return Rule {
+                pat,
+                expr: scrutinee,
+            }
+        }
+        1 => {
+            let (sym, ty) = bindings[0];
+            let p = Pat::new(ctx.arena.pats.alloc(PatKind::Var(sym)), ty, Span::dummy());
+            let e = Expr::new(
+                ctx.arena.exprs.alloc(ExprKind::Var(Cell::new(sym))),
+                ty,
+                Span::dummy(),
+            );
+            (ty, p, e)
+        }
+        _ => {
+            let mut vt = Vec::new();
+            let mut vp = Vec::new();
+            let mut ve = Vec::new();
+            for (idx, (sym, ty)) in bindings.iter().copied().enumerate() {
+                vt.push(Row {
+                    label: Symbol::tuple_field(idx as u32 + 1),
+                    data: ty,
+                    span: Span::dummy(),
+                });
+                vp.push(Row {
+                    label: Symbol::tuple_field(idx as u32 + 1),
+                    data: Pat::new(ctx.arena.pats.alloc(PatKind::Var(sym)), ty, Span::dummy()),
+                    span: Span::dummy(),
+                });
+                ve.push(Row {
+                    label: Symbol::tuple_field(idx as u32 + 1),
+                    data: Expr::new(
+                        ctx.arena.exprs.alloc(ExprKind::Var(Cell::new(sym))),
+                        ty,
+                        Span::dummy(),
+                    ),
+                    span: Span::dummy(),
+                });
+            }
+            let t = SortedRecord::new_unchecked(vt);
+            let t = ctx.arena.types.alloc(Type::Record(t));
+            let p = Pat::new(
+                ctx.arena
+                    .pats
+                    .alloc(PatKind::Record(SortedRecord::new_unchecked(vp))),
+                t,
+                pat.span,
+            );
+            let e = Expr::new(
+                ctx.arena.exprs.alloc(ExprKind::Record(ve)),
+                t,
+                scrutinee.span,
+            );
+            (t, p, e)
+        }
+    };
+
+    // let expr = crate::match_compile::case(ctx, expr, rw_ty, vec![Rule { pat, expr: rw_expr}], pat.span + expr.span);
+
+    let pats = vec![vec![pat]];
+    let mut diags = MatchDiags::with_capacity(span, 1, C_BIND);
+    let (mut decls, rules) = preflight(ctx, vec![Rule { pat, expr: rexpr }], &mut diags);
+
+    decls.push(Decl::Val(Rule {
+        pat: ctx.arena.pat_var(test, scrutinee.ty),
+        expr: scrutinee,
+    }));
+    let mut mat = Matrix {
+        ctx,
+        pats,
+        rules,
+        ret_ty,
+        span,
+        test,
+        vars: vec![(test, scrutinee.ty)],
+    };
+
+    let mut facts = Facts::default();
+    let expr = mat.compile(&mut facts, &mut diags);
+    diags.emit_diagnostics(ctx);
+
+    let expr = Expr::new(
+        ctx.arena.exprs.alloc(ExprKind::Let(decls, expr)),
+        expr.ty,
+        expr.span,
+    );
+
+    Rule { pat: rpat, expr }
 }
 
 /// Abstract match bodies into functions, to be declared prior to the
@@ -239,16 +343,18 @@ pub struct MatchDiags {
     renamed: Vec<(Span, Symbol)>,
     // Which arms were reached
     reached: HashSet<Symbol>,
+    constr: Constructor,
     // Did we emit a `raise Match`?
     inexhaustive: bool,
 }
 
 impl MatchDiags {
-    pub fn with_capacity(span: Span, capacity: usize) -> MatchDiags {
+    pub fn with_capacity(span: Span, capacity: usize, constr: Constructor) -> MatchDiags {
         MatchDiags {
             span,
             renamed: Vec::with_capacity(capacity),
             reached: HashSet::with_capacity(capacity),
+            constr,
             inexhaustive: false,
         }
     }
