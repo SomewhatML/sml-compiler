@@ -40,7 +40,7 @@ pub enum Type<'a> {
     /// Type variable
     Var(&'a TypeVar<'a>),
     /// An n-ary type constructor, like `int`, `bool`, `list`, etc
-    Con(Tycon, Vec<&'a Type<'a>>),
+    Con(Cell<Tycon>, Vec<&'a Type<'a>>),
     /// A record, or tuple type
     Record(SortedRecord<&'a Type<'a>>),
     /// A flexible record type
@@ -82,7 +82,7 @@ impl<'a> Type<'a> {
     /// 'de-arrow' an arrow type, returning the argument and result type
     pub fn de_arrow(&self) -> Option<(&'_ Type<'a>, &'_ Type<'a>)> {
         match self {
-            Type::Con(builtin::tycons::T_ARROW, v) => Some((v[0], v[1])),
+            Type::Con(tc, v) if tc.get() == crate::builtin::tycons::T_ARROW => Some((v[0], v[1])),
             Type::Var(tv) => {
                 if let Some(ty) = tv.ty() {
                     ty.de_arrow()
@@ -203,7 +203,7 @@ impl<'a> Type<'a> {
                 }
             },
             Type::Con(tc, vars) => arena.alloc(Type::Con(
-                *tc,
+                Cell::new(tc.get()),
                 vars.iter().map(|ty| ty.apply(arena, map)).collect(),
             )),
             Type::Record(rows) => arena.alloc(Type::Record(rows.fmap(|ty| ty.apply(arena, map)))),

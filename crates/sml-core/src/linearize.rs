@@ -10,19 +10,47 @@ use sml_util::Const;
 use std::collections::HashMap;
 
 #[derive(Default)]
-pub struct Cache<'a> {
-    defs: HashMap<Symbol, CacheEntry<'a>>,
-    names: Vec<HashMap<Symbol, Symbol>>,
+pub struct Cache {
+    types: Vec<HashMap<Symbol, Symbol>>,
+    values: Vec<HashMap<Symbol, Symbol>>,
+    id: u32,
 }
 
-pub struct CacheEntry<'a> {
-    usages: HashMap<&'a Type<'a>, Symbol>,
-}
-
-impl<'a> Cache<'a> {
+impl Cache {
     // pub fn register(&mut self, name: Symbol, decl: )
 
-    pub fn visit_decl(&mut self, decl: &Decl<'a>) {
+    pub fn enter(&mut self) {
+        self.types.push(HashMap::new())
+    }
+
+    pub fn leave(&mut self) {
+        self.types.pop();
+    }
+
+    pub fn register_type(&mut self, sym: Symbol) -> Symbol {
+        let id = self.id;
+        self.id += 1;
+        self.types.last_mut().unwrap().insert(sym, Symbol::gensym(id));
+        Symbol::gensym(id)
+    }
+
+    pub fn register_val(&mut self, sym: Symbol) -> Symbol {
+        let id = self.id;
+        self.id += 1;
+        self.values.last_mut().unwrap().insert(sym, Symbol::gensym(id));
+        Symbol::gensym(id)
+    }
+
+    pub fn lookup_type(&self, sym: &Symbol) -> Symbol {
+        *self.types.last().unwrap().get(sym).expect("BUG: Rename::lookup_type")
+    }
+
+    pub fn lookup_value(&self, sym: &Symbol) -> Symbol {
+        *self.values.last().unwrap().get(sym).expect("BUG: Rename::lookup_type")
+    }
+
+
+    pub fn visit_decl(&mut self, decl: &Decl<'_>) {
         match decl {
             Decl::Val(_, Rule { pat, expr }) => {
                 self.visit_expr(expr);
@@ -35,7 +63,7 @@ impl<'a> Cache<'a> {
             _ => {}
         }
     }
-    pub fn visit_expr(&mut self, expr: &Expr<'a>) {
+    pub fn visit_expr(&mut self, expr: &Expr<'_>) {
         match expr.kind {
             ExprKind::App(e1, e2) => {
                 self.visit_expr(e1);

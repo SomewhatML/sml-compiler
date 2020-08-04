@@ -15,7 +15,7 @@ use sml_util::pretty_print::PrettyPrinter;
 use sml_util::span::Span;
 use sml_util::Const;
 use std::collections::HashMap;
-use std::fmt::Write;
+use std::{cell::Cell, fmt::Write};
 
 pub fn check_and_elaborate<'a>(
     arena: &'a CoreArena<'a>,
@@ -73,7 +73,7 @@ impl<'a> TypeStructure<'a> {
     pub fn apply(&self, arena: &'a TypeArena<'a>, args: Vec<&'a Type<'a>>) -> &'a Type<'a> {
         match self {
             TypeStructure::Tycon(con) | TypeStructure::Datatype(con, _) => {
-                arena.alloc(Type::Con(*con, args))
+                arena.alloc(Type::Con(Cell::new(*con), args))
             }
             TypeStructure::Scheme(s) => s.apply(arena, args),
         }
@@ -133,7 +133,7 @@ pub struct Context<'a> {
     // All defined values live here, indexed by `ExprId`
     values: Vec<(Scheme<'a>, IdStatus)>,
 
-    tyvar_rank: usize,
+    pub tyvar_rank: usize,
     local_depth: usize,
 
     pub(crate) arena: &'a CoreArena<'a>,
@@ -148,7 +148,17 @@ impl Namespace {
             depth,
             types: HashMap::with_capacity(32),
             values: HashMap::with_capacity(64),
-            infix: HashMap::with_capacity(16),
+            infix: HashMap::default(),
+        }
+    }
+
+    pub fn root() -> Namespace {
+        Namespace {
+            parent: None,
+            depth: 0,
+            types: HashMap::with_capacity(1024),
+            values: HashMap::with_capacity(4096),
+            infix: HashMap::with_capacity(64),
         }
     }
 }
@@ -167,7 +177,7 @@ impl<'a> Context<'a> {
             unification_errors: Vec::default(),
             arena,
         };
-        ctx.namespaces.push(Namespace::default());
+        ctx.namespaces.push(Namespace::root());
         populate_context(&mut ctx);
         ctx.elab_decl_fixity(&ast::Fixity::Infixr, 4, constructors::C_CONS.name);
         ctx
@@ -680,7 +690,7 @@ impl<'a> Context<'a> {
         let mut names = Vec::new();
         ty.visit(|f| {
             if let Type::Con(tc, _) = f {
-                names.push(*tc);
+                names.push(tc.get());
             }
         });
 
@@ -749,7 +759,7 @@ impl<'a> Context<'a> {
             pat: Pat::new(
                 self.arena
                     .pats
-                    .alloc(PatKind::App(constructors::C_TRUE, None)),
+                    .alloc(PatKind::App(Cell::new(constructors::C_TRUE), None)),
                 self.arena.types.bool(),
                 e2.span,
             ),
@@ -759,7 +769,7 @@ impl<'a> Context<'a> {
             pat: Pat::new(
                 self.arena
                     .pats
-                    .alloc(PatKind::App(constructors::C_FALSE, None)),
+                    .alloc(PatKind::App(Cell::new(constructors::C_FALSE), None)),
                 self.arena.types.bool(),
                 e3.span,
             ),
@@ -815,7 +825,7 @@ impl<'a> Context<'a> {
                 let fls = Expr::new(
                     self.arena
                         .exprs
-                        .alloc(ExprKind::Con(constructors::C_FALSE, vec![])),
+                        .alloc(ExprKind::Con(Cell::new(constructors::C_FALSE), vec![])),
                     self.arena.types.bool(),
                     expr.span,
                 );
@@ -1013,7 +1023,7 @@ impl<'a> Context<'a> {
                 let tru = Expr::new(
                     self.arena
                         .exprs
-                        .alloc(ExprKind::Con(constructors::C_TRUE, vec![])),
+                        .alloc(ExprKind::Con(Cell::new(constructors::C_TRUE), vec![])),
                     self.arena.types.bool(),
                     expr.span,
                 );
@@ -1090,14 +1100,7 @@ impl<'a> Context<'a> {
             ast::ExprKind::Var(sym) => match self.lookup_value(sym) {
                 Some((scheme, _)) => {
                     let ty = self.instantiate(scheme);
-                    // println!("inst {:?} [{:?}] -> {:?}", sym, scheme, ty);
-                    Expr::new(
-                        self.arena
-                            .exprs
-                            .alloc(ExprKind::Var(std::cell::Cell::new(*sym))),
-                        ty,
-                        expr.span,
-                    )
+                    self.arena.expr_var(*sym, ty)
                 }
                 None => {
                     self.elab_errors
@@ -1131,7 +1134,7 @@ impl<'a> Context<'a> {
         let nil = Pat::new(
             self.arena
                 .pats
-                .alloc(PatKind::App(constructors::C_NIL, None)),
+                .alloc(PatKind::App(Cell::new(constructors::C_NIL), None)),
             ty,
             sp,
         );
@@ -1140,7 +1143,7 @@ impl<'a> Context<'a> {
             Pat::new(
                 self.arena
                     .pats
-                    .alloc(PatKind::App(constructors::C_CONS, Some(cons))),
+                    .alloc(PatKind::App(Cell::new(constructors::C_CONS), Some(cons))),
                 ty,
                 sp,
             )
@@ -1180,7 +1183,9 @@ impl<'a> Context<'a> {
                                 .message("pattern constructor and argument have different types")
                         });
                         Pat::new(
-                            self.arena.pats.alloc(PatKind::App(constr, Some(p))),
+                            self.arena
+                                .pats
+                                .alloc(PatKind::App(Cell::new(constr), Some(p))),
                             res,
                             pat.span,
                         )
@@ -1291,7 +1296,11 @@ impl<'a> Context<'a> {
                 // Rule 35
                 Some((scheme, IdStatus::Exn(c))) | Some((scheme, IdStatus::Con(c))) => {
                     let ty = self.instantiate(scheme);
-                    Pat::new(self.arena.pats.alloc(PatKind::App(*c, None)), ty, pat.span)
+                    Pat::new(
+                        self.arena.pats.alloc(PatKind::App(Cell::new(*c), None)),
+                        ty,
+                        pat.span,
+                    )
                 }
                 _ => {
                     // Rule 34
@@ -1309,7 +1318,7 @@ impl<'a> Context<'a> {
                     }
 
                     bindings.push((name, ty));
-                    Pat::new(self.arena.pats.alloc(PatKind::Var(name)), ty, pat.span)
+                    self.arena.pat_var(name, ty)
                 }
             },
             Wild => Pat::new(self.arena.pats.wild(), self.fresh_tyvar(), pat.span),
@@ -1404,7 +1413,7 @@ impl<'a> Context<'a> {
             };
 
             let res = self.arena.types.alloc(Type::Con(
-                tycon,
+                Cell::new(tycon),
                 tyvars
                     .iter()
                     .map(|v| &*self.arena.types.alloc(Type::Var(v)))
@@ -1473,6 +1482,7 @@ impl<'a> Context<'a> {
             match &exn.data {
                 Some(ty) => {
                     let ty = self.elaborate_type(ty, false);
+
                     elab.push(Decl::Exn(con, Some(ty)));
                     self.define_value(
                         exn.label,
@@ -1560,7 +1570,7 @@ impl<'a> Context<'a> {
         }
     }
 
-    fn elab_decl_fnbind(&mut self, fun: PartialFun<'_, 'a>) -> Lambda<'a> {
+    fn elab_decl_fnbind(&mut self, fun: PartialFun<'_, 'a>) -> (Lambda<'a>, Scheme<'a>) {
         let PartialFun {
             clauses,
             res_ty,
@@ -1651,22 +1661,23 @@ impl<'a> Context<'a> {
             false => self.generalize(ty),
         };
 
-        self.define_value(fun.name, total_sp, sch, IdStatus::Var);
+        self.define_value(fun.name, total_sp, sch.clone(), IdStatus::Var);
 
-        Lambda {
-            arg: a,
-            ty: t,
-            body,
-        }
+        (
+            Lambda {
+                arg: a,
+                ty: t,
+                body,
+            },
+            sch,
+        )
     }
 
     fn elab_decl_fun(&mut self, tyvars: &[Symbol], fbs: &[ast::Fun], elab: &mut Vec<Decl<'a>>) {
         self.with_tyvars(|ctx| {
-            let mut vars = Vec::new();
             ctx.tyvar_rank += 1;
             for sym in tyvars {
                 let f = ctx.arena.types.fresh_type_var(ctx.tyvar_rank + 1);
-                vars.push(f.id);
                 ctx.tyvars.push((*sym, f));
             }
 
@@ -1683,12 +1694,18 @@ impl<'a> Context<'a> {
             }
             ctx.tyvar_rank -= 1;
 
-            elab.push(Decl::Fun(
-                vars,
-                info.into_iter()
-                    .map(|fun| (fun.name, ctx.elab_decl_fnbind(fun)))
-                    .collect::<Vec<(Symbol, Lambda)>>(),
-            ));
+            let mut tyvars = Vec::new();
+            let mut lams = Vec::new();
+            for (sym, (lam, sch)) in info
+                .into_iter()
+                .map(|fun| (fun.name, ctx.elab_decl_fnbind(fun)))
+            {
+                lams.push((sym, lam));
+                if let Scheme::Poly(vars, _) = sch {
+                    tyvars.extend(vars.iter().copied());
+                }
+            }
+            elab.push(Decl::Fun(tyvars, lams));
         })
     }
 
@@ -1716,6 +1733,7 @@ impl<'a> Context<'a> {
             });
 
             let dontgeneralize = !expr.non_expansive() || pat.flexible();
+            let mut tyvars = Vec::new();
             for (var, tv) in &bindings {
                 let sch = match dontgeneralize {
                     false => ctx.generalize(tv),
@@ -1724,18 +1742,21 @@ impl<'a> Context<'a> {
                         Scheme::Mono(tv)
                     }
                 };
+                if let Scheme::Poly(vars, _) = &sch {
+                    tyvars.extend(vars.iter().copied());
+                }
                 ctx.define_value(*var, pat.span, sch, IdStatus::Var);
             }
 
             match pat.kind {
                 PatKind::Var(_) | PatKind::Wild => {
-                    elab.push(Decl::Val(Rule { pat, expr }));
+                    elab.push(Decl::Val(tyvars, Rule { pat, expr }));
                 }
                 _ => {
                     // If we have some kind of compound binding, go ahead and
                     // do a source->source rewrite
                     let rule = crate::match_compile::val(ctx, expr, pat, &bindings);
-                    elab.push(Decl::Val(rule));
+                    elab.push(Decl::Val(tyvars, rule));
                 }
             }
         })

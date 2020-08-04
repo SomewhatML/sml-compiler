@@ -7,7 +7,7 @@ use std::io::prelude::*;
 use std::time::Instant;
 
 mod config;
-use config::ArgParse;
+use config::{ArgParse, Phase};
 
 fn report(verb: u8, diags: Vec<Diagnostic>, src: &str) {
     let mut warns = Vec::new();
@@ -48,10 +48,21 @@ pub struct Compiler<'a> {
     interner: Interner,
     measure: bool,
     verbosity: u8,
+    /// Stop after this phase
+    stop_phase: Option<Phase>,
+    current_phase: Phase,
     times: Vec<String>,
 }
 
 impl<'a> Compiler<'a> {
+    fn should_stop(&self) -> bool {
+        if let Some(stop) = self.stop_phase {
+            stop < self.current_phase
+        } else {
+            false
+        }
+    }
+
     fn measure<T, F: FnMut(&mut Compiler<'a>) -> T>(&mut self, name: &str, mut f: F) -> T {
         if self.measure {
             let start = Instant::now();
@@ -63,6 +74,8 @@ impl<'a> Compiler<'a> {
             f(self)
         }
     }
+
+    fn dump_elab(&mut self, decls: Vec<&sml_core::Decl>) {}
 
     fn run(&mut self, src: &str) {
         let (res, mut diags) = self.measure("parsing", |c| {
@@ -82,6 +95,11 @@ impl<'a> Compiler<'a> {
                     diags.extend(check.diags);
                 });
 
+                self.current_phase = Phase::Elaborate;
+                if self.should_stop() {
+                    return;
+                }
+
                 let decls = self.measure("elaboration", |c| c.elab.elaborate_decl(&d));
                 diags.extend(self.elab.diagnostics(&self.interner));
 
@@ -93,7 +111,7 @@ impl<'a> Compiler<'a> {
                         for decl in &decls {
                             use sml_core::{Decl, Rule};
                             match decl {
-                                Decl::Val(Rule { pat, .. }) => {
+                                Decl::Val(_, Rule { pat, .. }) => {
                                     pp.text("val ").print(pat).text(": ").print(pat.ty).line();
                                 }
                                 Decl::Fun(_, binds) => {

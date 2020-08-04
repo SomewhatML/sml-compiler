@@ -41,10 +41,12 @@ pub struct ExprId(pub u32);
 pub enum ExprKind<'ar> {
     App(Expr<'ar>, Expr<'ar>),
     Case(Expr<'ar>, Vec<Rule<'ar>>),
-    Con(Constructor, Vec<&'ar Type<'ar>>),
+    Con(Cell<Constructor>, Vec<&'ar Type<'ar>>),
     Const(Const),
     /// Handle: try, bound var, case expr
     Handle(Expr<'ar>, Symbol, Expr<'ar>),
+    /// We shouldn't need to wrap lambda in a `Cell`, because all lambdas
+    /// already have fresh symbols as their arguments
     Lambda(Lambda<'ar>),
     Let(Vec<Decl<'ar>>, Expr<'ar>),
     List(Vec<Expr<'ar>>),
@@ -71,13 +73,13 @@ pub struct Lambda<'ar> {
 
 pub enum PatKind<'ar> {
     /// Constructor application
-    App(Constructor, Option<Pat<'ar>>),
+    App(Cell<Constructor>, Option<Pat<'ar>>),
     /// Constant
     Const(Const),
     /// Record
     Record(SortedRecord<Pat<'ar>>),
     /// Variable binding
-    Var(Symbol),
+    Var(Cell<Symbol>),
     /// Wildcard
     Wild,
 }
@@ -105,7 +107,7 @@ pub struct Datatype<'ar> {
 pub enum Decl<'ar> {
     Datatype(Datatype<'ar>),
     Fun(Vec<usize>, Vec<(Symbol, Lambda<'ar>)>),
-    Val(Rule<'ar>),
+    Val(Vec<usize>, Rule<'ar>),
     Exn(Constructor, Option<&'ar Type<'ar>>),
 }
 
@@ -128,8 +130,7 @@ impl<'ar> Expr<'ar> {
 
     pub fn non_expansive(&self) -> bool {
         match &self.kind {
-            ExprKind::Con(builtin::constructors::C_REF, _) => false,
-            ExprKind::Con(_, _) => true,
+            ExprKind::Con(con, _) => con.get() == builtin::constructors::C_REF,
             ExprKind::Const(_) => true,
             ExprKind::Lambda(_) => true,
             ExprKind::Var(_) => true,

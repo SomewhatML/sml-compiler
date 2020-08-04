@@ -39,10 +39,14 @@ pub fn case<'a>(
     let mut diags = MatchDiags::with_capacity(span, rules.len(), C_MATCH);
     let (mut decls, rules) = preflight(ctx, rules, &mut diags);
 
-    decls.push(Decl::Val(Rule {
-        pat: ctx.arena.pat_var(test, scrutinee.ty),
-        expr: scrutinee,
-    }));
+    let tyvars = scrutinee.ty.ftv_rank(ctx.tyvar_rank).into_iter().collect();
+    decls.push(Decl::Val(
+        tyvars,
+        Rule {
+            pat: ctx.arena.pat_var(test, scrutinee.ty),
+            expr: scrutinee,
+        },
+    ));
     let mut mat = Matrix {
         ctx,
         pats,
@@ -120,13 +124,9 @@ pub fn val<'a>(
     let (ret_ty, rpat, rexpr) = match bindings.len() {
         0 => (pat.ty, pat, scrutinee),
         1 => {
-            let (sym, ty) = bindings[0];
-            let p = Pat::new(ctx.arena.pats.alloc(PatKind::Var(sym)), ty, Span::dummy());
-            let e = Expr::new(
-                ctx.arena.exprs.alloc(ExprKind::Var(Cell::new(sym))),
-                ty,
-                Span::dummy(),
-            );
+            let (var, ty) = bindings[0];
+            let p = ctx.arena.pat_var(var, ty);
+            let e = ctx.arena.expr_var(var, ty);
             (ty, p, e)
         }
         _ => {
@@ -135,7 +135,7 @@ pub fn val<'a>(
             let mut vt = Vec::new();
             let mut vp = Vec::new();
             let mut ve = Vec::new();
-            for (idx, (sym, ty)) in bindings.iter().copied().enumerate() {
+            for (idx, (var, ty)) in bindings.iter().copied().enumerate() {
                 vt.push(Row {
                     label: Symbol::tuple_field(idx as u32 + 1),
                     data: ty,
@@ -143,16 +143,12 @@ pub fn val<'a>(
                 });
                 vp.push(Row {
                     label: Symbol::tuple_field(idx as u32 + 1),
-                    data: Pat::new(ctx.arena.pats.alloc(PatKind::Var(sym)), ty, Span::dummy()),
+                    data: ctx.arena.pat_var(var, ty),
                     span: Span::dummy(),
                 });
                 ve.push(Row {
                     label: Symbol::tuple_field(idx as u32 + 1),
-                    data: Expr::new(
-                        ctx.arena.exprs.alloc(ExprKind::Var(Cell::new(sym))),
-                        ty,
-                        Span::dummy(),
-                    ),
+                    data: ctx.arena.expr_var(var, ty),
                     span: Span::dummy(),
                 });
             }
@@ -178,10 +174,14 @@ pub fn val<'a>(
     let mut diags = MatchDiags::with_capacity(span, 1, C_BIND);
     let (mut decls, rules) = preflight(ctx, vec![Rule { pat, expr: rexpr }], &mut diags);
 
-    decls.push(Decl::Val(Rule {
-        pat: ctx.arena.pat_var(test, scrutinee.ty),
-        expr: scrutinee,
-    }));
+    let tyvars = scrutinee.ty.ftv_rank(ctx.tyvar_rank).into_iter().collect();
+    decls.push(Decl::Val(
+        tyvars,
+        Rule {
+            pat: ctx.arena.pat_var(test, scrutinee.ty),
+            expr: scrutinee,
+        },
+    ));
     let mut mat = Matrix {
         ctx,
         pats,
@@ -243,7 +243,9 @@ fn preflight<'a>(
                 let (var, ty) = vars[0];
                 let pat = ctx.arena.pat_var(var, ty);
                 let ex = ctx.arena.expr_var(arg, ty);
-                let decl = Decl::Val(Rule { pat, expr: ex });
+                let tyvars = ty.ftv_rank(ctx.tyvar_rank).into_iter().collect();
+
+                let decl = Decl::Val(tyvars, Rule { pat, expr: ex });
                 (
                     Expr::new(
                         ctx.arena.exprs.alloc(ExprKind::Let(vec![decl], expr)),
@@ -254,7 +256,9 @@ fn preflight<'a>(
                 )
             }
             _ => {
-                let body = ctx.arena.let_detuple(vars.clone(), arg, expr);
+                let body = ctx
+                    .arena
+                    .let_detuple(vars.clone(), arg, expr, ctx.tyvar_rank);
                 let ty = ctx.arena.ty_tuple(vars.into_iter().map(|(_, t)| t));
                 (body, ty)
             }
@@ -307,7 +311,7 @@ impl Facts {
         while let Some((var, pat)) = queue.pop_front() {
             match pat.kind {
                 PatKind::Var(x) => {
-                    if map.insert(*x, (*var, pat.ty)).is_some() {
+                    if map.insert(x.get(), (*var, pat.ty)).is_some() {
                         panic!("Bug: Facts.bind rebinding")
                     }
                 }
@@ -481,9 +485,12 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
             mat.pats.push(new_row);
         }
         mat.vars = vars;
-        self.ctx
-            .arena
-            .let_derecord(record, base.0, mat.compile(facts, diags))
+        self.ctx.arena.let_derecord(
+            record,
+            base.0,
+            mat.compile(facts, diags),
+            self.ctx.tyvar_rank,
+        )
     }
 
     /// This is basically the same thing as the record rule, but for data
@@ -494,17 +501,17 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
         &self,
         facts: &mut Facts,
         diags: &mut MatchDiags,
-        head: &Constructor,
+        head: Constructor,
         arity: Option<Var<'a>>,
     ) -> Expr<'a> {
         let mut mat = self.shallow();
         for (idx, row) in self.pats.iter().enumerate() {
             let mut new_row: Vec<Pat> = row.iter().skip(1).copied().collect();
             match &row[0].kind {
-                PatKind::App(con, Some(arg)) if con == head => {
+                PatKind::App(con, Some(arg)) if con.get() == head => {
                     new_row.insert(0, *arg);
                 }
-                PatKind::App(con, None) if con == head => {}
+                PatKind::App(con, None) if con.get() == head => {}
                 PatKind::Wild | PatKind::Var(_) => {
                     if let Some((name, ty)) = arity {
                         new_row.insert(0, self.ctx.arena.pat_var(name, ty));
@@ -518,7 +525,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
 
         match arity {
             Some((name, _)) => {
-                facts.add(mat.vars[0].0, Fact::Con(*head, Some(name)));
+                facts.add(mat.vars[0].0, Fact::Con(head, Some(name)));
                 mat.vars[0].0 = name;
             }
             None => {
@@ -536,6 +543,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
         let mut type_arity = 0;
         for row in &self.pats {
             if let PatKind::App(con, p) = &row[0].kind {
+                let con = con.get();
                 set.insert(con, p.map(|p| p.ty));
                 type_arity = con.type_arity;
             }
@@ -555,7 +563,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
                 None => None,
             };
             let pat = Pat::new(
-                self.ctx.arena.pats.alloc(PatKind::App(*con, arg)),
+                self.ctx.arena.pats.alloc(PatKind::App(Cell::new(con), arg)),
                 self.pats[0][0].ty,
                 Span::dummy(),
             );
@@ -673,7 +681,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
                 self.ctx
                     .arena
                     .exprs
-                    .alloc(ExprKind::Con(diags.constr, vec![])),
+                    .alloc(ExprKind::Con(Cell::new(diags.constr), vec![])),
                 self.ret_ty,
                 Span::zero(),
             );
@@ -767,7 +775,7 @@ fn collect_vars<'a>(pat: Pat<'a>) -> Vec<Var<'a>> {
     queue.push_back(pat);
     while let Some(pat) = queue.pop_front() {
         match pat.kind {
-            PatKind::Var(s) => v.push((*s, pat.ty)),
+            PatKind::Var(s) => v.push((s.get(), pat.ty)),
             PatKind::Record(fields) => queue.extend(fields.iter().map(|row| row.data)),
             PatKind::App(_, Some(pat)) => queue.push_back(*pat),
             _ => {}

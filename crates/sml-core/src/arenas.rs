@@ -176,7 +176,11 @@ impl<'a> CoreArena<'a> {
     }
 
     pub fn pat_var(&self, var: Symbol, ty: &'a Type<'a>) -> Pat<'a> {
-        Pat::new(self.pats.alloc(PatKind::Var(var)), ty, Span::dummy())
+        Pat::new(
+            self.pats.alloc(PatKind::Var(Cell::new(var))),
+            ty,
+            Span::dummy(),
+        )
     }
 
     pub fn expr_var(&self, var: Symbol, ty: &'a Type<'a>) -> Expr<'a> {
@@ -194,15 +198,21 @@ impl<'a> CoreArena<'a> {
         iter: I,
         var_name: Symbol,
         body: Expr<'a>,
+        rank: usize,
     ) -> Expr<'a> {
         let expr = self.expr_tuple(
             iter.into_iter()
                 .map(|(sym, ty)| (ExprKind::Var(Cell::new(sym)), ty)),
         );
-        let decl = Decl::Val(Rule {
-            pat: self.pat_var(var_name, expr.ty),
-            expr,
-        });
+        let tyvars = body.ty.ftv_rank(rank).into_iter().collect();
+
+        let decl = Decl::Val(
+            tyvars,
+            Rule {
+                pat: self.pat_var(var_name, expr.ty),
+                expr,
+            },
+        );
         Expr::new(
             self.exprs.alloc(ExprKind::Let(vec![decl], body)),
             body.ty,
@@ -217,12 +227,21 @@ impl<'a> CoreArena<'a> {
         iter: I,
         var_name: Symbol,
         body: Expr<'a>,
+        rank: usize,
     ) -> Expr<'a> {
-        let pat = self.pat_tuple(iter.into_iter().map(|(sym, ty)| (PatKind::Var(sym), ty)));
-        let decl = Decl::Val(Rule {
-            pat,
-            expr: self.expr_var(var_name, pat.ty),
-        });
+        let pat = self.pat_tuple(
+            iter.into_iter()
+                .map(|(sym, ty)| (PatKind::Var(Cell::new(sym)), ty)),
+        );
+        let tyvars = body.ty.ftv_rank(rank).into_iter().collect();
+
+        let decl = Decl::Val(
+            tyvars,
+            Rule {
+                pat,
+                expr: self.expr_var(var_name, pat.ty),
+            },
+        );
         Expr::new(
             self.exprs.alloc(ExprKind::Let(vec![decl], body)),
             body.ty,
@@ -237,15 +256,21 @@ impl<'a> CoreArena<'a> {
         iter: I,
         var_name: Symbol,
         body: Expr<'a>,
+        rank: usize,
     ) -> Expr<'a> {
         let pat = self.pat_record(
             iter.into_iter()
-                .map(|(field, sym, ty)| (field, PatKind::Var(sym), ty)),
+                .map(|(field, sym, ty)| (field, PatKind::Var(Cell::new(sym)), ty)),
         );
-        let decl = Decl::Val(Rule {
-            pat,
-            expr: self.expr_var(var_name, pat.ty),
-        });
+        let tyvars = body.ty.ftv_rank(rank).into_iter().collect();
+
+        let decl = Decl::Val(
+            tyvars,
+            Rule {
+                pat,
+                expr: self.expr_var(var_name, pat.ty),
+            },
+        );
         Expr::new(
             self.exprs.alloc(ExprKind::Let(vec![decl], body)),
             body.ty,
@@ -349,12 +374,12 @@ pub struct TypeArena<'ar> {
 
 impl<'ar> TypeArena<'ar> {
     pub fn new(types: &'ar Arena<Type<'ar>>, vars: &'ar Arena<TypeVar<'ar>>) -> TypeArena<'ar> {
-        let _exn = types.alloc(Type::Con(builtin::tycons::T_EXN, Vec::new()));
-        let _bool = types.alloc(Type::Con(builtin::tycons::T_BOOL, Vec::new()));
-        let _int = types.alloc(Type::Con(builtin::tycons::T_INT, Vec::new()));
-        let _str = types.alloc(Type::Con(builtin::tycons::T_STRING, Vec::new()));
-        let _char = types.alloc(Type::Con(builtin::tycons::T_CHAR, Vec::new()));
-        let _unit = types.alloc(Type::Con(builtin::tycons::T_UNIT, Vec::new()));
+        let _exn = types.alloc(Type::Con(Cell::new(builtin::tycons::T_EXN), Vec::new()));
+        let _bool = types.alloc(Type::Con(Cell::new(builtin::tycons::T_BOOL), Vec::new()));
+        let _int = types.alloc(Type::Con(Cell::new(builtin::tycons::T_INT), Vec::new()));
+        let _str = types.alloc(Type::Con(Cell::new(builtin::tycons::T_STRING), Vec::new()));
+        let _char = types.alloc(Type::Con(Cell::new(builtin::tycons::T_CHAR), Vec::new()));
+        let _unit = types.alloc(Type::Con(Cell::new(builtin::tycons::T_UNIT), Vec::new()));
 
         TypeArena {
             types,
@@ -438,16 +463,18 @@ impl<'ar> TypeArena<'ar> {
 
     pub fn reff(&self, ty: &'ar Type<'ar>) -> &'ar Type<'ar> {
         self.types
-            .alloc(Type::Con(builtin::tycons::T_REF, vec![ty]))
+            .alloc(Type::Con(Cell::new(builtin::tycons::T_REF), vec![ty]))
     }
 
     pub fn list(&self, ty: &'ar Type<'ar>) -> &'ar Type<'ar> {
         self.types
-            .alloc(Type::Con(builtin::tycons::T_LIST, vec![ty]))
+            .alloc(Type::Con(Cell::new(builtin::tycons::T_LIST), vec![ty]))
     }
 
     pub fn arrow(&self, dom: &'ar Type<'ar>, rng: &'ar Type<'ar>) -> &'ar Type<'ar> {
-        self.types
-            .alloc(Type::Con(builtin::tycons::T_ARROW, vec![dom, rng]))
+        self.types.alloc(Type::Con(
+            Cell::new(builtin::tycons::T_ARROW),
+            vec![dom, rng],
+        ))
     }
 }

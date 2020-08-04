@@ -1,10 +1,18 @@
 use super::*;
 use std::env;
 
+#[derive(Copy, Clone, Debug, PartialEq, Ord, PartialOrd, Eq)]
+pub enum Phase {
+    Parse,
+    Elaborate,
+    Monomorphize,
+}
+
 #[derive(Default)]
 pub struct CompilerBuilder {
     measure: Option<bool>,
     verbosity: Option<u8>,
+    phase: Option<Phase>,
 }
 
 impl CompilerBuilder {
@@ -15,6 +23,8 @@ impl CompilerBuilder {
             interner: Interner::with_capacity(4096),
             measure: self.measure.unwrap_or(false),
             verbosity: self.verbosity.unwrap_or(0),
+            current_phase: Phase::Parse,
+            stop_phase: self.phase,
             times: Vec::new(),
         }
     }
@@ -26,6 +36,11 @@ impl CompilerBuilder {
 
     pub fn measure(mut self, val: bool) -> Self {
         self.measure = Some(val);
+        self
+    }
+
+    pub fn phase(mut self, val: Phase) -> Self {
+        self.phase = Some(val);
         self
     }
 }
@@ -55,6 +70,16 @@ impl ArgParse {
                     }
                     "--measure" => {
                         builder = builder.measure(true);
+                    }
+                    "--phase" => {
+                        let phase =
+                            match stack.pop().expect("expected phase after --phase").as_ref() {
+                                "parse" => Phase::Parse,
+                                "elab" => Phase::Elaborate,
+                                "mono" => Phase::Monomorphize,
+                                item => panic!("unrecognized compiler phase: {}", item),
+                            };
+                        builder = builder.phase(phase);
                     }
                     _ => panic!("unrecognized compiler flag: {}", item),
                 }

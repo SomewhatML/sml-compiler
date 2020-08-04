@@ -3,7 +3,7 @@ use crate::{Decl, Expr, ExprKind, Pat, PatKind, Rule, SortedRecord};
 use sml_util::interner::Symbol;
 use sml_util::pretty_print::{PrettyPrinter, Print};
 
-use std::collections::HashMap;
+use std::{cell::Cell, collections::HashMap};
 
 impl<T: Print> Print for &SortedRecord<T> {
     fn print<'a, 'b>(&self, pp: &'a mut PrettyPrinter<'b>) -> &'a mut PrettyPrinter<'b> {
@@ -32,11 +32,11 @@ impl<T: Print> Print for &SortedRecord<T> {
 impl<'a> Print for Pat<'a> {
     fn print<'c, 'b>(&self, pp: &'c mut PrettyPrinter<'b>) -> &'c mut PrettyPrinter<'b> {
         match &self.kind {
-            PatKind::App(con, Some(pat)) => pp.print(&con.name).text(" ").print(pat),
-            PatKind::App(con, None) => pp.print(&con.name),
+            PatKind::App(con, Some(pat)) => pp.print(&con.get().name).text(" ").print(pat),
+            PatKind::App(con, None) => pp.print(&con.get().name),
             PatKind::Const(constant) => pp.print(&constant),
             PatKind::Record(record) => pp.print(&record),
-            PatKind::Var(sym) => pp.print(sym),
+            PatKind::Var(sym) => pp.print(&sym.get()),
             PatKind::Wild => pp.text("_"),
         }
     }
@@ -67,7 +67,7 @@ impl<'a> Print for Expr<'a> {
                 }
                 pp
             }),
-            Con(con, tys) => pp.print(&con.name),
+            Con(con, tys) => pp.print(&con.get().name),
             Const(c) => pp.print(&c),
             Handle(tryy, sym, handler) => pp
                 .print(tryy)
@@ -137,7 +137,8 @@ impl<'a> Type<'a> {
     ) -> &'b mut PrettyPrinter<'c> {
         match self {
             Type::Con(tycon, args) => {
-                if tycon == &crate::builtin::tycons::T_ARROW {
+                let tycon = tycon.get();
+                if tycon == crate::builtin::tycons::T_ARROW {
                     args[0].print_rename(pp, map).text(" -> ");
                     args[1].print_rename(pp, map)
                 } else {
@@ -207,7 +208,7 @@ impl<'a> Type<'a> {
 impl<'a> Print for Decl<'a> {
     fn print<'b, 'c>(&self, pp: &'b mut PrettyPrinter<'c>) -> &'b mut PrettyPrinter<'c> {
         match self {
-            Decl::Val(Rule { pat, expr }) => pp
+            Decl::Val(_, Rule { pat, expr }) => pp
                 .line()
                 .text("val ")
                 .print(pat)
@@ -222,7 +223,7 @@ impl<'a> Print for Decl<'a> {
                         .print(name)
                         .text(": ")
                         .print(&Type::Con(
-                            crate::builtin::tycons::T_ARROW,
+                            Cell::new(crate::builtin::tycons::T_ARROW),
                             vec![lam.ty, lam.body.ty],
                         ))
                         .text(" = ")
