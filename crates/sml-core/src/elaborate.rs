@@ -935,7 +935,8 @@ impl<'a> Context<'a> {
                 };
 
                 let gensym = self.fresh_var();
-                let casee = self.arena.expr_var(gensym, arg);
+                let mut casee = self.arena.expr_var(gensym, arg);
+                casee.span = expr.span;
                 let body = crate::match_compile::case(self, casee, res, rules, expr.span);
 
                 Expr::new(
@@ -975,7 +976,8 @@ impl<'a> Context<'a> {
                 });
                 // tryy handle case $gensym of |...
                 let gensym = self.fresh_var();
-                let scrutinee = self.arena.expr_var(gensym, arg);
+                let mut scrutinee = self.arena.expr_var(gensym, arg);
+                scrutinee.span = tryy.span;
                 let body = crate::match_compile::case(self, scrutinee, res, rules, expr.span);
                 Expr::new(
                     self.arena.exprs.alloc(ExprKind::Handle(tryy, gensym, body)),
@@ -1100,7 +1102,9 @@ impl<'a> Context<'a> {
             ast::ExprKind::Var(sym) => match self.lookup_value(sym) {
                 Some((scheme, _)) => {
                     let ty = self.instantiate(scheme);
-                    self.arena.expr_var(*sym, ty)
+                    let mut ex = self.arena.expr_var(*sym, ty);
+                    ex.span = expr.span;
+                    ex
                 }
                 None => {
                     self.elab_errors
@@ -1318,7 +1322,9 @@ impl<'a> Context<'a> {
                     }
 
                     bindings.push((name, ty));
-                    self.arena.pat_var(name, ty)
+                    let mut p = self.arena.pat_var(name, ty);
+                    p.span = pat.span;
+                    p
                 }
             },
             Wild => Pat::new(self.arena.pats.wild(), self.fresh_tyvar(), pat.span),
