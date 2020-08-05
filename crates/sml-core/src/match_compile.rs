@@ -727,13 +727,12 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
                 })),
             };
 
-            diags.reached.insert(self.rules[0].expr.as_symbol());
-
+            let var = self.rules[0].expr.as_symbol();
+            diags.reached.insert(var);
+            // Important for the Renaming phase that we allocate a new Cell
+            let var = self.ctx.arena.expr_var(var, self.rules[0].expr.ty);
             Expr::new(
-                self.ctx
-                    .arena
-                    .exprs
-                    .alloc(ExprKind::App(self.rules[0].expr, args)),
+                self.ctx.arena.exprs.alloc(ExprKind::App(var, args)),
                 self.ret_ty,
                 self.rules[0].expr.span,
             )
