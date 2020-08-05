@@ -940,11 +940,11 @@ impl<'a> Context<'a> {
                 let body = crate::match_compile::case(self, casee, res, rules, expr.span);
 
                 Expr::new(
-                    self.arena.exprs.alloc(ExprKind::Lambda(Lambda {
+                    self.arena.exprs.alloc(ExprKind::Lambda(Cell::new(Lambda {
                         arg: gensym,
                         ty: arg,
                         body,
-                    })),
+                    }))),
                     ty,
                     expr.span,
                 )
@@ -980,7 +980,9 @@ impl<'a> Context<'a> {
                 scrutinee.span = tryy.span;
                 let body = crate::match_compile::case(self, scrutinee, res, rules, expr.span);
                 Expr::new(
-                    self.arena.exprs.alloc(ExprKind::Handle(tryy, gensym, body)),
+                    self.arena
+                        .exprs
+                        .alloc(ExprKind::Handle(tryy, Cell::new(gensym), body)),
                     res,
                     expr.span,
                 )
@@ -1647,11 +1649,11 @@ impl<'a> Context<'a> {
                 .fold((case, res_ty), |(expr, rty), (arg, ty)| {
                     (
                         Expr::new(
-                            self.arena.exprs.alloc(ExprKind::Lambda(Lambda {
+                            self.arena.exprs.alloc(ExprKind::Lambda(Cell::new(Lambda {
                                 arg,
                                 ty,
                                 body: expr,
-                            })),
+                            }))),
                             self.arena.types.arrow(ty, rty),
                             Span::dummy(),
                         ),

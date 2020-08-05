@@ -72,10 +72,14 @@ impl<'a> Print for Expr<'a> {
             Handle(tryy, sym, handler) => pp
                 .print(tryy)
                 .text("handle ")
-                .print(sym)
+                .print(&sym.get())
                 .text(" with ")
                 .print(handler),
-            Lambda(lam) => pp.text("fn ").print(&lam.arg).text(" => ").print(&lam.body),
+            Lambda(lam) => pp
+                .text("fn ")
+                .print(&lam.get().arg)
+                .text(" => ")
+                .print(&lam.get().body),
             Let(decls, body) => pp.nest(2, |pp| {
                 pp.line()
                     .text("let")

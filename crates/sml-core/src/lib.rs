@@ -30,6 +30,7 @@ pub mod core_pp;
 pub mod elaborate;
 pub mod match_compile;
 pub mod monomorphize;
+pub mod rename;
 pub mod types;
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, PartialOrd, Eq, Hash)]
@@ -44,10 +45,8 @@ pub enum ExprKind<'ar> {
     Con(Cell<Constructor>, Vec<&'ar Type<'ar>>),
     Const(Const),
     /// Handle: try, bound var, case expr
-    Handle(Expr<'ar>, Symbol, Expr<'ar>),
-    /// We shouldn't need to wrap lambda in a `Cell`, because all lambdas
-    /// already have fresh symbols as their arguments
-    Lambda(Lambda<'ar>),
+    Handle(Expr<'ar>, Cell<Symbol>, Expr<'ar>),
+    Lambda(Cell<Lambda<'ar>>),
     Let(Vec<Decl<'ar>>, Expr<'ar>),
     List(Vec<Expr<'ar>>),
     Primitive(Symbol),

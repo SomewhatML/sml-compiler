@@ -83,7 +83,7 @@ impl<'a> Compiler<'a> {
             (p.parse_decl(), p.diags)
         });
 
-        let mut cache = sml_core::monomorphize::Cache::default();
+        let mut renamer = sml_core::rename::Rename::new();
 
         let sio = std::io::stdout();
         let mut out = sio.lock();
@@ -131,9 +131,9 @@ impl<'a> Compiler<'a> {
                     }
                     _ => {
                         let mut pp = PrettyPrinter::new(&self.interner);
-                        for decl in &decls {
-                            cache.visit_decl(decl);
-                            pp.print(decl);
+                        for decl in decls {
+                            let decl = renamer.visit_decl(decl);
+                            pp.print(&decl);
                             pp.write(&mut out).unwrap();
                             out.flush().unwrap();
                         }

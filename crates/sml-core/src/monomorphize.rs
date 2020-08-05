@@ -54,7 +54,7 @@ impl<'a> Cache<'a> {
                 self.visit_expr(handler);
             }
             ExprKind::Lambda(lam) => {
-                self.visit_expr(&lam.body);
+                self.visit_expr(&lam.get().body);
             }
             ExprKind::Let(decls, body) => {
                 for decl in decls {}
