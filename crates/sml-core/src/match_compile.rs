@@ -39,7 +39,11 @@ pub fn case<'a>(
     let mut diags = MatchDiags::with_capacity(span, rules.len(), C_MATCH);
     let (mut decls, rules) = preflight(ctx, rules, &mut diags);
 
-    let tyvars = scrutinee.ty.ftv_rank(ctx.tyvar_rank).into_iter().collect();
+    let tyvars = scrutinee
+        .ty
+        .ftv_rank(ctx.tyvar_rank + 1)
+        .into_iter()
+        .collect();
     decls.push(Decl::Val(
         tyvars,
         Rule {
@@ -174,7 +178,11 @@ pub fn val<'a>(
     let mut diags = MatchDiags::with_capacity(span, 1, C_BIND);
     let (mut decls, rules) = preflight(ctx, vec![Rule { pat, expr: rexpr }], &mut diags);
 
-    let tyvars = scrutinee.ty.ftv_rank(ctx.tyvar_rank).into_iter().collect();
+    let tyvars = scrutinee
+        .ty
+        .ftv_rank(ctx.tyvar_rank + 1)
+        .into_iter()
+        .collect();
     decls.push(Decl::Val(
         tyvars,
         Rule {
@@ -243,7 +251,7 @@ fn preflight<'a>(
                 let (var, ty) = vars[0];
                 let pat = ctx.arena.pat_var(var, ty);
                 let ex = ctx.arena.expr_var(arg, ty);
-                let tyvars = ty.ftv_rank(ctx.tyvar_rank).into_iter().collect();
+                let tyvars = ty.ftv_rank(ctx.tyvar_rank + 1).into_iter().collect();
 
                 let decl = Decl::Val(tyvars, Rule { pat, expr: ex });
                 (
@@ -258,7 +266,7 @@ fn preflight<'a>(
             _ => {
                 let body = ctx
                     .arena
-                    .let_detuple(vars.clone(), arg, expr, ctx.tyvar_rank);
+                    .let_detuple(vars.clone(), arg, expr, ctx.tyvar_rank + 1);
                 let ty = ctx.arena.ty_tuple(vars.into_iter().map(|(_, t)| t));
                 (body, ty)
             }
@@ -489,7 +497,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
             record,
             base.0,
             mat.compile(facts, diags),
-            self.ctx.tyvar_rank,
+            self.ctx.tyvar_rank + 1,
         )
     }
 

@@ -205,21 +205,55 @@ impl<'a> Type<'a> {
     }
 }
 
+fn print_tyvars<'b, 'c>(
+    ids: &[usize],
+    map: &mut HashMap<usize, String>,
+    pp: &'b mut PrettyPrinter<'c>,
+) -> &'b mut PrettyPrinter<'c> {
+    match ids.len() {
+        0 => pp,
+        1 => {
+            map.insert(ids[0], "'a".into());
+            pp.text("'a ")
+        }
+        _ => {
+            for (idx, tyvar) in ids.iter().enumerate() {
+                let last = ((idx % 26) as u8 + b'a' as u8) as char;
+                let name = format!(
+                    "'{}",
+                    (0..idx / 26)
+                        .map(|_| 'z')
+                        .chain(std::iter::once(last))
+                        .collect::<String>()
+                );
+                pp.text(&name);
+                map.insert(*tyvar, name);
+                if idx != ids.len() - 1 {
+                    pp.text(", ");
+                }
+            }
+            pp.text(" ")
+        }
+    }
+}
+
 impl<'a> Print for Decl<'a> {
     fn print<'b, 'c>(&self, pp: &'b mut PrettyPrinter<'c>) -> &'b mut PrettyPrinter<'c> {
+        let mut map = HashMap::new();
         match self {
-            Decl::Val(_, Rule { pat, expr }) => pp
-                .line()
-                .text("val ")
-                .print(pat)
-                .text(": ")
-                .print(pat.ty)
-                .text(" = ")
-                .print(expr),
-            Decl::Fun(_, binds) => {
+            Decl::Val(vars, Rule { pat, expr }) => {
+                pp.line().text("val ");
+                print_tyvars(&vars, &mut map, pp)
+                    .print(pat)
+                    .text(": ")
+                    .print(pat.ty)
+                    .text(" = ")
+                    .print(expr)
+            }
+            Decl::Fun(vars, binds) => {
                 for (name, lam) in binds {
-                    pp.line()
-                        .text("val ")
+                    pp.line().text("val ");
+                    print_tyvars(&vars, &mut map, pp)
                         .print(name)
                         .text(": ")
                         .print(&Type::Con(
@@ -242,35 +276,10 @@ impl<'a> Print for Decl<'a> {
                 .print(*ty),
             Decl::Exn(con, None) => pp.text("exception ").print(&con.name),
             Decl::Datatype(dt) => {
-                let mut map = HashMap::new();
-                pp.line();
-                let pp = match dt.tyvars.len() {
-                    0 => pp.text("datatype ").print(&dt.tycon.name),
-                    1 => {
-                        map.insert(dt.tyvars[0], "'a".into());
-                        pp.text("datatype 'a ").print(&dt.tycon.name)
-                    }
-                    _ => {
-                        pp.text("datatype (");
-                        for (idx, tyvar) in dt.tyvars.iter().enumerate() {
-                            let last = ((idx % 26) as u8 + b'a' as u8) as char;
-                            let name = format!(
-                                "'{}",
-                                (0..idx / 26)
-                                    .map(|_| 'z')
-                                    .chain(std::iter::once(last))
-                                    .collect::<String>()
-                            );
-                            pp.text(&name);
-                            map.insert(*tyvar, name);
-                            if idx != dt.tyvars.len() - 1 {
-                                pp.text(", ");
-                            }
-                        }
-                        pp.text(") ").print(&dt.tycon.name)
-                    }
-                };
-                pp.text(" = ");
+                pp.line().text("datatype ");
+                print_tyvars(&dt.tyvars, &mut map, pp)
+                    .print(&dt.tycon.name)
+                    .text(" = ");
 
                 for (idx, con) in dt.constructors.iter().enumerate() {
                     match con {

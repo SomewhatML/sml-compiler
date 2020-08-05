@@ -672,7 +672,7 @@ impl<'a> Context<'a> {
 
         match ftv.len() {
             0 => Scheme::Mono(ty),
-            _ => Scheme::Poly(ftv.into_iter().collect(), ty),
+            _ => Scheme::Poly(ftv, ty),
         }
     }
 
@@ -1683,7 +1683,7 @@ impl<'a> Context<'a> {
         self.with_tyvars(|ctx| {
             ctx.tyvar_rank += 1;
             for sym in tyvars {
-                let f = ctx.arena.types.fresh_type_var(ctx.tyvar_rank + 1);
+                let f = ctx.arena.types.fresh_type_var(ctx.tyvar_rank);
                 ctx.tyvars.push((*sym, f));
             }
 

@@ -204,7 +204,7 @@ impl<'a> CoreArena<'a> {
             iter.into_iter()
                 .map(|(sym, ty)| (ExprKind::Var(Cell::new(sym)), ty)),
         );
-        let tyvars = body.ty.ftv_rank(rank).into_iter().collect();
+        let tyvars = body.ty.ftv_rank(rank);
 
         let decl = Decl::Val(
             tyvars,
@@ -233,7 +233,7 @@ impl<'a> CoreArena<'a> {
             iter.into_iter()
                 .map(|(sym, ty)| (PatKind::Var(Cell::new(sym)), ty)),
         );
-        let tyvars = body.ty.ftv_rank(rank).into_iter().collect();
+        let tyvars = body.ty.ftv_rank(rank);
 
         let decl = Decl::Val(
             tyvars,
@@ -262,7 +262,7 @@ impl<'a> CoreArena<'a> {
             iter.into_iter()
                 .map(|(field, sym, ty)| (field, PatKind::Var(Cell::new(sym)), ty)),
         );
-        let tyvars = body.ty.ftv_rank(rank).into_iter().collect();
+        let tyvars = body.ty.ftv_rank(rank);
 
         let decl = Decl::Val(
             tyvars,

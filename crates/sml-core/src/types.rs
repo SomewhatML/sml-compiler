@@ -145,7 +145,8 @@ impl<'a> Type<'a> {
 
     /// Perform a breadth-first traversal of a type, collecting it's
     /// associated type variables that have a rank greater than `rank`
-    pub fn ftv_rank(&self, rank: usize) -> HashSet<usize> {
+    pub fn ftv_rank(&self, rank: usize) -> Vec<usize> {
+        let mut captured = Vec::new();
         let mut uniq = HashSet::new();
         let mut queue = VecDeque::new();
         queue.push_back(self);
@@ -154,8 +155,8 @@ impl<'a> Type<'a> {
             match ty {
                 Type::Var(x) => match x.ty() {
                     None => {
-                        if x.rank() > rank {
-                            uniq.insert(x.id);
+                        if x.rank() > rank && uniq.insert(x.id) {
+                            captured.push(x.id);
                         }
                     }
                     Some(link) => {
@@ -182,7 +183,7 @@ impl<'a> Type<'a> {
                 }
             }
         }
-        uniq
+        captured
     }
 
     /// Apply a substitution to a type
