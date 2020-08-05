@@ -9,7 +9,8 @@ use sml_util::span::Span;
 use sml_util::Const;
 use std::{cell::Cell, collections::HashMap};
 
-pub struct Rename {
+pub struct Rename<'a> {
+    pub decls: Vec<Decl<'a>>,
     stack: Vec<Namespace>,
     id: u32,
 }
@@ -20,11 +21,12 @@ pub struct Namespace {
     values: HashMap<Symbol, Symbol>,
 }
 
-impl Rename {
+impl<'a> Rename<'a> {
     // pub fn register(&mut self, name: Symbol, decl: )
 
-    pub fn new() -> Rename {
+    pub fn new() -> Rename<'a> {
         Rename {
+            decls: Vec::with_capacity(1024),
             stack: vec![Namespace::default()],
             id: 0,
         }
@@ -92,12 +94,18 @@ impl Rename {
         }
     }
 
-    pub fn visit_decl<'a>(&mut self, decl: Decl<'a>) -> Decl<'a> {
-        match decl {
-            Decl::Val(_, Rule { pat, expr }) => {
+    pub fn visit_decl_top(&mut self, decl: Decl<'a>) {
+        let decl = match decl {
+            Decl::Val(vars, Rule { pat, expr }) => {
                 self.visit_pat(&pat);
                 self.visit_expr(&expr);
-                decl
+                Decl::Val(
+                    vars,
+                    Rule {
+                        pat: pat,
+                        expr: expr,
+                    },
+                )
             }
             Decl::Fun(vars, funs) => {
                 let funs = funs
@@ -129,13 +137,62 @@ impl Rename {
             }
             Decl::Exn(mut con, ty) => {
                 con.name = self.register_val(con.name);
-                Decl::Exn(con, ty)
+                Decl::Exn(con, ty.clone())
             }
-            _ => decl,
-        }
+        };
+        self.decls.push(decl)
     }
 
-    pub fn visit_pat(&mut self, pat: &Pat<'_>) {
+    fn visit_decl(&mut self, decl: &Decl<'a>) {
+        let decl = match decl {
+            Decl::Val(vars, Rule { pat, expr }) => {
+                self.visit_pat(&pat);
+                self.visit_expr(&expr);
+                Decl::Val(
+                    vars.clone(),
+                    Rule {
+                        pat: *pat,
+                        expr: *expr,
+                    },
+                )
+            }
+            Decl::Fun(vars, funs) => {
+                let funs = funs
+                    .into_iter()
+                    .map(|(sym, mut lam)| {
+                        let sym = self.register_val(*sym);
+                        self.enter();
+                        lam.arg = self.register_val(lam.arg);
+                        self.visit_expr(&lam.body);
+                        self.leave();
+                        (sym, lam)
+                    })
+                    .collect();
+
+                Decl::Fun(vars.clone(), funs)
+            }
+            Decl::Datatype(dt) => {
+                let mut dt = dt.clone();
+                dt.tycon.name = self.register_type(dt.tycon.name);
+                dt.constructors = dt
+                    .constructors
+                    .into_iter()
+                    .map(|(mut con, ty)| {
+                        con.name = self.register_val(con.name);
+                        (con, ty)
+                    })
+                    .collect();
+
+                Decl::Datatype(dt)
+            }
+            Decl::Exn(mut con, ty) => {
+                con.name = self.register_val(con.name);
+                Decl::Exn(con, ty.clone())
+            }
+        };
+    }
+
+    fn visit_pat(&mut self, pat: &Pat<'a>) {
         match pat.kind {
             PatKind::App(con, Some(pat)) => {
                 let mut inner = con.get();
@@ -167,7 +224,7 @@ impl Rename {
         }
     }
 
-    pub fn visit_expr(&mut self, expr: &Expr<'_>) {
+    fn visit_expr(&mut self, expr: &Expr<'a>) {
         match expr.kind {
             ExprKind::App(e1, e2) => {
                 self.visit_expr(e1);
@@ -200,7 +257,7 @@ impl Rename {
             ExprKind::Let(decls, body) => {
                 self.enter();
                 for decl in decls {
-                    // self.visit_decl(decl);
+                    self.visit_decl(decl);
                 }
                 self.visit_expr(body);
                 self.leave();

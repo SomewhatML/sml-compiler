@@ -132,7 +132,12 @@ impl<'a> Compiler<'a> {
                     _ => {
                         let mut pp = PrettyPrinter::new(&self.interner);
                         for decl in decls {
-                            let decl = renamer.visit_decl(decl);
+                            pp.print(&decl);
+                            pp.write(&mut out).unwrap();
+                            renamer.visit_decl_top(decl);
+                            out.flush().unwrap();
+                        }
+                        for decl in renamer.decls {
                             pp.print(&decl);
                             pp.write(&mut out).unwrap();
                             out.flush().unwrap();
