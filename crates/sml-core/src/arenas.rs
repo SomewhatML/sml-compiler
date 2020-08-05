@@ -180,11 +180,7 @@ impl<'a> CoreArena<'a> {
     }
 
     pub fn expr_var(&self, var: Symbol, ty: &'a Type<'a>) -> Expr<'a> {
-        Expr::new(
-            self.exprs.alloc(ExprKind::Var(Cell::new(var))),
-            ty,
-            Span::dummy(),
-        )
+        Expr::new(self.exprs.alloc(ExprKind::Var(var)), ty, Span::dummy())
     }
 
     /// Create a `let val var_name : (ty1, ty2, ty3) = (s1, ... sN) in expr`
@@ -194,15 +190,17 @@ impl<'a> CoreArena<'a> {
         iter: I,
         var_name: Symbol,
         body: Expr<'a>,
+        tyvar_rank: usize,
     ) -> Expr<'a> {
-        let expr = self.expr_tuple(
-            iter.into_iter()
-                .map(|(sym, ty)| (ExprKind::Var(Cell::new(sym)), ty)),
+        let expr = self.expr_tuple(iter.into_iter().map(|(sym, ty)| (ExprKind::Var(sym), ty)));
+        let tyvars = expr.ty.ftv_rank(tyvar_rank + 1);
+        let decl = Decl::Val(
+            tyvars,
+            Rule {
+                pat: self.pat_var(var_name, expr.ty),
+                expr,
+            },
         );
-        let decl = Decl::Val(Rule {
-            pat: self.pat_var(var_name, expr.ty),
-            expr,
-        });
         Expr::new(
             self.exprs.alloc(ExprKind::Let(vec![decl], body)),
             body.ty,
@@ -217,12 +215,17 @@ impl<'a> CoreArena<'a> {
         iter: I,
         var_name: Symbol,
         body: Expr<'a>,
+        tyvar_rank: usize,
     ) -> Expr<'a> {
         let pat = self.pat_tuple(iter.into_iter().map(|(sym, ty)| (PatKind::Var(sym), ty)));
-        let decl = Decl::Val(Rule {
-            pat,
-            expr: self.expr_var(var_name, pat.ty),
-        });
+        let tyvars = pat.ty.ftv_rank(tyvar_rank + 1);
+        let decl = Decl::Val(
+            tyvars,
+            Rule {
+                pat,
+                expr: self.expr_var(var_name, pat.ty),
+            },
+        );
         Expr::new(
             self.exprs.alloc(ExprKind::Let(vec![decl], body)),
             body.ty,
@@ -237,15 +240,21 @@ impl<'a> CoreArena<'a> {
         iter: I,
         var_name: Symbol,
         body: Expr<'a>,
+        tyvar_rank: usize,
     ) -> Expr<'a> {
         let pat = self.pat_record(
             iter.into_iter()
                 .map(|(field, sym, ty)| (field, PatKind::Var(sym), ty)),
         );
-        let decl = Decl::Val(Rule {
-            pat,
-            expr: self.expr_var(var_name, pat.ty),
-        });
+
+        let tyvars = pat.ty.ftv_rank(tyvar_rank + 1);
+        let decl = Decl::Val(
+            tyvars,
+            Rule {
+                pat,
+                expr: self.expr_var(var_name, pat.ty),
+            },
+        );
         Expr::new(
             self.exprs.alloc(ExprKind::Let(vec![decl], body)),
             body.ty,
@@ -272,8 +281,7 @@ impl<'ar> ExprArena<'ar> {
     }
 
     pub fn fresh_var(&self) -> &'ar ExprKind<'ar> {
-        self.arena
-            .alloc(ExprKind::Var(Cell::new(self.allocate_id())))
+        self.arena.alloc(ExprKind::Var(self.allocate_id()))
     }
 
     pub fn allocate_id(&self) -> Symbol {

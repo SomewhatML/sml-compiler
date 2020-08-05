@@ -19,6 +19,9 @@ impl<'s, 'sym> Parser<'s, 'sym> {
 
     fn record_expr(&mut self) -> Result<ExprKind, Error> {
         self.expect(Token::LBrace)?;
+        if self.bump_if(Token::RBrace) {
+            return Ok(ExprKind::Const(Const::Unit));
+        }
         let fields = self.delimited(|p| p.record_row(), Token::Comma)?;
         self.expect_try_recover(Token::RBrace);
         Ok(ExprKind::Record(fields))

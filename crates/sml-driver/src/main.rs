@@ -91,7 +91,7 @@ impl<'a> Compiler<'a> {
                         for decl in &decls {
                             use sml_core::{Decl, Rule};
                             match decl {
-                                Decl::Val(Rule { pat, .. }) => {
+                                Decl::Val(_, Rule { pat, .. }) => {
                                     pp.text("val ").print(pat).text(": ").print(pat.ty).line();
                                 }
                                 Decl::Fun(_, binds) => {

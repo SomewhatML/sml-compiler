@@ -2,7 +2,7 @@
 
 -- args: --vv
 -- expected stdout:
--- val merge: 'a list -> 'a list -> 'a list = fn a => fn b => 
+-- val 'a merge: 'a list -> 'a list -> 'a list = fn a => fn b => 
 --   let
 --     val e: 'a list -> 'a list = fn d => 
 --       let

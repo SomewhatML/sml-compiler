@@ -133,7 +133,7 @@ pub struct Context<'a> {
     // All defined values live here, indexed by `ExprId`
     values: Vec<(Scheme<'a>, IdStatus)>,
 
-    tyvar_rank: usize,
+    pub tyvar_rank: usize,
     local_depth: usize,
 
     pub(crate) arena: &'a CoreArena<'a>,
@@ -662,7 +662,7 @@ impl<'a> Context<'a> {
 
         match ftv.len() {
             0 => Scheme::Mono(ty),
-            _ => Scheme::Poly(ftv.into_iter().collect(), ty),
+            _ => Scheme::Poly(ftv, ty),
         }
     }
 
@@ -1091,13 +1091,7 @@ impl<'a> Context<'a> {
                 Some((scheme, _)) => {
                     let ty = self.instantiate(scheme);
                     // println!("inst {:?} [{:?}] -> {:?}", sym, scheme, ty);
-                    Expr::new(
-                        self.arena
-                            .exprs
-                            .alloc(ExprKind::Var(std::cell::Cell::new(*sym))),
-                        ty,
-                        expr.span,
-                    )
+                    Expr::new(self.arena.exprs.alloc(ExprKind::Var(*sym)), ty, expr.span)
                 }
                 None => {
                     self.elab_errors
@@ -1372,7 +1366,7 @@ impl<'a> Context<'a> {
         }
     }
 
-    fn elab_decl_conbind(&mut self, db: &ast::Datatype, elab: &mut Vec<Decl<'a>>) {
+    fn elab_decl_conbind(&mut self, db: &ast::Datatype, elab: &mut Vec<Decl<'a>>) -> Datatype<'a> {
         let tycon = Tycon::new(db.tycon, db.tyvars.len(), self.scope_depth());
 
         // This is safe to unwrap, because we already bound it.
@@ -1438,7 +1432,7 @@ impl<'a> Context<'a> {
             tyvars: tyvars.iter().map(|tv| tv.id).collect(),
             constructors,
         };
-        elab.push(Decl::Datatype(dt));
+        dt
     }
 
     fn elab_decl_datatype(&mut self, dbs: &[ast::Datatype], elab: &mut Vec<Decl<'a>>) {
@@ -1449,15 +1443,19 @@ impl<'a> Context<'a> {
             let tycon = Tycon::new(db.tycon, db.tyvars.len(), self.scope_depth());
             self.define_type(db.tycon, TypeStructure::Tycon(tycon));
         }
-        for db in dbs {
-            self.with_tyvars(|ctx| {
-                for s in &db.tyvars {
-                    let v = ctx.arena.types.fresh_type_var(ctx.tyvar_rank);
-                    ctx.tyvars.push((*s, v));
-                }
-                ctx.elab_decl_conbind(db, elab)
-            });
-        }
+        let dts = dbs
+            .iter()
+            .map(|db| {
+                self.with_tyvars(|ctx| {
+                    for s in &db.tyvars {
+                        let v = ctx.arena.types.fresh_type_var(ctx.tyvar_rank);
+                        ctx.tyvars.push((*s, v));
+                    }
+                    ctx.elab_decl_conbind(db, elab)
+                })
+            })
+            .collect();
+        elab.push(Decl::Datatype(dts));
     }
 
     fn elab_decl_exception(&mut self, exns: &[ast::Variant], elab: &mut Vec<Decl<'a>>) {
@@ -1560,7 +1558,7 @@ impl<'a> Context<'a> {
         }
     }
 
-    fn elab_decl_fnbind(&mut self, fun: PartialFun<'_, 'a>) -> Lambda<'a> {
+    fn elab_decl_fnbind(&mut self, fun: PartialFun<'_, 'a>, tyvars: &mut Vec<usize>) -> Lambda<'a> {
         let PartialFun {
             clauses,
             res_ty,
@@ -1651,6 +1649,10 @@ impl<'a> Context<'a> {
             false => self.generalize(ty),
         };
 
+        if let Scheme::Poly(vars, _) = &sch {
+            tyvars.extend(vars.iter().copied());
+        }
+
         self.define_value(fun.name, total_sp, sch, IdStatus::Var);
 
         Lambda {
@@ -1662,11 +1664,9 @@ impl<'a> Context<'a> {
 
     fn elab_decl_fun(&mut self, tyvars: &[Symbol], fbs: &[ast::Fun], elab: &mut Vec<Decl<'a>>) {
         self.with_tyvars(|ctx| {
-            let mut vars = Vec::new();
             ctx.tyvar_rank += 1;
             for sym in tyvars {
-                let f = ctx.arena.types.fresh_type_var(ctx.tyvar_rank + 1);
-                vars.push(f.id);
+                let f = ctx.arena.types.fresh_type_var(ctx.tyvar_rank);
                 ctx.tyvars.push((*sym, f));
             }
 
@@ -1683,12 +1683,13 @@ impl<'a> Context<'a> {
             }
             ctx.tyvar_rank -= 1;
 
-            elab.push(Decl::Fun(
-                vars,
-                info.into_iter()
-                    .map(|fun| (fun.name, ctx.elab_decl_fnbind(fun)))
-                    .collect::<Vec<(Symbol, Lambda)>>(),
-            ));
+            let mut tyvars = Vec::new();
+            let lams = info
+                .into_iter()
+                .map(|fun| (fun.name, ctx.elab_decl_fnbind(fun, &mut tyvars)))
+                .collect();
+
+            elab.push(Decl::Fun(tyvars, lams));
         })
     }
 
@@ -1716,26 +1717,26 @@ impl<'a> Context<'a> {
             });
 
             let dontgeneralize = !expr.non_expansive() || pat.flexible();
+            let mut tyvars = Vec::new();
             for (var, tv) in &bindings {
                 let sch = match dontgeneralize {
                     false => ctx.generalize(tv),
-                    true => {
-                        // ctx.elab_errors.push(ElabError::new(pat.span, "type variables not generalized!").kind(ErrorKind::Generalize));
-                        Scheme::Mono(tv)
-                    }
+                    true => Scheme::Mono(tv),
                 };
+                if let Scheme::Poly(vars, _) = &sch {
+                    tyvars.extend(vars);
+                }
                 ctx.define_value(*var, pat.span, sch, IdStatus::Var);
             }
-
             match pat.kind {
                 PatKind::Var(_) | PatKind::Wild => {
-                    elab.push(Decl::Val(Rule { pat, expr }));
+                    elab.push(Decl::Val(tyvars, Rule { pat, expr }));
                 }
                 _ => {
                     // If we have some kind of compound binding, go ahead and
                     // do a source->source rewrite
                     let rule = crate::match_compile::val(ctx, expr, pat, &bindings);
-                    elab.push(Decl::Val(rule));
+                    elab.push(Decl::Val(tyvars, rule));
                 }
             }
         })

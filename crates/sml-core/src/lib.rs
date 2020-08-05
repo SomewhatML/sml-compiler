@@ -19,7 +19,6 @@
 use sml_util::interner::Symbol;
 use sml_util::span::Span;
 use sml_util::Const;
-use std::cell::Cell;
 use std::collections::HashMap;
 use types::{Constructor, Scheme, Tycon, Type, TypeVar};
 
@@ -29,7 +28,6 @@ pub mod check;
 pub mod core_pp;
 pub mod elaborate;
 pub mod match_compile;
-pub mod monomorphize;
 pub mod types;
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, PartialOrd, Eq, Hash)]
@@ -52,7 +50,7 @@ pub enum ExprKind<'ar> {
     Raise(Expr<'ar>),
     Record(Vec<Row<Expr<'ar>>>),
     Seq(Vec<Expr<'ar>>),
-    Var(Cell<Symbol>),
+    Var(Symbol),
 }
 
 #[derive(Copy, Clone)]
@@ -103,9 +101,9 @@ pub struct Datatype<'ar> {
 }
 
 pub enum Decl<'ar> {
-    Datatype(Datatype<'ar>),
+    Datatype(Vec<Datatype<'ar>>),
     Fun(Vec<usize>, Vec<(Symbol, Lambda<'ar>)>),
-    Val(Rule<'ar>),
+    Val(Vec<usize>, Rule<'ar>),
     Exn(Constructor, Option<&'ar Type<'ar>>),
 }
 
@@ -142,7 +140,7 @@ impl<'ar> Expr<'ar> {
 
     pub fn as_symbol(&self) -> Symbol {
         match &self.kind {
-            ExprKind::Var(s) => s.get(),
+            ExprKind::Var(s) => *s,
             _ => panic!("BUG: Expr::as_symbol()"),
         }
     }
