@@ -8,6 +8,7 @@ use sml_util::interner::*;
 // datatype 'a list = nil | :: of 'a * 'a list
 pub const C_NIL: Constructor = Constructor {
     name: S_NIL,
+    tycon: S_LIST,
     type_id: TypeId(6),
     tag: 0,
     arity: 0,
@@ -15,6 +16,7 @@ pub const C_NIL: Constructor = Constructor {
 };
 pub const C_CONS: Constructor = Constructor {
     name: S_CONS,
+    tycon: S_LIST,
     type_id: TypeId(6),
     tag: 1,
     arity: 1,
@@ -24,6 +26,7 @@ pub const C_CONS: Constructor = Constructor {
 // datatype bool = true | false
 pub const C_TRUE: Constructor = Constructor {
     name: S_TRUE,
+    tycon: S_BOOL,
     type_id: TypeId(7),
     tag: 0,
     arity: 0,
@@ -31,6 +34,7 @@ pub const C_TRUE: Constructor = Constructor {
 };
 pub const C_FALSE: Constructor = Constructor {
     name: S_FALSE,
+    tycon: S_BOOL,
     type_id: TypeId(7),
     tag: 1,
     arity: 0,
@@ -39,6 +43,7 @@ pub const C_FALSE: Constructor = Constructor {
 
 pub const C_REF: Constructor = Constructor {
     name: S_REF,
+    tycon: S_REF,
     type_id: TypeId(5),
     tag: 0,
     arity: 1,
@@ -47,6 +52,7 @@ pub const C_REF: Constructor = Constructor {
 
 pub const C_MATCH: Constructor = Constructor {
     name: S_MATCH,
+    tycon: S_EXN,
     type_id: TypeId(8),
     tag: 0,
     arity: 0,
@@ -55,6 +61,7 @@ pub const C_MATCH: Constructor = Constructor {
 
 pub const C_BIND: Constructor = Constructor {
     name: S_BIND,
+    tycon: S_EXN,
     type_id: TypeId(8),
     tag: 0,
     arity: 0,

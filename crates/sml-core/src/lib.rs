@@ -27,8 +27,11 @@ pub mod builtin;
 pub mod check;
 pub mod core_pp;
 pub mod elaborate;
+pub mod lower;
 pub mod match_compile;
 pub mod types;
+
+pub type Var<'a> = (Symbol, &'a Type<'a>);
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, PartialOrd, Eq, Hash)]
 pub struct TypeId(pub u32);
@@ -38,7 +41,7 @@ pub struct ExprId(pub u32);
 
 pub enum ExprKind<'ar> {
     App(Expr<'ar>, Expr<'ar>),
-    Case(Expr<'ar>, Vec<Rule<'ar>>),
+    Case(Var<'ar>, Vec<Rule<'ar>>),
     Con(Constructor, Vec<&'ar Type<'ar>>),
     Const(Const),
     /// Handle: try, bound var, case expr

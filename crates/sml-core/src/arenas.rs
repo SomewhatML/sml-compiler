@@ -193,7 +193,7 @@ impl<'a> CoreArena<'a> {
         tyvar_rank: usize,
     ) -> Expr<'a> {
         let expr = self.expr_tuple(iter.into_iter().map(|(sym, ty)| (ExprKind::Var(sym), ty)));
-        let tyvars = expr.ty.ftv_rank(tyvar_rank + 1);
+        let tyvars = expr.ty.ftv_rank(tyvar_rank);
         let decl = Decl::Val(
             tyvars,
             Rule {
@@ -218,7 +218,7 @@ impl<'a> CoreArena<'a> {
         tyvar_rank: usize,
     ) -> Expr<'a> {
         let pat = self.pat_tuple(iter.into_iter().map(|(sym, ty)| (PatKind::Var(sym), ty)));
-        let tyvars = pat.ty.ftv_rank(tyvar_rank + 1);
+        let tyvars = pat.ty.ftv_rank(tyvar_rank);
         let decl = Decl::Val(
             tyvars,
             Rule {
@@ -247,7 +247,7 @@ impl<'a> CoreArena<'a> {
                 .map(|(field, sym, ty)| (field, PatKind::Var(sym), ty)),
         );
 
-        let tyvars = pat.ty.ftv_rank(tyvar_rank + 1);
+        let tyvars = pat.ty.ftv_rank(tyvar_rank);
         let decl = Decl::Val(
             tyvars,
             Rule {

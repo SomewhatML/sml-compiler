@@ -16,14 +16,12 @@
 use crate::builtin::constructors::{C_BIND, C_MATCH};
 use crate::elaborate::{Context, ElabError, ErrorKind};
 use crate::types::{Constructor, Type};
-use crate::{Decl, Expr, ExprKind, Lambda, Pat, PatKind, Row, Rule, SortedRecord};
+use crate::{Decl, Expr, ExprKind, Lambda, Pat, PatKind, Row, Rule, SortedRecord, Var};
 use sml_util::diagnostics::Level;
 use sml_util::interner::Symbol;
 use sml_util::span::Span;
 use sml_util::Const;
 use std::collections::{HashMap, HashSet, VecDeque};
-
-pub type Var<'a> = (Symbol, &'a Type<'a>);
 
 pub fn case<'a>(
     ctx: &mut Context<'a>,
@@ -575,10 +573,10 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
         }
 
         Expr::new(
-            self.ctx.arena.exprs.alloc(ExprKind::Case(
-                self.ctx.arena.expr_var(self.vars[0].0, self.vars[0].1),
-                rules,
-            )),
+            self.ctx
+                .arena
+                .exprs
+                .alloc(ExprKind::Case(self.vars[0], rules)),
             self.ret_ty,
             Span::dummy(),
         )
@@ -647,10 +645,10 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
         }
 
         Expr::new(
-            self.ctx.arena.exprs.alloc(ExprKind::Case(
-                self.ctx.arena.expr_var(self.vars[0].0, self.vars[0].1),
-                rules,
-            )),
+            self.ctx
+                .arena
+                .exprs
+                .alloc(ExprKind::Case(self.vars[0], rules)),
             self.ret_ty,
             Span::dummy(),
         )

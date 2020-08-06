@@ -48,7 +48,7 @@ impl<'a> Print for Expr<'a> {
         match &self.kind {
             App(e1, e2) => pp.print(e1).text(" ").print(e2),
             Case(casee, rules) => pp.nest(2, |pp| {
-                pp.line().text("case ").print(casee).nest(2, |pp| {
+                pp.line().text("case ").print(&casee.0).nest(2, |pp| {
                     pp.line()
                         .text("of ")
                         .print(&rules[0].pat)

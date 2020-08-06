@@ -776,8 +776,19 @@ impl<'a> Context<'a> {
                 .message("branches of `if` expression don't have the same types")
         });
 
+        let var = self.fresh_var();
+        let pat = self.arena.pat_var(var, self.arena.types.bool());
+
+        let decl = Decl::Val(Vec::new(), Rule { pat, expr: e1 });
+        let body = Expr::new(
+            self.arena
+                .exprs
+                .alloc(ExprKind::Case((var, pat.ty), vec![tru, fls])),
+            e2.ty,
+            sp,
+        );
         Expr::new(
-            self.arena.exprs.alloc(ExprKind::Case(e1, vec![tru, fls])),
+            self.arena.exprs.alloc(ExprKind::Let(vec![decl], body)),
             e2.ty,
             sp,
         )
@@ -1391,6 +1402,7 @@ impl<'a> Context<'a> {
 
             let cons = Constructor {
                 name: con.label,
+                tycon: db.tycon,
                 type_id,
                 tag: tag as u8,
                 arity: con.data.is_some() as u8,
@@ -1462,6 +1474,7 @@ impl<'a> Context<'a> {
         for exn in exns {
             let con = Constructor {
                 name: exn.label,
+                tycon: crate::builtin::tycons::T_EXN.name,
                 type_id: TypeId(8),
                 tag: 0,
                 arity: exn.data.is_some() as u8,
