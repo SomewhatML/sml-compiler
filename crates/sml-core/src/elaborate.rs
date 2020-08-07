@@ -1598,7 +1598,11 @@ impl<'a> Context<'a> {
         }
     }
 
-    fn elab_decl_fnbind(&mut self, fun: PartialFun<'_, 'a>, tyvars: &mut Vec<usize>) -> Lambda<'a> {
+    fn elab_decl_fnbind(
+        &mut self,
+        fun: PartialFun<'_, 'a>,
+        types: &mut Vec<&'a Type<'a>>,
+    ) -> Lambda<'a> {
         let PartialFun {
             clauses,
             res_ty,
@@ -1689,10 +1693,7 @@ impl<'a> Context<'a> {
             false => self.generalize(ty),
         };
 
-        if let Scheme::Poly(vars, _) = &sch {
-            tyvars.extend(vars.iter().copied());
-        }
-
+        types.push(ty);
         self.define_value(fun.name, total_sp, sch, IdStatus::Var);
 
         Lambda {
@@ -1723,12 +1724,13 @@ impl<'a> Context<'a> {
             }
             ctx.tyvar_rank -= 1;
 
-            let mut tyvars = Vec::new();
+            let mut types = Vec::new();
             let lams = info
                 .into_iter()
-                .map(|fun| (fun.name, ctx.elab_decl_fnbind(fun, &mut tyvars)))
+                .map(|fun| (fun.name, ctx.elab_decl_fnbind(fun, &mut types)))
                 .collect();
 
+            let tyvars = Type::ftv_rank_init(ctx.tyvar_rank, types);
             elab.push(Decl::Fun(tyvars, lams));
         })
     }

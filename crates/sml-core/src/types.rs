@@ -187,6 +187,45 @@ impl<'a> Type<'a> {
         vars
     }
 
+    pub fn ftv_rank_init(rank: usize, start: Vec<&'a Type<'a>>) -> Vec<usize> {
+        let mut vars = Vec::new();
+        let mut uniq = HashSet::new();
+        let mut queue = VecDeque::from(start);
+        while let Some(ty) = queue.pop_front() {
+            match ty {
+                Type::Var(x) => match x.ty() {
+                    None => {
+                        if x.rank() > rank && uniq.insert(x.id) {
+                            vars.push(x.id);
+                        }
+                    }
+                    Some(link) => {
+                        queue.push_back(link);
+                    }
+                },
+                Type::Con(_, tys) => {
+                    for ty in tys {
+                        queue.push_back(ty);
+                    }
+                }
+                Type::Record(rows) => {
+                    for row in rows.iter() {
+                        queue.push_back(&row.data);
+                    }
+                }
+                Type::Flex(flex) => {
+                    if let Some(link) = flex.ty() {
+                        queue.push_back(link)
+                    } else {
+                        // Do nothing, we don't want to cause flexible record
+                        // types to become generalized
+                    }
+                }
+            }
+        }
+        vars
+    }
+
     /// Apply a substitution to a type
     pub fn apply(
         &'a self,
