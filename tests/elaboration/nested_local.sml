@@ -1,6 +1,15 @@
 (* 
 
 -- args: --v
+-- expected stdout:
+-- val |>: 'a * 'a -> 'b -> 'b
+-- val a: 'a * 'a -> 'b -> 'b
+-- val b: 'a * 'a -> 'b -> 'b
+-- val c: 'a * 'a -> 'b -> 'b
+-- val |>: 'a * 'a -> 'b -> 'b
+-- val m: 'a -> 'a
+-- val u: 'a -> 'a
+-- val x: int
 
 *)
 

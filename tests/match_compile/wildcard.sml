@@ -2,34 +2,33 @@
 
 -- args: --vv
 -- expected stdout:
--- val m: int -> int -> int = fn a => fn b => 
+-- val m: int -> int -> int = fn x0 => fn x1 => 
 --   let
---     val e: int -> int = fn d => 
+--     val x4: int -> int = fn x3 => 
 --       let
---         val x: int = d
+--         val x: int = x3
 --       in 
 --         x
 --       end
---     val g: int -> int = fn f => 
+--     val x6: int -> int = fn x5 => 
 --       let
---         val y: int = f
+--         val y: int = x5
 --       in 
 --         y
 --       end
---     val i: unit -> int = fn h => 0
+--     val x8: unit -> int = fn x7 => 0
 --   in 
 --     
---       case a
+--       case x0
 --         of 0 => 
---           case b
---             of 0 => e a
---              | _ => g b
+--           case x1
+--             of 0 => x4 x0
+--              | _ => x6 x1
 --          | _ => 
---              case b
---                of 0 => e a
---                 | _ => i ()
+--              case x1
+--                of 0 => x4 x0
+--                 | _ => x8 ()
 --   end
--- 
 
 *)
 

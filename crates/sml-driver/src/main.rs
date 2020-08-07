@@ -116,18 +116,18 @@ impl<'a> Compiler<'a> {
                         let decls = decls
                             .iter()
                             .map(|dec| {
-                                // pp.print(dec);
-                                // pp.write(&mut out).unwrap();
-                                // out.flush().unwrap();
+                                pp.print(dec);
+                                pp.write(&mut out).unwrap();
+                                out.flush().unwrap();
                                 alpha.visit_decl(dec)
                             })
                             .collect::<Vec<_>>();
 
-                        for decl in decls {
-                            pp.print(&decl);
-                            pp.write(&mut out).unwrap();
-                            out.flush().unwrap();
-                        }
+                        // for decl in decls {
+                        //     pp.print(&decl);
+                        //     pp.write(&mut out).unwrap();
+                        //     out.flush().unwrap();
+                        // }
                     }
                 }
                 writeln!(out, "").unwrap();

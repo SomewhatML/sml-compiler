@@ -1757,9 +1757,6 @@ impl<'a> Context<'a> {
             });
 
             let dontgeneralize = !expr.non_expansive() || pat.flexible();
-            if !expr.non_expansive() {
-                eprintln!("non exp");
-            }
             let mut tyvars = Vec::new();
             for (var, tv) in &bindings {
                 let sch = match dontgeneralize {

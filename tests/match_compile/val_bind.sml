@@ -4,21 +4,21 @@
 -- expected stdout:
 -- val (x, y): int * int list = 
 --   let
---     val c: int * int list -> int * int list = fn b => 
+--     val x2: int * int list -> int * int list = fn x1 => 
 --       let
---         val (x, y): int * int list = b
+--         val (x, y): int * int list = x1
 --       in 
 --         (x, y)
 --       end
---     val a: int list = [1, 2, 3]
+--     val x0: int list = [1, 2, 3]
 --   in 
 --     
---       case a
---         of :: d => 
+--       case x0
+--         of :: x3 => 
 --           let
---             val (e, f): int * int list = d
+--             val (x4, x5): int * int list = x3
 --           in 
---             c (e, f)
+--             x2 (x4, x5)
 --           end
 --          | _ => raise Bind
 --   end

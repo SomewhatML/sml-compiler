@@ -2,45 +2,45 @@
 
 -- args: --vv
 -- expected stdout:
--- val 'a merge: 'a list -> 'a list -> 'a list = fn a => fn b => 
+-- val 'a merge: 'a list -> 'a list -> 'a list = fn x0 => fn x1 => 
 --   let
---     val e: 'a list -> 'a list = fn d => 
+--     val x4: 'a list -> 'a list = fn x3 => 
 --       let
---         val xs: 'a list = d
+--         val xs: 'a list = x3
 --       in 
 --         xs
 --       end
---     val g: 'a list -> 'a list = fn f => 
+--     val x6: 'a list -> 'a list = fn x5 => 
 --       let
---         val ys: 'a list = f
+--         val ys: 'a list = x5
 --       in 
 --         ys
 --       end
---     val i: 'a * 'a list * 'a * 'a list -> 'a list = fn h => 
+--     val x8: 'a * 'a list * 'a * 'a list -> 'a list = fn x7 => 
 --       let
---         val (x, xs, y, ys): 'a * 'a list * 'a * 'a list = h
+--         val (x, xs, y, ys): 'a * 'a list * 'a * 'a list = x7
 --       in 
 --         :: (x, :: (y, merge xs ys))
 --       end
 --   in 
 --     
---       case a
+--       case x0
 --         of nil => 
---           case b
---             of nil => e a
---              | _ => g b
---          | :: l => 
+--           case x1
+--             of nil => x4 x0
+--              | _ => x6 x1
+--          | :: x11 => 
 --              let
---                val (m, n): 'a * 'a list = l
+--                val (x12, x13): 'a * 'a list = x11
 --              in 
 --                
---                  case b
---                    of nil => e a
---                     | :: p => 
+--                  case x1
+--                    of nil => x4 x0
+--                     | :: x15 => 
 --                         let
---                           val (q, r): 'a * 'a list = p
+--                           val (x16, x17): 'a * 'a list = x15
 --                         in 
---                           i (m, n, q, r)
+--                           x8 (x12, x13, x16, x17)
 --                         end
 --              end
 --   end

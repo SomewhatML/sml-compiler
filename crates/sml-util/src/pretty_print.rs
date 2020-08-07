@@ -170,14 +170,6 @@ impl<'a> PrettyPrinter<'a> {
     }
 }
 
-fn fresh_name(x: u32) -> String {
-    let last = ((x % 26) as u8 + 'a' as u8) as char;
-    (0..x / 26)
-        .map(|_| 'z')
-        .chain(std::iter::once(last))
-        .collect::<String>()
-}
-
 pub trait Print {
     fn print<'a, 'b>(&self, pp: &'a mut PrettyPrinter<'b>) -> &'a mut PrettyPrinter<'b>;
 }
@@ -186,7 +178,6 @@ impl Print for Symbol {
     fn print<'a, 'b>(&self, pp: &'a mut PrettyPrinter<'b>) -> &'a mut PrettyPrinter<'b> {
         match self {
             Symbol::Tuple(n) => pp.text(n.to_string()),
-            // Symbol::Gensym(n) => pp.text(fresh_name(*n % 100)),
             Symbol::Gensym(n) => pp.text(format!("x{}", n)),
             _ => pp.text(pp.interner.get(*self).unwrap_or("?")),
         }
