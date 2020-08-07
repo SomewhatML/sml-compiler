@@ -957,7 +957,7 @@ impl<'a> Context<'a> {
                 };
 
                 let gensym = self.fresh_var();
-                let casee = self.arena.expr_var(gensym, arg);
+                let casee = self.arena.expr_var(gensym, arg, Vec::new());
                 let body = crate::match_compile::case(self, casee, res, rules, expr.span);
 
                 Expr::new(
@@ -997,7 +997,7 @@ impl<'a> Context<'a> {
                 });
                 // tryy handle case $gensym of |...
                 let gensym = self.fresh_var();
-                let scrutinee = self.arena.expr_var(gensym, arg);
+                let scrutinee = self.arena.expr_var(gensym, arg, Vec::new());
                 let body = crate::match_compile::case(self, scrutinee, res, rules, expr.span);
                 Expr::new(
                     self.arena.exprs.alloc(ExprKind::Handle(tryy, gensym, body)),
@@ -1128,7 +1128,11 @@ impl<'a> Context<'a> {
                             ty,
                             expr.span,
                         ),
-                        _ => Expr::new(self.arena.exprs.alloc(ExprKind::Var(*sym)), ty, expr.span),
+                        _ => Expr::new(
+                            self.arena.exprs.alloc(ExprKind::Var(*sym, args)),
+                            ty,
+                            expr.span,
+                        ),
                     }
                 }
                 None => {

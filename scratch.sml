@@ -74,4 +74,5 @@ val x = (C1 10, C1 9)
 val _ = case x of
   | (_, C1 a) => e1
   | (C2 b, C3 c) => e2
+  | _ => 3
 end

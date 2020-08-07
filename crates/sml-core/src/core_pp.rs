@@ -117,7 +117,17 @@ impl<'a> Print for Expr<'a> {
                 }
                 pp.text(")")
             }
-            Var(s) => pp.print(s),
+            Var(s, vars) => {
+                pp.print(s);
+                if vars.is_empty() {
+                    pp
+                } else {
+                    for v in vars {
+                        pp.print(*v);
+                    }
+                    pp
+                }
+            }
         }
     }
 }
@@ -216,6 +226,7 @@ fn print_tyvars<'b, 'c>(
             pp.text("'a ")
         }
         _ => {
+            pp.text("(");
             for (idx, tyvar) in ids.iter().enumerate() {
                 let last = ((idx % 26) as u8 + b'a' as u8) as char;
                 let name = format!(
@@ -231,7 +242,7 @@ fn print_tyvars<'b, 'c>(
                     pp.text(", ");
                 }
             }
-            pp.text(" ")
+            pp.text(")")
         }
     }
 }
@@ -243,6 +254,7 @@ impl<'a> Print for Decl<'a> {
             Decl::Val(vars, Rule { pat, expr }) => {
                 pp.line().text("val ");
                 print_tyvars(&vars, &mut map, pp)
+                    .text(" ")
                     .print(pat)
                     .text(": ")
                     .print(pat.ty)
@@ -253,6 +265,7 @@ impl<'a> Print for Decl<'a> {
                 for (name, lam) in binds {
                     pp.line().text("val ");
                     print_tyvars(&vars, &mut map, pp)
+                        .text(" ")
                         .print(name)
                         .text(": ")
                         .print(&Type::Con(
