@@ -107,7 +107,7 @@ struct PartialFnBinding<'s, 'a> {
 }
 
 /// An environment scope, that can hold a collection of type and expr bindings
-#[derive(Default, Debug)]
+#[derive(Default)]
 pub struct Namespace {
     parent: Option<usize>,
     depth: usize,
@@ -119,21 +119,27 @@ pub struct Namespace {
 /// An elaboration context, holding the namespace and type definitions
 /// for the program we are elaborating
 pub struct Context<'a> {
-    // stacks for alpha-renaming of explicity named type variables 'a
+    /// stacks for alpha-renaming of explicity named type variables 'a
     tyvars: Vec<(Symbol, &'a TypeVar<'a>)>,
 
-    // A list of [`Namespace`] structs, but this is a not stack. Namespaces can
-    // be pushed onto the end, but they may never be deleted or re-ordered
+    /// A list of [`Namespace`] structs, but this is a not stack. Namespaces can
+    /// be pushed onto the end, but they may never be deleted or re-ordered
     namespaces: Vec<Namespace>,
-    // An index into `namespaces`, representing the current scope
+
+    /// An index into `namespaces`, representing the current scope. This must
+    /// *always* be a valid index into `namespaces`.
     current: usize,
 
-    // All defined types live here, indexed by `TypeId`
+    /// All defined types live here, indexed by `TypeId`
     types: Vec<TypeStructure<'a>>,
-    // All defined values live here, indexed by `ExprId`
+    /// All defined values live here, indexed by `ExprId`
     values: Vec<(Scheme<'a>, IdStatus)>,
 
+    /// Type variable rank, essentially scope depth, but allows for optimal
+    /// polymorphic generalization
     pub tyvar_rank: usize,
+
+    /// Depth of nested `local` declarations
     local_depth: usize,
 
     pub(crate) arena: &'a CoreArena<'a>,
@@ -146,9 +152,7 @@ impl Namespace {
         Namespace {
             parent: Some(id),
             depth,
-            types: HashMap::with_capacity(32),
-            values: HashMap::with_capacity(64),
-            infix: HashMap::with_capacity(16),
+            ..Namespace::default()
         }
     }
 }
@@ -200,21 +204,38 @@ impl<'a> Context<'a> {
         r
     }
 
+    /// Return a mutable reference to the current namespace, taking into account
+    /// whether we are in the body of a `local` declaration
+    #[inline]
+    pub fn current_ns_mut(&mut self) -> &mut Namespace {
+        if self.local_depth > 0 {
+            let id = self.namespaces[self.current].parent.unwrap_or(self.current);
+            &mut self.namespaces[id]
+        } else {
+            &mut self.namespaces[self.current]
+        }
+    }
+
+    #[inline]
+    pub fn current_ns(&self) -> &Namespace {
+        if self.local_depth > 0 {
+            let id = self.namespaces[self.current].parent.unwrap_or(self.current);
+            &self.namespaces[id]
+        } else {
+            &self.namespaces[self.current]
+        }
+    }
+
     #[inline]
     pub fn scope_depth(&self) -> usize {
-        self.namespaces[self.current].depth
+        self.current_ns().depth
     }
 
     /// Globally define a type
     pub(crate) fn define_type(&mut self, sym: Symbol, tystr: TypeStructure<'a>) -> TypeId {
         let id = TypeId(self.types.len() as u32);
         self.types.push(tystr);
-        let ns = if self.local_depth > 0 {
-            self.namespaces[self.current].parent.unwrap_or(self.current)
-        } else {
-            self.current
-        };
-        self.namespaces[ns].types.insert(sym, id);
+        self.current_ns_mut().types.insert(sym, id);
         id
     }
 
@@ -229,12 +250,7 @@ impl<'a> Context<'a> {
         let id = ExprId(self.values.len() as u32);
         let scheme = self.check_scheme(span, scheme);
         self.values.push((scheme, status));
-        let ns = if self.local_depth > 0 {
-            self.namespaces[self.current].parent.unwrap_or(self.current)
-        } else {
-            self.current
-        };
-        self.namespaces[ns].values.insert(sym, id);
+        self.current_ns_mut().values.insert(sym, id);
         id
     }
 
@@ -242,8 +258,8 @@ impl<'a> Context<'a> {
         if self.local_depth > 0 {
             // is scope_depth() - 1 correct, or do we modify by local_depth
             match scheme {
-                Scheme::Mono(ty) => self.check_type_names(span, ty, self.scope_depth() - 1),
-                Scheme::Poly(_, ty) => self.check_type_names(span, ty, self.scope_depth() - 1),
+                Scheme::Mono(ty) => self.check_type_names(span, ty, self.scope_depth()),
+                Scheme::Poly(_, ty) => self.check_type_names(span, ty, self.scope_depth()),
             }
         }
         scheme
@@ -666,12 +682,17 @@ impl<'a> Context<'a> {
         }
     }
 
-    fn instantiate(&self, scheme: &Scheme<'a>) -> &'a Type<'a> {
+    fn instantiate(&self, scheme: &Scheme<'a>) -> (&'a Type<'a>, Vec<&'a Type<'a>>) {
         match scheme {
-            Scheme::Mono(ty) => ty,
+            Scheme::Mono(ty) => (ty, Vec::new()),
             Scheme::Poly(vars, ty) => {
-                let map = vars.iter().map(|v| (*v, self.fresh_tyvar())).collect();
-                ty.apply(&self.arena.types, &map)
+                let fresh_vars: Vec<_> = (0..vars.len()).map(|_| self.fresh_tyvar()).collect();
+                let map = vars
+                    .iter()
+                    .copied()
+                    .zip(fresh_vars.iter().copied())
+                    .collect();
+                (ty.apply(&self.arena.types, &map), fresh_vars)
             }
         }
     }
@@ -1099,10 +1120,16 @@ impl<'a> Context<'a> {
                 Expr::new(self.arena.exprs.alloc(ExprKind::Seq(exprs)), ty, expr.span)
             }
             ast::ExprKind::Var(sym) => match self.lookup_value(sym) {
-                Some((scheme, _)) => {
-                    let ty = self.instantiate(scheme);
-                    // println!("inst {:?} [{:?}] -> {:?}", sym, scheme, ty);
-                    Expr::new(self.arena.exprs.alloc(ExprKind::Var(*sym)), ty, expr.span)
+                Some((scheme, con)) => {
+                    let (ty, args) = self.instantiate(scheme);
+                    match con {
+                        IdStatus::Con(c) | IdStatus::Exn(c) => Expr::new(
+                            self.arena.exprs.alloc(ExprKind::Con(*c, args)),
+                            ty,
+                            expr.span,
+                        ),
+                        _ => Expr::new(self.arena.exprs.alloc(ExprKind::Var(*sym)), ty, expr.span),
+                    }
                 }
                 None => {
                     self.elab_errors
@@ -1165,7 +1192,7 @@ impl<'a> Context<'a> {
                 match self.lookup_value(con).cloned() {
                     Some((scheme, IdStatus::Exn(constr)))
                     | Some((scheme, IdStatus::Con(constr))) => {
-                        let inst = self.instantiate(&scheme);
+                        let (inst, args) = self.instantiate(&scheme);
 
                         let (arg, res) = match inst.de_arrow() {
                             Some((a, r)) => (a, r),
@@ -1295,7 +1322,7 @@ impl<'a> Context<'a> {
             Variable(sym) => match self.lookup_value(sym) {
                 // Rule 35
                 Some((scheme, IdStatus::Exn(c))) | Some((scheme, IdStatus::Con(c))) => {
-                    let ty = self.instantiate(scheme);
+                    let (ty, args) = self.instantiate(scheme);
                     Pat::new(self.arena.pats.alloc(PatKind::App(*c, None)), ty, pat.span)
                 }
                 _ => {
@@ -1329,7 +1356,7 @@ impl<'a> Context<'a> {
             ast::Fixity::Infixr => Fixity::Infix(bp + 1, bp),
             ast::Fixity::Nonfix => Fixity::Nonfix,
         };
-        self.namespaces[self.current].infix.insert(sym, fix);
+        self.current_ns_mut().infix.insert(sym, fix);
     }
 
     fn elab_decl_local(&mut self, decls: &ast::Decl, body: &ast::Decl, elab: &mut Vec<Decl<'a>>) {
@@ -1730,6 +1757,9 @@ impl<'a> Context<'a> {
             });
 
             let dontgeneralize = !expr.non_expansive() || pat.flexible();
+            if !expr.non_expansive() {
+                eprintln!("non exp");
+            }
             let mut tyvars = Vec::new();
             for (var, tv) in &bindings {
                 let sch = match dontgeneralize {

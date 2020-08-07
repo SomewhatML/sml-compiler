@@ -9,9 +9,6 @@ edition = "2018"
 [dependencies]
 typed-arena = "2.0"
 
-[dependencies.sml-ir]
-path = "../sml-ir"
-
 [dependencies.sml-frontend]
 path = "../sml-frontend"
 

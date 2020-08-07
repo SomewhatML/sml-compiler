@@ -111,8 +111,20 @@ impl<'a> Compiler<'a> {
                     }
                     _ => {
                         let mut pp = PrettyPrinter::new(&self.interner);
-                        for decl in &decls {
-                            pp.print(decl);
+
+                        let mut alpha = sml_core::alpha::Rename::new(&self.arena);
+                        let decls = decls
+                            .iter()
+                            .map(|dec| {
+                                // pp.print(dec);
+                                // pp.write(&mut out).unwrap();
+                                // out.flush().unwrap();
+                                alpha.visit_decl(dec)
+                            })
+                            .collect::<Vec<_>>();
+
+                        for decl in decls {
+                            pp.print(&decl);
                             pp.write(&mut out).unwrap();
                             out.flush().unwrap();
                         }

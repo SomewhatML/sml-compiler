@@ -3,7 +3,6 @@ members = [
     "crates/sml-driver",
     "crates/sml-core",
     "crates/sml-frontend",
-    "crates/sml-ir",
     "crates/sml-util",
 ]
 

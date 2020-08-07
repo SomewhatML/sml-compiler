@@ -22,12 +22,12 @@ use sml_util::Const;
 use std::collections::HashMap;
 use types::{Constructor, Scheme, Tycon, Type, TypeVar};
 
+pub mod alpha;
 pub mod arenas;
 pub mod builtin;
 pub mod check;
 pub mod core_pp;
 pub mod elaborate;
-pub mod lower;
 pub mod match_compile;
 pub mod types;
 
