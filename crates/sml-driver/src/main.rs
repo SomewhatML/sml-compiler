@@ -21,6 +21,8 @@ fn main() {
     }
 
     println!("SomewhatML (c) 2020");
+    // compiler.stop_phase = "elaborate".into();
+    compiler.verbosity = 2;
     loop {
         let mut buffer = String::new();
         print!("repl: ");

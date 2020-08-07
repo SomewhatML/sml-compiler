@@ -179,34 +179,38 @@ impl<'a> CoreArena<'a> {
         Pat::new(self.pats.alloc(PatKind::Var(var)), ty, Span::dummy())
     }
 
-    pub fn expr_var(&self, var: Symbol, ty: &'a Type<'a>) -> Expr<'a> {
-        Expr::new(self.exprs.alloc(ExprKind::Var(var)), ty, Span::dummy())
+    pub fn expr_var(&self, var: Symbol, ty: &'a Type<'a>, tyvec: Vec<&'a Type<'a>>) -> Expr<'a> {
+        Expr::new(
+            self.exprs.alloc(ExprKind::Var(var, tyvec)),
+            ty,
+            Span::dummy(),
+        )
     }
 
     /// Create a `let val var_name : (ty1, ty2, ty3) = (s1, ... sN) in expr`
     /// expression
-    pub fn let_tuple<I: IntoIterator<Item = (Symbol, &'a Type<'a>)>>(
-        &self,
-        iter: I,
-        var_name: Symbol,
-        body: Expr<'a>,
-        tyvar_rank: usize,
-    ) -> Expr<'a> {
-        let expr = self.expr_tuple(iter.into_iter().map(|(sym, ty)| (ExprKind::Var(sym), ty)));
-        let tyvars = expr.ty.ftv_rank(tyvar_rank);
-        let decl = Decl::Val(
-            tyvars,
-            Rule {
-                pat: self.pat_var(var_name, expr.ty),
-                expr,
-            },
-        );
-        Expr::new(
-            self.exprs.alloc(ExprKind::Let(vec![decl], body)),
-            body.ty,
-            body.span,
-        )
-    }
+    // pub fn let_tuple<I: IntoIterator<Item = (Symbol, &'a Type<'a>)>>(
+    //     &self,
+    //     iter: I,
+    //     var_name: Symbol,
+    //     body: Expr<'a>,
+    //     tyvar_rank: usize,
+    // ) -> Expr<'a> {
+    //     let expr = self.expr_tuple(iter.into_iter().map(|(sym, ty)| (ExprKind::Var(sym, Vec::new()), ty)));
+    //     let tyvars = expr.ty.ftv_rank(tyvar_rank);
+    //     let decl = Decl::Val(
+    //         tyvars,
+    //         Rule {
+    //             pat: self.pat_var(var_name, expr.ty),
+    //             expr,
+    //         },
+    //     );
+    //     Expr::new(
+    //         self.exprs.alloc(ExprKind::Let(vec![decl], body)),
+    //         body.ty,
+    //         body.span,
+    //     )
+    // }
 
     /// Create a `let val (s1, ..., sN) = var_name : (ty1, ty2, ty3) in expr`
     /// expression
@@ -223,7 +227,7 @@ impl<'a> CoreArena<'a> {
             tyvars,
             Rule {
                 pat,
-                expr: self.expr_var(var_name, pat.ty),
+                expr: self.expr_var(var_name, pat.ty, Vec::new()),
             },
         );
         Expr::new(
@@ -252,7 +256,7 @@ impl<'a> CoreArena<'a> {
             tyvars,
             Rule {
                 pat,
-                expr: self.expr_var(var_name, pat.ty),
+                expr: self.expr_var(var_name, pat.ty, Vec::new()),
             },
         );
         Expr::new(
@@ -281,7 +285,8 @@ impl<'ar> ExprArena<'ar> {
     }
 
     pub fn fresh_var(&self) -> &'ar ExprKind<'ar> {
-        self.arena.alloc(ExprKind::Var(self.allocate_id()))
+        self.arena
+            .alloc(ExprKind::Var(self.allocate_id(), Vec::new()))
     }
 
     pub fn allocate_id(&self) -> Symbol {

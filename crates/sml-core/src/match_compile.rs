@@ -123,7 +123,11 @@ pub fn val<'a>(
         1 => {
             let (sym, ty) = bindings[0];
             let p = Pat::new(ctx.arena.pats.alloc(PatKind::Var(sym)), ty, Span::dummy());
-            let e = Expr::new(ctx.arena.exprs.alloc(ExprKind::Var(sym)), ty, Span::dummy());
+            let e = Expr::new(
+                ctx.arena.exprs.alloc(ExprKind::Var(sym, Vec::new())),
+                ty,
+                Span::dummy(),
+            );
             (ty, p, e)
         }
         _ => {
@@ -145,7 +149,11 @@ pub fn val<'a>(
                 });
                 ve.push(Row {
                     label: Symbol::tuple_field(idx as u32 + 1),
-                    data: Expr::new(ctx.arena.exprs.alloc(ExprKind::Var(sym)), ty, Span::dummy()),
+                    data: Expr::new(
+                        ctx.arena.exprs.alloc(ExprKind::Var(sym, Vec::new())),
+                        ty,
+                        Span::dummy(),
+                    ),
                     span: Span::dummy(),
                 });
             }
@@ -239,7 +247,7 @@ fn preflight<'a>(
             1 => {
                 let (var, ty) = vars[0];
                 let pat = ctx.arena.pat_var(var, ty);
-                let ex = ctx.arena.expr_var(arg, ty);
+                let ex = ctx.arena.expr_var(arg, ty, Vec::new());
                 let tyvars = ty.ftv_rank(ctx.tyvar_rank + 1);
                 let decl = Decl::Val(tyvars, Rule { pat, expr: ex });
                 (
@@ -270,7 +278,7 @@ fn preflight<'a>(
 
         finished.push(Rule {
             pat,
-            expr: ctx.arena.expr_var(name, ty),
+            expr: ctx.arena.expr_var(name, ty, Vec::new()),
         });
 
         diags.renamed.push((expr.span, name));
@@ -706,11 +714,11 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
                 1 => {
                     let (var, ty) = vars.pop().unwrap();
                     let (bound, _) = map.get(&var).expect("Bug: Facts.bind");
-                    self.ctx.arena.expr_var(*bound, ty)
+                    self.ctx.arena.expr_var(*bound, ty, Vec::new())
                 }
                 _ => self.ctx.arena.expr_tuple(vars.into_iter().map(|(sym, ty)| {
                     let (bound, _) = map.get(&sym).expect("Bug: Facts.bind");
-                    (ExprKind::Var(*bound), ty)
+                    (ExprKind::Var(*bound, Vec::new()), ty)
                 })),
             };
 

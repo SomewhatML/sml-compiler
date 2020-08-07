@@ -6,22 +6,22 @@ use crate::elaborate::{Context, ElabError, ErrorKind};
 use crate::types::{Constructor, Type};
 use crate::{Decl, Expr, ExprKind, Lambda, Pat, PatKind, Row, Rule, SortedRecord};
 use sml_util::interner::Symbol;
+use sml_util::pretty_print::PrettyPrinter;
 use sml_util::span::Span;
 use sml_util::Const;
 use std::{cell::Cell, collections::HashMap};
 
-pub struct Entry {
+pub struct Entry<'a> {
     name: Symbol,
     tyvars: Vec<usize>,
-    // usages:
+    usages: Vec<Vec<&'a Type<'a>>>,
 }
-
-pub struct Monomorphizer {}
 
 pub struct Rename<'a> {
     pub decls: Vec<Decl<'a>>,
     arena: &'a CoreArena<'a>,
     stack: Vec<Namespace>,
+    cache: HashMap<Symbol, Vec<Vec<&'a Type<'a>>>>,
     id: u32,
 }
 
@@ -39,6 +39,7 @@ impl<'a> Rename<'a> {
             decls: Vec::default(),
             arena,
             stack: vec![Namespace::default()],
+            cache: HashMap::new(),
             id: 0,
         }
     }
@@ -49,6 +50,47 @@ impl<'a> Rename<'a> {
 
     pub fn leave(&mut self) {
         self.stack.pop();
+    }
+
+    fn cache_decl(&mut self, name: Symbol, tyvars: Vec<usize>) {
+        let entry = Entry {
+            name,
+            tyvars,
+            usages: Vec::new(),
+        };
+        self.cache.insert(name, Vec::new());
+    }
+
+    pub fn dump_cache(&self, pp: &mut PrettyPrinter<'_>) {
+        for (k, entry) in &self.cache {
+            pp.line().text("CACHE ").print(k);
+            for usage in entry {
+                for ty in usage {
+                    pp.text(" ").print(*ty).text(",");
+                }
+            }
+        }
+        let mut b = String::new();
+        let _ = pp.write_fmt(&mut b);
+        println!("{}", b);
+    }
+
+    fn add_usage(&mut self, name: Symbol, usage: Vec<&'a Type<'a>>, pp: &mut PrettyPrinter<'_>) {
+        // self.cache.entry(name)
+        // for (k, entry) in &self.cache {
+        //     pp.line().text("CACHE ").print(k);
+        //     for usage in entry {
+        //         pp.text(" ").print(*usage).text(",");
+        //     }
+        // }
+        // let mut b = String::new();
+        // let _ = pp.write_fmt(&mut b);
+        // println!("{}", b);
+        // let entry = self
+        //     .cache
+        //     .get_mut(&name)
+        //     .expect(&format!("Invalid usage! {:?}", name));
+        self.cache.entry(name).or_default().push(usage);
     }
 
     #[inline]
@@ -102,11 +144,11 @@ impl<'a> Rename<'a> {
         }
     }
 
-    pub fn visit_decl(&mut self, decl: &Decl<'a>) -> Decl<'a> {
+    pub fn visit_decl(&mut self, decl: &Decl<'a>, pp: &mut PrettyPrinter<'_>) -> Decl<'a> {
         match decl {
             Decl::Val(vars, Rule { pat, expr }) => {
-                let pat = self.visit_pat(&pat);
-                let expr = self.visit_expr(&expr);
+                let pat = self.visit_pat(&pat, pp);
+                let expr = self.visit_expr(&expr, pp);
 
                 Decl::Val(vars.clone(), Rule { pat, expr })
             }
@@ -117,8 +159,8 @@ impl<'a> Rename<'a> {
                         let sym = self.register_val(*sym);
                         self.enter();
                         lam.arg = self.register_val(lam.arg);
-                        lam.ty = self.visit_type(lam.ty);
-                        lam.body = self.visit_expr(&lam.body);
+                        lam.ty = self.visit_type(lam.ty, pp);
+                        lam.body = self.visit_expr(&lam.body, pp);
                         self.leave();
                         (sym, lam)
                     })
@@ -128,7 +170,7 @@ impl<'a> Rename<'a> {
             }
             Decl::Datatype(dts) => {
                 for dt in dts {
-                    self.register_type(dt.tycon.name);
+                    let name = self.register_type(dt.tycon.name);
                 }
 
                 Decl::Datatype(
@@ -155,32 +197,33 @@ impl<'a> Rename<'a> {
                 let mut con = *con;
                 con.name = self.register_val(con.name);
                 // con.tycon should be EXN
-                let ty = ty.map(|ty| self.visit_type(ty));
+                let ty = ty.map(|ty| self.visit_type(ty, pp));
                 Decl::Exn(con, ty)
             }
         }
     }
 
-    fn visit_type(&mut self, ty: &'a Type<'a>) -> &'a Type<'a> {
+    fn visit_type(&mut self, ty: &'a Type<'a>, pp: &mut PrettyPrinter<'_>) -> &'a Type<'a> {
         match ty {
             Type::Var(tyvar) => match tyvar.ty() {
-                Some(ty) => self.visit_type(ty),
+                Some(ty) => self.visit_type(ty, pp),
                 None => {
                     // emit warning for unused type variable
-                    self.arena.types.unit()
+                    // self.arena.types.unit()
+                    ty
                 }
             },
             Type::Record(fields) => {
                 let args = SortedRecord::new_unchecked(
                     fields
                         .iter()
-                        .map(|row| row.fmap(|ty| self.visit_type(ty)))
+                        .map(|row| row.fmap(|ty| self.visit_type(ty, pp)))
                         .collect(),
                 );
                 self.arena.types.alloc(Type::Record(args))
             }
             Type::Flex(flex) => match flex.ty() {
-                Some(ty) => self.visit_type(ty),
+                Some(ty) => self.visit_type(ty, pp),
                 None => {
                     // emit warning for unused type variable
                     self.arena.types.unit()
@@ -190,18 +233,20 @@ impl<'a> Rename<'a> {
                 con.name = self.swap_type(con.name).expect("BUG: Type::Con");
                 self.arena.types.alloc(Type::Con(
                     con,
-                    args.iter().map(|ty| self.visit_type(ty)).collect(),
+                    args.iter().map(|ty| self.visit_type(ty, pp)).collect(),
                 ))
             }
         }
     }
 
-    fn visit_pat(&mut self, pat: &Pat<'a>) -> Pat<'a> {
+    fn visit_pat(&mut self, pat: &Pat<'a>, pp: &mut PrettyPrinter<'_>) -> Pat<'a> {
+        let ty = self.visit_type(pat.ty, pp);
+
         let kind = match pat.kind {
             PatKind::App(mut con, Some(pat)) => {
                 con.name = self.swap_value(con.name).expect("BUG: PatKind::Con");
                 con.tycon = self.swap_type(con.tycon).expect("BUG: PatKind::Con");
-                PatKind::App(con, Some(self.visit_pat(pat)))
+                PatKind::App(con, Some(self.visit_pat(pat, pp)))
             }
             PatKind::App(mut con, None) => {
                 con.name = self.swap_value(con.name).expect("BUG: PatKind::Con");
@@ -212,37 +257,39 @@ impl<'a> Rename<'a> {
             PatKind::Record(fields) => PatKind::Record(SortedRecord::new_unchecked(
                 fields
                     .iter()
-                    .map(|row| row.fmap(|pat| self.visit_pat(pat)))
+                    .map(|row| row.fmap(|pat| self.visit_pat(pat, pp)))
                     .collect(),
             )),
             PatKind::Var(sym) => PatKind::Var(self.register_val(*sym)),
             PatKind::Wild => PatKind::Var(self.fresh()),
         };
-        Pat::new(
-            self.arena.pats.alloc(kind),
-            self.visit_type(pat.ty),
-            pat.span,
-        )
+        Pat::new(self.arena.pats.alloc(kind), ty, pat.span)
     }
 
-    fn visit_expr(&mut self, expr: &Expr<'a>) -> Expr<'a> {
+    fn visit_expr(&mut self, expr: &Expr<'a>, pp: &mut PrettyPrinter<'_>) -> Expr<'a> {
+        pp.text("visiting ").print(expr);
+        let mut b = String::new();
+        let _ = pp.write_fmt(&mut b);
+        println!("{}", b);
+
+        let ty = self.visit_type(expr.ty, pp);
         let kind = match expr.kind {
             ExprKind::App(e1, e2) => {
-                let e1 = self.visit_expr(e1);
-                let e2 = self.visit_expr(e2);
+                let e1 = self.visit_expr(e1, pp);
+                let e2 = self.visit_expr(e2, pp);
                 ExprKind::App(e1, e2)
             }
             ExprKind::Case(casee, rules) => {
                 let (var, ty) = casee;
                 let var = self.swap_value(*var).expect("BUG: ExprKind::Case");
-                let ty = self.visit_type(ty);
+                let ty = self.visit_type(ty, pp);
 
                 let rules = rules
                     .iter()
                     .map(|rule| {
                         self.enter();
-                        let pat = self.visit_pat(&rule.pat);
-                        let expr = self.visit_expr(&rule.expr);
+                        let pat = self.visit_pat(&rule.pat, pp);
+                        let expr = self.visit_expr(&rule.expr, pp);
                         self.leave();
                         Rule { pat, expr }
                     })
@@ -253,50 +300,70 @@ impl<'a> Rename<'a> {
             ExprKind::Con(mut con, tys) => {
                 con.name = self.swap_value(con.name).expect("BUG: ExprKind::Con");
                 con.tycon = self.swap_type(con.tycon).expect("BUG: ExprKind::Con");
-                ExprKind::Con(con, tys.iter().map(|ty| self.visit_type(ty)).collect())
+                let tys = tys
+                    .iter()
+                    .map(|ty| self.visit_type(ty, pp))
+                    .collect::<Vec<_>>();
+                self.add_usage(con.name, tys.clone(), pp);
+                ExprKind::Con(con, tys)
             }
             ExprKind::Const(c) => ExprKind::Const(*c),
             ExprKind::Handle(tryy, sym, handler) => {
-                let tryy = self.visit_expr(tryy);
+                let tryy = self.visit_expr(tryy, pp);
                 let sym = self.swap_value(*sym).expect("BUG: ExprKind::Handle");
-                let handler = self.visit_expr(handler);
+                let handler = self.visit_expr(handler, pp);
                 ExprKind::Handle(tryy, sym, handler)
             }
             ExprKind::Lambda(lam) => {
                 let mut lam = *lam;
                 self.enter();
                 lam.arg = self.register_val(lam.arg);
-                lam.ty = self.visit_type(lam.ty);
-                lam.body = self.visit_expr(&lam.body);
+                lam.ty = self.visit_type(lam.ty, pp);
+                lam.body = self.visit_expr(&lam.body, pp);
                 self.leave();
                 ExprKind::Lambda(lam)
             }
             ExprKind::Let(decls, body) => {
                 self.enter();
-                let decls = decls.iter().map(|d| self.visit_decl(d)).collect();
-                let body = self.visit_expr(body);
+                let decls = decls.iter().map(|d| self.visit_decl(d, pp)).collect();
+                let body = self.visit_expr(body, pp);
                 self.leave();
                 ExprKind::Let(decls, body)
             }
             ExprKind::List(exprs) => {
-                ExprKind::List(exprs.iter().map(|e| self.visit_expr(e)).collect())
+                ExprKind::List(exprs.iter().map(|e| self.visit_expr(e, pp)).collect())
             }
             ExprKind::Primitive(sym) => ExprKind::Primitive(*sym),
-            ExprKind::Raise(e) => ExprKind::Raise(self.visit_expr(e)),
+            ExprKind::Raise(e) => ExprKind::Raise(self.visit_expr(e, pp)),
             ExprKind::Record(rows) => ExprKind::Record(
                 rows.iter()
-                    .map(|row| row.fmap(|ex| self.visit_expr(ex)))
+                    .map(|row| row.fmap(|ex| self.visit_expr(ex, pp)))
                     .collect(),
             ),
             ExprKind::Seq(exprs) => {
-                ExprKind::Seq(exprs.iter().map(|e| self.visit_expr(e)).collect())
+                ExprKind::Seq(exprs.iter().map(|e| self.visit_expr(e, pp)).collect())
             }
-            ExprKind::Var(s) => ExprKind::Var(self.swap_value(*s).expect("BUG")),
+            ExprKind::Var(s, tys) => {
+                let name = self.swap_value(*s).expect("BUG");
+                let tys = tys
+                    .iter()
+                    .map(|ty| self.visit_type(ty, pp))
+                    .collect::<Vec<_>>();
+                self.add_usage(name, tys.clone(), pp);
+                pp.line().text("VAR ").print(&name).print(ty);
+                ExprKind::Var(name, tys)
+                // if vars.is_empty() {
+                //     ExprKind::Var(name, Vec::new())
+                // } else {
+                //     let usage = vars
+                //         .iter()
+                //         .map(|ty| self.visit_type(ty, pp))
+                //         .collect::<Vec<_>>();
+                //     self.add_usage(name, usage.clone(), pp);
+                //     ExprKind::Var(name, usage)
+                // }
+            }
         };
-        Expr::new(
-            self.arena.exprs.alloc(kind),
-            self.visit_type(expr.ty),
-            expr.span,
-        )
+        Expr::new(self.arena.exprs.alloc(kind), ty, expr.span)
     }
 }

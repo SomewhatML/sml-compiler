@@ -53,7 +53,7 @@ pub enum ExprKind<'ar> {
     Raise(Expr<'ar>),
     Record(Vec<Row<Expr<'ar>>>),
     Seq(Vec<Expr<'ar>>),
-    Var(Symbol),
+    Var(Symbol, Vec<&'ar Type<'ar>>),
 }
 
 #[derive(Copy, Clone)]
@@ -133,7 +133,7 @@ impl<'ar> Expr<'ar> {
             ExprKind::Con(_, _) => true,
             ExprKind::Const(_) => true,
             ExprKind::Lambda(_) => true,
-            ExprKind::Var(_) => true,
+            ExprKind::Var(_, _) => true,
             ExprKind::Primitive(_) => true,
             ExprKind::Record(rec) => rec.iter().all(|r| r.data.non_expansive()),
             ExprKind::List(exprs) => exprs.iter().all(|r| r.non_expansive()),
@@ -143,7 +143,7 @@ impl<'ar> Expr<'ar> {
 
     pub fn as_symbol(&self) -> Symbol {
         match &self.kind {
-            ExprKind::Var(s) => *s,
+            ExprKind::Var(s, _) => *s,
             _ => panic!("BUG: Expr::as_symbol()"),
         }
     }
