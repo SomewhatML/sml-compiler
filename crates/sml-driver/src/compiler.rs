@@ -6,6 +6,12 @@ use sml_util::pretty_print::{PrettyPrinter, Print};
 use std::io::prelude::*;
 use std::time::Instant;
 
+use stats_alloc::{Region, StatsAlloc, INSTRUMENTED_SYSTEM};
+use std::alloc::System;
+
+#[global_allocator]
+static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
+
 #[derive(Copy, Clone, Default, Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub struct FileId(pub usize);
 
@@ -30,7 +36,8 @@ pub trait Phase<'a> {
         ctx: &mut Compiler<'a>,
         input: Self::Input,
     ) -> Result<Self::Output, Vec<Diagnostic>>;
-    fn output(&self, ctx: &mut Compiler<'a>, data: Self::Output) {}
+
+    fn output(&self, _: &mut Compiler<'a>, _: Self::Output) {}
 }
 
 struct Parse;
@@ -45,7 +52,7 @@ impl<'a> Phase<'a> for Parse {
     fn pass(
         &self,
         ctx: &mut Compiler<'a>,
-        input: Self::Input,
+        _: Self::Input,
     ) -> Result<Self::Output, Vec<Diagnostic>> {
         let mut p = Parser::new(&ctx.src, &mut ctx.interner);
 
@@ -86,6 +93,9 @@ impl<'a> Phase<'a> for Elaborate {
             }
         }
 
+        // only have warnings
+        report(ctx.verbosity, diags, &ctx.src);
+
         Ok(decls)
     }
 
@@ -117,10 +127,15 @@ impl<'a> Phase<'a> for Monomorphize {
 impl<'a> Compiler<'a> {
     fn measure<T, F: FnOnce(&mut Compiler<'a>) -> T>(&mut self, name: &str, f: F) -> T {
         if self.measure {
+            let region = Region::new(&GLOBAL);
             let start = Instant::now();
             let r = f(self);
             let stop = Instant::now().duration_since(start).as_micros();
-            self.times.push(format!("Phase: {}, {} us", name, stop));
+            let stats = region.change();
+            self.times.push(format!(
+                "Phase: {}, {} us. {} allocations, {} allocated",
+                name, stop, stats.allocations, stats.bytes_allocated
+            ));
             r
         } else {
             f(self)

@@ -1,6 +1,6 @@
 (* check that flexible records unify with a rigid record 
 
--- args: --v
+-- args: --v --phase elab
 -- expected stdout:
 -- val record: {x: int, y: bool, c: string, d: int ref}
 -- val (x, y): int * bool

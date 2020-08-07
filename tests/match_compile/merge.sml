@@ -1,6 +1,6 @@
 (* test pattern match compilation to decision trees
 
--- args: --vv
+-- args: --vv --phase elab
 -- expected stdout:
 -- val 'a merge: 'a list -> 'a list -> 'a list = fn x0 => fn x1 => 
 --   let

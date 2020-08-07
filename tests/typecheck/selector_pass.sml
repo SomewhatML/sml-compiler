@@ -1,6 +1,6 @@
 (* ensure record field selectors unify
 
--- args: --v
+-- args: --v --phase elab
 -- expected stdout:
 -- val a: int
 -- val b: bool

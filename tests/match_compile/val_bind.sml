@@ -1,7 +1,8 @@
 (* give warning on top-level non-exhaustive value binding
 
--- args: --vv
+-- args: --vv --phase elab
 -- expected stdout:
+-- 1 warnings, 0 errors
 -- val (x, y): int * int list = 
 --   let
 --     val x2: int * int list -> int * int list = fn x1 => 
@@ -22,7 +23,6 @@
 --           end
 --          | _ => raise Bind
 --   end
--- 1 warnings, 0 errors
 
 -- expected stderr:
 -- Warn

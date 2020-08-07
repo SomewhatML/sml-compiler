@@ -1,6 +1,6 @@
 (* check elaboration of exceptions 
 
--- args: --v
+-- args: --v --phase elab
 -- expected stdout:
 -- val try: int -> int
 -- val x: int

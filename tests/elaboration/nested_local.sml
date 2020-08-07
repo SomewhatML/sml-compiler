@@ -1,6 +1,6 @@
 (* 
 
--- args: --v
+-- args: --v --phase elab
 -- expected stdout:
 -- val |>: 'a * 'a -> 'b -> 'b
 -- val a: 'a * 'a -> 'b -> 'b

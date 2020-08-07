@@ -161,12 +161,12 @@ impl<'a> Context<'a> {
     pub fn new(arena: &'a CoreArena<'a>) -> Context<'a> {
         let mut ctx = Context {
             tyvars: Vec::default(),
-            namespaces: Vec::default(),
+            namespaces: Vec::with_capacity(256),
             current: 0,
             tyvar_rank: 0,
             local_depth: 0,
-            types: Vec::default(),
-            values: Vec::default(),
+            types: Vec::with_capacity(256),
+            values: Vec::with_capacity(4096),
             elab_errors: Vec::default(),
             unification_errors: Vec::default(),
             arena,
@@ -847,7 +847,7 @@ impl<'a> Context<'a> {
                 let fls = Expr::new(
                     self.arena
                         .exprs
-                        .alloc(ExprKind::Con(constructors::C_FALSE, vec![])),
+                        .alloc(ExprKind::Con(constructors::C_FALSE, Vec::default())),
                     self.arena.types.bool(),
                     expr.span,
                 );
@@ -1045,7 +1045,7 @@ impl<'a> Context<'a> {
                 let tru = Expr::new(
                     self.arena
                         .exprs
-                        .alloc(ExprKind::Con(constructors::C_TRUE, vec![])),
+                        .alloc(ExprKind::Con(constructors::C_TRUE, Vec::default())),
                     self.arena.types.bool(),
                     expr.span,
                 );

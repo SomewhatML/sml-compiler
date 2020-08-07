@@ -1,6 +1,6 @@
 (* wildcard pats in multi-arity functions
 
--- args: --vv
+-- args: --vv --phase elab
 -- expected stdout:
 -- val m: int -> int -> int = fn x0 => fn x1 => 
 --   let

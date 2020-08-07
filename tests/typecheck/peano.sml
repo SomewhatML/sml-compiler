@@ -1,6 +1,6 @@
 (* check recursion
 
--- args: --v
+-- args: --v --phase elab
 -- expected stdout:
 -- val recurse: nat -> nat -> nat -> nat
 -- val o: 'a -> 'b * 'c -> 'a -> 'c -> 'b

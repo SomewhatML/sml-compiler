@@ -15,5 +15,8 @@ path = "../sml-frontend"
 [dependencies.sml-util]
 path = "../sml-util"
 
+[dependencies.stats_alloc]
+version = "0.1.8"
+
 [dev-dependencies.goldentests]
 version = "0.3.5"

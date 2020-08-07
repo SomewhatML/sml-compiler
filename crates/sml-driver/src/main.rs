@@ -1,11 +1,4 @@
-use sml_core::elaborate::Context;
-use sml_frontend::parser::Parser;
-use sml_util::diagnostics::{Diagnostic, Level};
-use sml_util::interner::*;
-use sml_util::pretty_print::PrettyPrinter;
 use std::io::prelude::*;
-use std::time::Instant;
-
 mod compiler;
 mod config;
 use config::ArgParse;

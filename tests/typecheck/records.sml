@@ -1,6 +1,6 @@
 (* record types are sorted in unspecified, but fixed order
 
--- args: --v
+-- args: --v --phase elab
 -- expected stdout:
 -- val x: {a: int, b: int, c: bool}
 -- val y: {a: int, b: int, c: bool}
