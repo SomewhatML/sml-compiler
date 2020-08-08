@@ -173,7 +173,7 @@ impl<'a> Context<'a> {
         };
         ctx.namespaces.push(Namespace::default());
         populate_context(&mut ctx);
-        ctx.elab_decl_fixity(&ast::Fixity::Infixr, 4, constructors::C_CONS.name);
+        ctx.elab_decl_fixity(&ast::Fixity::Infixr, 5, constructors::C_CONS.name);
         ctx
     }
 
@@ -1408,7 +1408,7 @@ impl<'a> Context<'a> {
         }
     }
 
-    fn elab_decl_conbind(&mut self, db: &ast::Datatype, elab: &mut Vec<Decl<'a>>) -> Datatype<'a> {
+    fn elab_decl_conbind(&mut self, db: &ast::Datatype) -> Datatype<'a> {
         let tycon = Tycon::new(db.tycon, db.tyvars.len(), self.scope_depth());
 
         // This is safe to unwrap, because we already bound it.
@@ -1494,7 +1494,7 @@ impl<'a> Context<'a> {
                         let v = ctx.arena.types.fresh_type_var(ctx.tyvar_rank);
                         ctx.tyvars.push((*s, v));
                     }
-                    ctx.elab_decl_conbind(db, elab)
+                    ctx.elab_decl_conbind(db)
                 })
             })
             .collect();
@@ -1775,12 +1775,8 @@ impl<'a> Context<'a> {
                 ctx.define_value(*var, pat.span, sch, IdStatus::Var);
             }
 
-            if pat.matches_expr(&expr) {
-                elab.push(Decl::Val(tyvars, Rule { pat, expr }));
-            } else {
-                let rule = crate::match_compile::val(ctx, expr, pat, &bindings);
-                elab.push(Decl::Val(tyvars, rule));
-            }
+            let rule = crate::match_compile::val(ctx, expr, pat, &bindings);
+            elab.push(Decl::Val(tyvars, rule));
         })
     }
 

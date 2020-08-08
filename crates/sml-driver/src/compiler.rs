@@ -121,7 +121,7 @@ impl<'a> Phase<'a> for Monomorphize {
             .map(|decl| alpha.visit_decl(decl, &mut pp))
             .collect();
 
-        alpha.dump_cache(&mut pp);
+        // alpha.dump_cache(&mut pp);
         Ok(decls)
     }
 

@@ -306,6 +306,15 @@ impl<'a> Rename<'a> {
                 ExprKind::Lambda(lam)
             }
             ExprKind::Let(decls, body) => {
+                // Remove redundant let expressions
+                if decls.len() == 1 {
+                    match decls.first() {
+                        Some(Decl::Val(_, Rule { pat, expr })) if pat.equals_expr(&body) => {
+                            return self.visit_expr(&expr, pp)
+                        }
+                        _ => {}
+                    }
+                }
                 self.enter();
                 let decls = decls
                     .iter()
@@ -329,10 +338,10 @@ impl<'a> Rename<'a> {
                 ExprKind::Seq(exprs.iter().map(|e| self.visit_expr(e, pp)).collect())
             }
             ExprKind::Var(s, tys) => {
-                pp.print(s).line();
-                let mut b = String::new();
-                let _ = pp.write_fmt(&mut b);
-                println!("{}", b);
+                // pp.print(s).line();
+                // let mut b = String::new();
+                // let _ = pp.write_fmt(&mut b);
+                // println!("{}", b);
                 let name = self.swap_value(*s).expect("BUG");
                 let tys = tys
                     .iter()
