@@ -56,6 +56,18 @@ pub fn populate_context<'arena>(ctx: &mut elaborate::Context<'arena>) {
         Scheme::Mono(ctx.arena.types.bool()),
     );
 
+    define_constructor(
+        ctx,
+        constructors::C_BIND,
+        Scheme::Mono(ctx.arena.types.exn()),
+    );
+
+    define_constructor(
+        ctx,
+        constructors::C_MATCH,
+        Scheme::Mono(ctx.arena.types.exn()),
+    );
+
     let reff = ctx.arena.types.fresh_var(0);
     define_constructor(
         ctx,
@@ -64,5 +76,19 @@ pub fn populate_context<'arena>(ctx: &mut elaborate::Context<'arena>) {
             vec![reff.as_tyvar().id],
             ctx.arena.types.arrow(reff, ctx.arena.types.reff(reff)),
         ),
+    );
+
+    let eq = ctx.arena.types.fresh_var(0);
+    let eq_ty = ctx.arena.types.tuple(vec![eq, eq]);
+
+    let eq_sch = Scheme::Poly(
+        vec![eq.as_tyvar().id],
+        ctx.arena.types.arrow(eq_ty, ctx.arena.types.bool()),
+    );
+    ctx.define_value(
+        sml_util::interner::S_EQUAL,
+        Span::dummy(),
+        eq_sch,
+        IdStatus::Var,
     );
 }
