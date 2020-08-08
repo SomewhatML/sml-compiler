@@ -1,7 +1,8 @@
 use super::arenas::TypeArena;
 use super::*;
 use std::cell::Cell;
-use std::collections::{HashSet, VecDeque};
+use std::collections::{VecDeque};
+use rustc_hash::FxHashSet;
 
 /// A type variable
 ///
@@ -148,7 +149,7 @@ impl<'a> Type<'a> {
     /// associated type variables that have a rank greater than `rank`
     pub fn ftv_rank(&self, rank: usize) -> Vec<usize> {
         let mut vars = Vec::new();
-        let mut uniq = HashSet::new();
+        let mut uniq = FxHashSet::default();
         let mut queue = VecDeque::new();
         queue.push_back(self);
 
@@ -189,7 +190,7 @@ impl<'a> Type<'a> {
 
     pub fn ftv_rank_init(rank: usize, start: Vec<&'a Type<'a>>) -> Vec<usize> {
         let mut vars = Vec::new();
-        let mut uniq = HashSet::new();
+        let mut uniq = FxHashSet::default();
         let mut queue = VecDeque::from(start);
         while let Some(ty) = queue.pop_front() {
             match ty {
