@@ -14,7 +14,8 @@ use sml_util::interner::{Interner, Symbol};
 use sml_util::pretty_print::PrettyPrinter;
 use sml_util::span::Span;
 use sml_util::Const;
-use std::collections::HashMap;
+// use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::fmt::Write;
 
 pub fn check_and_elaborate<'a>(
@@ -111,9 +112,9 @@ struct PartialFnBinding<'s, 'a> {
 pub struct Namespace {
     parent: Option<usize>,
     depth: usize,
-    types: HashMap<Symbol, TypeId>,
-    values: HashMap<Symbol, ExprId>,
-    infix: HashMap<Symbol, Fixity>,
+    types: FxHashMap<Symbol, TypeId>,
+    values: FxHashMap<Symbol, ExprId>,
+    infix: FxHashMap<Symbol, Fixity>,
 }
 
 /// An elaboration context, holding the namespace and type definitions
@@ -504,7 +505,7 @@ impl<'a> CantUnify<'a> {
     }
 
     fn convert_err(self, pp: &mut PrettyPrinter<'_>) -> Option<Diagnostic> {
-        let mut map = HashMap::new();
+        let mut map = std::collections::HashMap::default();
 
         let mut buffer = String::new();
         let sp = self.originating?;
