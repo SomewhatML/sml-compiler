@@ -1196,7 +1196,7 @@ impl<'a> Context<'a> {
                 match self.lookup_value(con).cloned() {
                     Some((scheme, IdStatus::Exn(constr)))
                     | Some((scheme, IdStatus::Con(constr))) => {
-                        let (inst, args) = self.instantiate(&scheme);
+                        let (inst, _) = self.instantiate(&scheme);
 
                         let (arg, res) = match inst.de_arrow() {
                             Some((a, r)) => (a, r),
@@ -1774,16 +1774,12 @@ impl<'a> Context<'a> {
                 }
                 ctx.define_value(*var, pat.span, sch, IdStatus::Var);
             }
-            match pat.kind {
-                PatKind::Var(_) | PatKind::Wild => {
-                    elab.push(Decl::Val(tyvars, Rule { pat, expr }));
-                }
-                _ => {
-                    // If we have some kind of compound binding, go ahead and
-                    // do a source->source rewrite
-                    let rule = crate::match_compile::val(ctx, expr, pat, &bindings);
-                    elab.push(Decl::Val(tyvars, rule));
-                }
+
+            if pat.matches_expr(&expr) {
+                elab.push(Decl::Val(tyvars, Rule { pat, expr }));
+            } else {
+                let rule = crate::match_compile::val(ctx, expr, pat, &bindings);
+                elab.push(Decl::Val(tyvars, rule));
             }
         })
     }

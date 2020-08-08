@@ -165,6 +165,55 @@ impl<'ar> Pat<'ar> {
             }
         }
     }
+
+    pub fn equals_expr(&self, expr: &Expr<'_>) -> bool {
+        match (self.kind, expr.kind) {
+            (
+                PatKind::App(con, Some(p)),
+                ExprKind::App(
+                    Expr {
+                        kind: ExprKind::Con(con2, _),
+                        ..
+                    },
+                    e2,
+                ),
+            ) => con == con2 && p.equals_expr(e2),
+            (PatKind::Const(a), ExprKind::Const(b)) => a == b,
+            (PatKind::Record(a), ExprKind::Record(b)) => {
+                a.len() == b.len()
+                    && a.iter()
+                        .zip(b)
+                        .all(|(a, b)| a.label == b.label && a.data.equals_expr(&b.data))
+            }
+            (PatKind::Var(a), ExprKind::Var(b, _)) => a == b,
+            (_, _) => false,
+        }
+    }
+
+    pub fn matches_expr(&self, expr: &Expr<'_>) -> bool {
+        match (self.kind, expr.kind) {
+            (
+                PatKind::App(con, Some(p)),
+                ExprKind::App(
+                    Expr {
+                        kind: ExprKind::Con(con2, _),
+                        ..
+                    },
+                    e2,
+                ),
+            ) => con == con2 && p.matches_expr(e2),
+            (PatKind::Const(a), ExprKind::Const(b)) => a == b,
+            (PatKind::Record(a), ExprKind::Record(b)) => {
+                a.len() == b.len()
+                    && a.iter()
+                        .zip(b)
+                        .all(|(a, b)| a.label == b.label && a.data.matches_expr(&b.data))
+            }
+            (PatKind::Var(_), _) => true,
+            (PatKind::Wild, _) => true,
+            (_, _) => false,
+        }
+    }
 }
 
 impl<T> Row<T> {

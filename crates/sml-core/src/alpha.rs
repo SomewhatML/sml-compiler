@@ -63,6 +63,9 @@ impl<'a> Rename<'a> {
 
     pub fn dump_cache(&self, pp: &mut PrettyPrinter<'_>) {
         for (k, entry) in &self.cache {
+            if entry.is_empty() {
+                continue;
+            }
             pp.line().text("CACHE ").print(k);
             for usage in entry {
                 for ty in usage {
@@ -73,24 +76,6 @@ impl<'a> Rename<'a> {
         let mut b = String::new();
         let _ = pp.write_fmt(&mut b);
         println!("{}", b);
-    }
-
-    fn add_usage(&mut self, name: Symbol, usage: Vec<&'a Type<'a>>, pp: &mut PrettyPrinter<'_>) {
-        // self.cache.entry(name)
-        // for (k, entry) in &self.cache {
-        //     pp.line().text("CACHE ").print(k);
-        //     for usage in entry {
-        //         pp.text(" ").print(*usage).text(",");
-        //     }
-        // }
-        // let mut b = String::new();
-        // let _ = pp.write_fmt(&mut b);
-        // println!("{}", b);
-        // let entry = self
-        //     .cache
-        //     .get_mut(&name)
-        //     .expect(&format!("Invalid usage! {:?}", name));
-        self.cache.entry(name).or_default().push(usage);
     }
 
     #[inline]
@@ -267,11 +252,6 @@ impl<'a> Rename<'a> {
     }
 
     fn visit_expr(&mut self, expr: &Expr<'a>, pp: &mut PrettyPrinter<'_>) -> Expr<'a> {
-        pp.text("visiting ").print(expr);
-        let mut b = String::new();
-        let _ = pp.write_fmt(&mut b);
-        println!("{}", b);
-
         let ty = self.visit_type(expr.ty, pp);
         let kind = match expr.kind {
             ExprKind::App(e1, e2) => {
@@ -304,7 +284,9 @@ impl<'a> Rename<'a> {
                     .iter()
                     .map(|ty| self.visit_type(ty, pp))
                     .collect::<Vec<_>>();
-                self.add_usage(con.name, tys.clone(), pp);
+                if !tys.is_empty() {
+                    self.cache.entry(con.name).or_default().push(tys.clone());
+                }
                 ExprKind::Con(con, tys)
             }
             ExprKind::Const(c) => ExprKind::Const(*c),
@@ -325,7 +307,10 @@ impl<'a> Rename<'a> {
             }
             ExprKind::Let(decls, body) => {
                 self.enter();
-                let decls = decls.iter().map(|d| self.visit_decl(d, pp)).collect();
+                let decls = decls
+                    .iter()
+                    .map(|d| self.visit_decl(d, pp))
+                    .collect::<Vec<_>>();
                 let body = self.visit_expr(body, pp);
                 self.leave();
                 ExprKind::Let(decls, body)
@@ -344,13 +329,20 @@ impl<'a> Rename<'a> {
                 ExprKind::Seq(exprs.iter().map(|e| self.visit_expr(e, pp)).collect())
             }
             ExprKind::Var(s, tys) => {
+                pp.print(s).line();
+                let mut b = String::new();
+                let _ = pp.write_fmt(&mut b);
+                println!("{}", b);
                 let name = self.swap_value(*s).expect("BUG");
                 let tys = tys
                     .iter()
                     .map(|ty| self.visit_type(ty, pp))
                     .collect::<Vec<_>>();
-                self.add_usage(name, tys.clone(), pp);
-                pp.line().text("VAR ").print(&name).print(ty);
+                if !tys.is_empty() {
+                    self.cache.entry(name).or_default().push(tys.clone());
+                }
+                // self.cache.entry(name).or_default().push(ty);
+
                 ExprKind::Var(name, tys)
                 // if vars.is_empty() {
                 //     ExprKind::Var(name, Vec::new())
@@ -367,3 +359,9 @@ impl<'a> Rename<'a> {
         Expr::new(self.arena.exprs.alloc(kind), ty, expr.span)
     }
 }
+
+pub struct Mono<'a> {
+    cache: HashMap<Symbol, Vec<Vec<&'a Type<'a>>>>,
+}
+
+impl<'a> Mono<'a> {}
