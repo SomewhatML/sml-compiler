@@ -4,18 +4,8 @@
 -- expected stdout:
 -- val 'a merge: 'a list -> 'a list -> 'a list = fn x0 => fn x1 => 
 --   let
---     val x4: 'a list -> 'a list = fn x3 => 
---       let
---         val xs: 'a list = x3
---       in 
---         xs
---       end
---     val x6: 'a list -> 'a list = fn x5 => 
---       let
---         val ys: 'a list = x5
---       in 
---         ys
---       end
+--     val x4: 'a list -> 'a list = fn x3 => x3
+--     val x6: 'a list -> 'a list = fn x5 => x5
 --     val x8: 'a * 'a list * 'a * 'a list -> 'a list = fn x7 => 
 --       let
 --         val (x, xs, y, ys): 'a * 'a list * 'a * 'a list = x7

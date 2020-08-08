@@ -248,16 +248,20 @@ fn preflight<'a>(
                 let (var, ty) = vars[0];
                 let pat = ctx.arena.pat_var(var, ty);
                 let ex = ctx.arena.expr_var(arg, ty, Vec::new());
-                let tyvars = ty.ftv_rank(ctx.tyvar_rank + 1);
-                let decl = Decl::Val(tyvars, Rule { pat, expr: ex });
-                (
-                    Expr::new(
-                        ctx.arena.exprs.alloc(ExprKind::Let(vec![decl], expr)),
-                        expr.ty,
-                        expr.span,
-                    ),
-                    ty,
-                )
+                if pat.equals_expr(&expr) {
+                    (ex, ty)
+                } else {
+                    let tyvars = ty.ftv_rank(ctx.tyvar_rank + 1);
+                    let decl = Decl::Val(tyvars, Rule { pat, expr: ex });
+                    (
+                        Expr::new(
+                            ctx.arena.exprs.alloc(ExprKind::Let(vec![decl], expr)),
+                            expr.ty,
+                            expr.span,
+                        ),
+                        ty,
+                    )
+                }
             }
             _ => {
                 let body = ctx

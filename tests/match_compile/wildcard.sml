@@ -4,18 +4,8 @@
 -- expected stdout:
 -- val m: int -> int -> int = fn x0 => fn x1 => 
 --   let
---     val x4: int -> int = fn x3 => 
---       let
---         val x: int = x3
---       in 
---         x
---       end
---     val x6: int -> int = fn x5 => 
---       let
---         val y: int = x5
---       in 
---         y
---       end
+--     val x4: int -> int = fn x3 => x3
+--     val x6: int -> int = fn x5 => x5
 --     val x8: unit -> int = fn x7 => 0
 --   in 
 --     
