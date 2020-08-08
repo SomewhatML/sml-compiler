@@ -3,12 +3,11 @@
 -- args: --v
 -- expected stdout:
 -- 1 warnings, 0 errors
--- 
 -- val x0: int
 
 -- expected stderr:
 -- Warn
--- 15,1 top level expressions are not supported! emitting `val _ = ...`
+-- 14,1 top level expressions are not supported! emitting `val _ = ...`
 
 *)
 

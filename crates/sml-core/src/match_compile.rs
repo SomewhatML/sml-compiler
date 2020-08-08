@@ -131,46 +131,9 @@ pub fn val<'a>(
             (ty, p, e)
         }
         _ => {
-            // This is incredibly ugly, maybe clean it up at cost of performance?
-
-            let mut vt = Vec::new();
-            let mut vp = Vec::new();
-            let mut ve = Vec::new();
-            for (idx, (sym, ty)) in bindings.iter().copied().enumerate() {
-                vt.push(Row {
-                    label: Symbol::tuple_field(idx as u32 + 1),
-                    data: ty,
-                    span: Span::dummy(),
-                });
-                vp.push(Row {
-                    label: Symbol::tuple_field(idx as u32 + 1),
-                    data: Pat::new(ctx.arena.pats.alloc(PatKind::Var(sym)), ty, Span::dummy()),
-                    span: Span::dummy(),
-                });
-                ve.push(Row {
-                    label: Symbol::tuple_field(idx as u32 + 1),
-                    data: Expr::new(
-                        ctx.arena.exprs.alloc(ExprKind::Var(sym, Vec::new())),
-                        ty,
-                        Span::dummy(),
-                    ),
-                    span: Span::dummy(),
-                });
-            }
-            let t = SortedRecord::new_unchecked(vt);
-            let t = ctx.arena.types.alloc(Type::Record(t));
-            let p = Pat::new(
-                ctx.arena
-                    .pats
-                    .alloc(PatKind::Record(SortedRecord::new_unchecked(vp))),
-                t,
-                pat.span,
-            );
-            let e = Expr::new(
-                ctx.arena.exprs.alloc(ExprKind::Record(ve)),
-                t,
-                scrutinee.span,
-            );
+            let t = ctx.arena.ty_tuple(bindings.iter().map(|x| x.1));
+            let p = ctx.arena.pat_tuple(bindings.iter().copied());
+            let e = ctx.arena.expr_tuple(bindings.iter().copied());
             (t, p, e)
         }
     };
@@ -240,43 +203,34 @@ fn preflight<'a>(
     let mut decls = Vec::new();
     for Rule { pat, expr } in rules {
         let vars = collect_vars(pat);
-        let arg = ctx.fresh_var();
 
-        let (body, ty) = match vars.len() {
-            0 => (expr, ctx.arena.types.unit()),
+        let lambda = match vars.len() {
+            0 => Lambda {
+                arg: ctx.fresh_var(),
+                body: expr,
+                ty: ctx.arena.types.unit(),
+            },
             1 => {
-                let (var, ty) = vars[0];
-                let pat = ctx.arena.pat_var(var, ty);
-                let ex = ctx.arena.expr_var(arg, ty, Vec::new());
-                if pat.equals_expr(&expr) {
-                    (ex, ty)
-                } else {
-                    let tyvars = ty.ftv_rank(ctx.tyvar_rank + 1);
-                    let decl = Decl::Val(tyvars, Rule { pat, expr: ex });
-                    (
-                        Expr::new(
-                            ctx.arena.exprs.alloc(ExprKind::Let(vec![decl], expr)),
-                            expr.ty,
-                            expr.span,
-                        ),
-                        ty,
-                    )
+                let (arg, ty) = vars[0];
+                Lambda {
+                    arg,
+                    body: expr,
+                    ty,
                 }
             }
             _ => {
+                let arg = ctx.fresh_var();
+                // assign the tuple of bound pattern vars to a fresh var, which we will de-tuple
+                // inside of the lambda body
                 let body = ctx
                     .arena
                     .let_detuple(vars.clone(), arg, expr, ctx.tyvar_rank + 1);
                 let ty = ctx.arena.ty_tuple(vars.into_iter().map(|(_, t)| t));
-                (body, ty)
+                Lambda { arg, body, ty }
             }
         };
 
-        // assign the tuple of bound pattern vars to a fresh var, which we will de-tuple
-        // inside of the lambda body
-        let lambda = Lambda { arg, body, ty };
-
-        let ty = ctx.arena.types.arrow(lambda.ty, expr.ty);
+        let ty = ctx.arena.types.arrow(lambda.ty, lambda.body.ty);
         let name = ctx.fresh_var();
         decls.push(Decl::Fun(Vec::new(), vec![(name, lambda)]));
 
@@ -722,7 +676,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
                 }
                 _ => self.ctx.arena.expr_tuple(vars.into_iter().map(|(sym, ty)| {
                     let (bound, _) = map.get(&sym).expect("Bug: Facts.bind");
-                    (ExprKind::Var(*bound, Vec::new()), ty)
+                    (*bound, ty)
                 })),
             };
 
