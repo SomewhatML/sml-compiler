@@ -17,11 +17,12 @@ use crate::builtin::constructors::{C_BIND, C_MATCH};
 use crate::elaborate::{Context, ElabError, ErrorKind};
 use crate::types::{Constructor, Type};
 use crate::{Decl, Expr, ExprKind, Lambda, Pat, PatKind, Row, Rule, SortedRecord, Var};
+use rustc_hash::{FxHashMap, FxHashSet};
 use sml_util::diagnostics::Level;
 use sml_util::interner::Symbol;
 use sml_util::span::Span;
 use sml_util::Const;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::VecDeque;
 
 pub fn case<'a>(
     ctx: &mut Context<'a>,
@@ -260,9 +261,9 @@ impl Facts {
         self.v.push((var, fact))
     }
 
-    pub fn bind<'a>(&self, var: Symbol, pat: Pat<'a>) -> HashMap<Symbol, Var<'a>> {
-        let mut map = HashMap::new();
-        let mut facts = HashMap::new();
+    pub fn bind<'a>(&self, var: Symbol, pat: Pat<'a>) -> FxHashMap<Symbol, Var<'a>> {
+        let mut map = FxHashMap::default();
+        let mut facts = FxHashMap::default();
         // let mut vec = Vec::new();
         for (sym, fact) in self.v.iter().rev() {
             facts.insert(sym, fact);
@@ -304,7 +305,7 @@ pub struct MatchDiags {
     // mapping from match arm index to renamed/abstracted arms
     renamed: Vec<(Span, Symbol)>,
     // Which arms were reached
-    reached: HashSet<Symbol>,
+    reached: FxHashSet<Symbol>,
     constr: Constructor,
     // Did we emit a `raise Match`?
     inexhaustive: bool,
@@ -315,7 +316,7 @@ impl MatchDiags {
         MatchDiags {
             span,
             renamed: Vec::with_capacity(capacity),
-            reached: HashSet::with_capacity(capacity),
+            reached: FxHashSet::default(),
             constr,
             inexhaustive: false,
         }
@@ -501,7 +502,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
     /// Generate a case expression for the data constructors in the first column
     fn sum_rule(&self, facts: &mut Facts, diags: &mut MatchDiags) -> Expr<'a> {
         // Generate the set of constructors appearing in the column
-        let mut set = HashMap::new();
+        let mut set = FxHashMap::default();
         let mut type_arity = 0;
         for row in &self.pats {
             if let PatKind::App(con, p) = &row[0].kind {
@@ -576,7 +577,7 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
     /// Generate a case expression for the data constructors in the first column
     fn const_rule(&self, facts: &mut Facts, diags: &mut MatchDiags) -> Expr<'a> {
         // Generate the set of constructors appearing in the column
-        let mut set = HashSet::new();
+        let mut set = FxHashSet::default();
         for row in &self.pats {
             match &row[0].kind {
                 PatKind::Const(con) => {

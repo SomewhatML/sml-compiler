@@ -94,13 +94,13 @@ impl<'a> Phase<'a> for Elaborate {
         }
 
         // only have warnings
-        report(ctx.verbosity, diags, &ctx.src);
+        // report(ctx.verbosity, diags, &ctx.src);
 
         Ok(decls)
     }
 
     fn output(&self, ctx: &mut Compiler<'a>, data: Self::Output) {
-        print_core_decl(ctx, &data)
+        // print_core_decl(ctx, &data)
     }
 }
 
