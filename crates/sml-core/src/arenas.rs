@@ -38,10 +38,7 @@ pub struct CoreArena<'ar> {
 impl<'a> CoreArena<'a> {
     /// Create a new pattern tuple from an iterator of (PatKind, Type).
     /// The new tuple will have dummy spans everywhere
-    pub fn pat_tuple<I: IntoIterator<Item = (PatKind<'a>, &'a Type<'a>)>>(
-        &self,
-        iter: I,
-    ) -> Pat<'a> {
+    pub fn pat_tuple<I: IntoIterator<Item = (Symbol, &'a Type<'a>)>>(&self, iter: I) -> Pat<'a> {
         let (fields, tys) = iter
             .into_iter()
             .enumerate()
@@ -49,7 +46,7 @@ impl<'a> CoreArena<'a> {
                 (
                     Row {
                         label: Symbol::tuple_field(idx as u32 + 1),
-                        data: Pat::new(self.pats.alloc(sym), ty, Span::dummy()),
+                        data: Pat::new(self.pats.alloc(PatKind::Var(sym)), ty, Span::dummy()),
                         span: Span::dummy(),
                     },
                     Row {
@@ -101,10 +98,7 @@ impl<'a> CoreArena<'a> {
 
     /// Create a new expression tuple from an iterator of (PatKind, Type).
     /// The new tuple will have dummy spans everywhere
-    pub fn expr_tuple<I: IntoIterator<Item = (ExprKind<'a>, &'a Type<'a>)>>(
-        &self,
-        iter: I,
-    ) -> Expr<'a> {
+    pub fn expr_tuple<I: IntoIterator<Item = (Symbol, &'a Type<'a>)>>(&self, iter: I) -> Expr<'a> {
         let (fields, tys) = iter
             .into_iter()
             .enumerate()
@@ -112,7 +106,11 @@ impl<'a> CoreArena<'a> {
                 (
                     Row {
                         label: Symbol::tuple_field(idx as u32 + 1),
-                        data: Expr::new(self.exprs.alloc(sym), ty, Span::dummy()),
+                        data: Expr::new(
+                            self.exprs.alloc(ExprKind::Var(sym, Vec::new())),
+                            ty,
+                            Span::dummy(),
+                        ),
                         span: Span::dummy(),
                     },
                     Row {
@@ -221,7 +219,7 @@ impl<'a> CoreArena<'a> {
         body: Expr<'a>,
         tyvar_rank: usize,
     ) -> Expr<'a> {
-        let pat = self.pat_tuple(iter.into_iter().map(|(sym, ty)| (PatKind::Var(sym), ty)));
+        let pat = self.pat_tuple(iter);
         let tyvars = pat.ty.ftv_rank(tyvar_rank);
         let decl = Decl::Val(
             tyvars,
