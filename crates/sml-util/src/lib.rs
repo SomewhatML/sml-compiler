@@ -1,4 +1,5 @@
 pub mod diagnostics;
+pub mod hasher;
 pub mod interner;
 pub mod pretty_print;
 pub mod span;
