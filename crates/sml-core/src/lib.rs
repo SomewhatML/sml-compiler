@@ -110,14 +110,14 @@ pub enum Decl<'ar> {
     Exn(Constructor, Option<&'ar Type<'ar>>),
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Hash)]
 pub struct Row<T> {
     pub label: Symbol,
     pub data: T,
     pub span: Span,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct SortedRecord<T> {
     pub rows: Vec<Row<T>>,
 }

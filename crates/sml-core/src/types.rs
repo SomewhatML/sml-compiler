@@ -1,8 +1,8 @@
 use super::arenas::TypeArena;
 use super::*;
-use std::cell::Cell;
-use std::collections::{VecDeque};
 use rustc_hash::FxHashSet;
+use std::cell::Cell;
+use std::collections::VecDeque;
 
 /// A type variable
 ///
@@ -49,7 +49,7 @@ pub enum Type<'a> {
 }
 
 /// A type constructor
-#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq, Hash)]
 pub struct Tycon {
     pub name: Symbol,
     pub arity: usize,
@@ -67,6 +67,7 @@ pub struct Constructor {
     pub type_arity: u8,
 }
 
+/// A Hindley-Milner type scheme
 #[derive(Clone)]
 pub enum Scheme<'a> {
     Mono(&'a Type<'a>),
@@ -107,6 +108,15 @@ impl<'a> Type<'a> {
             }
         });
         unres
+    }
+
+    pub fn resolved(&self) -> bool {
+        match &self {
+            Type::Var(tv) => tv.ty().map(|ty| ty.resolved()).unwrap_or(false),
+            Type::Flex(tv) => tv.ty().map(|ty| ty.resolved()).unwrap_or(false),
+            Type::Con(_, vars) => vars.iter().all(|ty| ty.resolved()),
+            Type::Record(fields) => fields.iter().all(|f| f.data.resolved()),
+        }
     }
 
     /// Pre-order BFS

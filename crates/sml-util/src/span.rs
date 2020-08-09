@@ -1,7 +1,7 @@
 //! Source code locations and spans
 use std::fmt;
 
-#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Default)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 /// Struct representing a single location in a source string
 pub struct Location {
     pub line: u16,
@@ -21,7 +21,7 @@ impl fmt::Display for Location {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Default)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 /// A span in the source, with a start and end location
 pub struct Span {
     pub start: Location,
