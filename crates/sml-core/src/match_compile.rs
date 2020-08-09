@@ -24,11 +24,18 @@ use sml_util::span::Span;
 use sml_util::Const;
 use std::collections::VecDeque;
 
+pub struct MatchRule<'a> {
+    pub pat: Pat<'a>,
+    pub expr: Expr<'a>,
+    pub sym: Symbol,
+    pub bindings: Vec<Var<'a>>,
+}
+
 pub fn case<'a>(
     ctx: &mut Context<'a>,
     scrutinee: Expr<'a>,
     ret_ty: &'a Type<'a>,
-    rules: Vec<Rule<'a>>,
+    rules: Vec<MatchRule<'a>>,
     span: Span,
 ) -> Expr<'a> {
     let test = ctx.fresh_var();
@@ -64,7 +71,7 @@ pub fn fun<'a>(
     ret_ty: &'a Type<'a>,
     vars: Vec<Var<'a>>,
     pats: Vec<Vec<Pat<'a>>>,
-    rules: Vec<Rule<'a>>,
+    rules: Vec<MatchRule<'a>>,
     span: Span,
 ) -> Expr<'a> {
     let test = ctx.fresh_var();
@@ -104,50 +111,26 @@ pub fn fun<'a>(
     )
 }
 
-pub fn val<'a>(
-    ctx: &mut Context<'a>,
-    scrutinee: Expr<'a>,
-    pat: Pat<'a>,
-    bindings: &[Var<'a>],
-) -> Vec<Decl<'a>> {
-    let span = pat.span + scrutinee.span;
+pub fn val<'a>(ctx: &mut Context<'a>, tyvars: Vec<usize>, rule: MatchRule<'a>) -> Vec<Decl<'a>> {
+    let span = rule.pat.span + rule.expr.span;
     let test = ctx.fresh_var();
     let result = ctx.fresh_var();
 
+    let MatchRule {
+        pat,
+        expr,
+        bindings,
+        sym,
+    } = rule;
+
     let expr = match bindings.len() {
-        0 => scrutinee,
+        0 => rule.expr,
         1 => ctx.arena.expr_var(bindings[0].0, bindings[0].1, Vec::new()),
         _ => ctx.arena.expr_tuple(bindings.iter().copied()),
     };
 
     let mut decls = Vec::new();
-    decls.push(Decl::Val(Vec::new(), test, scrutinee));
-
-    let pats = vec![vec![pat]];
-    let mut diags = MatchDiags::with_capacity(span, 1, C_BIND);
-    let (letdecls, rules) = preflight(ctx, vec![Rule { pat, expr }], &mut diags);
-
-    let tyvars = scrutinee.ty.ftv_rank(ctx.tyvar_rank + 1);
-    let mut mat = Matrix {
-        ctx,
-        pats,
-        rules,
-        ret_ty: scrutinee.ty,
-        span,
-        test,
-        vars: vec![(test, scrutinee.ty)],
-    };
-
-    let mut facts = Facts::default();
-    let expr = Expr::new(
-        ctx.arena
-            .exprs
-            .alloc(ExprKind::Let(letdecls, mat.compile(&mut facts, &mut diags))),
-        expr.ty,
-        span,
-    );
-    diags.emit_diagnostics(ctx);
-    decls.push(Decl::Val(Vec::new(), result, expr));
+    decls.push(Decl::Val(Vec::new(), test, rule.expr));
 
     match bindings.len() {
         0 => {}
@@ -169,6 +152,41 @@ pub fn val<'a>(
             }));
         }
     };
+
+    let pats = vec![vec![rule.pat]];
+    let mut diags = MatchDiags::with_capacity(span, 1, C_BIND);
+
+    let (letdecls, rules) = preflight(
+        ctx,
+        vec![MatchRule {
+            pat,
+            expr,
+            bindings,
+            sym,
+        }],
+        &mut diags,
+    );
+
+    let mut mat = Matrix {
+        ctx,
+        pats,
+        rules,
+        ret_ty: expr.ty,
+        span,
+        test,
+        vars: vec![(test, rule.expr.ty)],
+    };
+
+    let mut facts = Facts::default();
+    let expr = Expr::new(
+        ctx.arena
+            .exprs
+            .alloc(ExprKind::Let(letdecls, mat.compile(&mut facts, &mut diags))),
+        expr.ty,
+        span,
+    );
+    diags.emit_diagnostics(ctx);
+    decls.insert(1, Decl::Val(Vec::new(), result, expr));
     decls
 }
 
@@ -195,22 +213,26 @@ pub fn val<'a>(
 /// ```
 fn preflight<'a>(
     ctx: &Context<'a>,
-    rules: Vec<Rule<'a>>,
+    rules: Vec<MatchRule<'a>>,
     diags: &mut MatchDiags,
 ) -> (Vec<Decl<'a>>, Vec<Rule<'a>>) {
     let mut finished = Vec::new();
     let mut decls = Vec::new();
-    for Rule { pat, expr } in rules {
-        let vars = collect_vars(pat);
-
-        let lambda = match vars.len() {
+    for MatchRule {
+        pat,
+        expr,
+        bindings,
+        sym,
+    } in rules
+    {
+        let lambda = match bindings.len() {
             0 => Lambda {
                 arg: ctx.fresh_var(),
                 body: expr,
                 ty: ctx.arena.types.unit(),
             },
             1 => {
-                let (arg, ty) = vars[0];
+                let (arg, ty) = bindings[0];
                 Lambda {
                     arg,
                     body: expr,
@@ -219,10 +241,10 @@ fn preflight<'a>(
             }
             _ => {
                 let arg = ctx.fresh_var();
-                let ty = ctx.arena.ty_tuple(vars.iter().map(|(_, t)| *t));
+                let ty = ctx.arena.ty_tuple(bindings.iter().map(|(_, t)| *t));
                 let var_expr = ctx.arena.expr_var(arg, ty, Vec::new());
 
-                let decls = vars
+                let decls = bindings
                     .into_iter()
                     .enumerate()
                     .map(|(idx, (var, ty))| {
