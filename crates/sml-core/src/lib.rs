@@ -52,6 +52,7 @@ pub enum ExprKind<'ar> {
     Primitive(Symbol),
     Raise(Expr<'ar>),
     Record(Vec<Row<Expr<'ar>>>),
+    Selector(Expr<'ar>, Symbol),
     Seq(Vec<Expr<'ar>>),
     Var(Symbol, Vec<&'ar Type<'ar>>),
 }
@@ -106,7 +107,7 @@ pub struct Datatype<'ar> {
 pub enum Decl<'ar> {
     Datatype(Vec<Datatype<'ar>>),
     Fun(Vec<usize>, Vec<(Symbol, Lambda<'ar>)>),
-    Val(Vec<usize>, Rule<'ar>),
+    Val(Vec<usize>, Symbol, Expr<'ar>),
     Exn(Constructor, Option<&'ar Type<'ar>>),
 }
 

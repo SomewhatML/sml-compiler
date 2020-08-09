@@ -799,13 +799,13 @@ impl<'a> Context<'a> {
         });
 
         let var = self.fresh_var();
-        let pat = self.arena.pat_var(var, self.arena.types.bool());
 
-        let decl = Decl::Val(Vec::new(), Rule { pat, expr: e1 });
+        let decl = Decl::Val(Vec::new(), var, e1);
         let body = Expr::new(
-            self.arena
-                .exprs
-                .alloc(ExprKind::Case((var, pat.ty), vec![tru, fls])),
+            self.arena.exprs.alloc(ExprKind::Case(
+                (var, self.arena.types.bool()),
+                vec![tru, fls],
+            )),
             e2.ty,
             sp,
         );
@@ -1104,6 +1104,15 @@ impl<'a> Context<'a> {
                     }]),
                     expr.span,
                 ))
+                // let fresh = self.fresh_tyvar();
+                // let tys =vec![Row { label: *s, span: expr.span, data: fresh }];
+                // let ty = self
+                //     .arena
+                //     .types
+                //     .alloc(Type::Flex(Flex::new(SortedRecord::new_unchecked(tys))));
+                // let ty = self.arena.types.arrow(ty, fresh);
+
+                // Expr::new(self.arena.exprs.alloc(ExprKind::Selector(*s)), ty, expr.span)
             }
             ast::ExprKind::Seq(exprs) => {
                 let exprs = exprs
@@ -1776,8 +1785,20 @@ impl<'a> Context<'a> {
                 ctx.define_value(*var, pat.span, sch, IdStatus::Var);
             }
 
-            let rule = crate::match_compile::val(ctx, expr, pat, &bindings);
-            elab.push(Decl::Val(tyvars, rule));
+            match pat.kind {
+                PatKind::Var(s) => {
+                    elab.push(Decl::Val(tyvars, *s, expr));
+                }
+                PatKind::Wild => {
+                    let f = ctx.fresh_var();
+                    elab.push(Decl::Val(tyvars, f, expr));
+                }
+                _ => {
+                    let extend = crate::match_compile::val(ctx, expr, pat, &bindings);
+                    elab.extend(extend);
+                    // elab.push(Decl::Val(tyvars, rule));
+                }
+            }
         })
     }
 

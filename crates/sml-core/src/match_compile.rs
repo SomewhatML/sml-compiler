@@ -38,13 +38,7 @@ pub fn case<'a>(
     let (mut decls, rules) = preflight(ctx, rules, &mut diags);
 
     let tyvars = scrutinee.ty.ftv_rank(ctx.tyvar_rank + 1);
-    decls.push(Decl::Val(
-        tyvars,
-        Rule {
-            pat: ctx.arena.pat_var(test, scrutinee.ty),
-            expr: scrutinee,
-        },
-    ));
+    decls.push(Decl::Val(tyvars, test, scrutinee));
     let mut mat = Matrix {
         ctx,
         pats,
@@ -115,63 +109,67 @@ pub fn val<'a>(
     scrutinee: Expr<'a>,
     pat: Pat<'a>,
     bindings: &[Var<'a>],
-) -> Rule<'a> {
+) -> Vec<Decl<'a>> {
     let span = pat.span + scrutinee.span;
     let test = ctx.fresh_var();
+    let result = ctx.fresh_var();
 
-    let (ret_ty, rpat, rexpr) = match bindings.len() {
-        0 => (pat.ty, pat, scrutinee),
-        1 => {
-            let (sym, ty) = bindings[0];
-            let p = Pat::new(ctx.arena.pats.alloc(PatKind::Var(sym)), ty, Span::dummy());
-            let e = Expr::new(
-                ctx.arena.exprs.alloc(ExprKind::Var(sym, Vec::new())),
-                ty,
-                Span::dummy(),
-            );
-            (ty, p, e)
-        }
-        _ => {
-            let t = ctx.arena.ty_tuple(bindings.iter().map(|x| x.1));
-            let p = ctx.arena.pat_tuple(bindings.iter().copied());
-            let e = ctx.arena.expr_tuple(bindings.iter().copied());
-            (t, p, e)
-        }
+    let expr = match bindings.len() {
+        0 => scrutinee,
+        1 => ctx.arena.expr_var(bindings[0].0, bindings[0].1, Vec::new()),
+        _ => ctx.arena.expr_tuple(bindings.iter().copied()),
     };
+
+    let mut decls = Vec::new();
+    decls.push(Decl::Val(Vec::new(), test, scrutinee));
 
     let pats = vec![vec![pat]];
     let mut diags = MatchDiags::with_capacity(span, 1, C_BIND);
-    let (mut decls, rules) = preflight(ctx, vec![Rule { pat, expr: rexpr }], &mut diags);
+    let (letdecls, rules) = preflight(ctx, vec![Rule { pat, expr }], &mut diags);
 
     let tyvars = scrutinee.ty.ftv_rank(ctx.tyvar_rank + 1);
-    decls.push(Decl::Val(
-        tyvars,
-        Rule {
-            pat: ctx.arena.pat_var(test, scrutinee.ty),
-            expr: scrutinee,
-        },
-    ));
     let mut mat = Matrix {
         ctx,
         pats,
         rules,
-        ret_ty,
+        ret_ty: scrutinee.ty,
         span,
         test,
         vars: vec![(test, scrutinee.ty)],
     };
 
     let mut facts = Facts::default();
-    let expr = mat.compile(&mut facts, &mut diags);
-    diags.emit_diagnostics(ctx);
-
     let expr = Expr::new(
-        ctx.arena.exprs.alloc(ExprKind::Let(decls, expr)),
+        ctx.arena
+            .exprs
+            .alloc(ExprKind::Let(letdecls, mat.compile(&mut facts, &mut diags))),
         expr.ty,
-        expr.span,
+        span,
     );
+    diags.emit_diagnostics(ctx);
+    decls.push(Decl::Val(Vec::new(), result, expr));
 
-    Rule { pat: rpat, expr }
+    match bindings.len() {
+        0 => {}
+        1 => {
+            let expr = ctx.arena.expr_var(result, bindings[0].1, Vec::new());
+            decls.push(Decl::Val(Vec::new(), bindings[0].0, expr));
+        }
+        _ => {
+            let te = ctx.arena.expr_var(result, expr.ty, Vec::new());
+            decls.extend(bindings.iter().enumerate().map(|(idx, (var, ty))| {
+                let expr = Expr::new(
+                    ctx.arena
+                        .exprs
+                        .alloc(ExprKind::Selector(te, Symbol::tuple_field(idx as u32 + 1))),
+                    ty,
+                    Span::dummy(),
+                );
+                Decl::Val(Vec::new(), *var, expr)
+            }));
+        }
+    };
+    decls
 }
 
 /// Abstract match bodies into functions, to be declared prior to the
@@ -221,12 +219,36 @@ fn preflight<'a>(
             }
             _ => {
                 let arg = ctx.fresh_var();
+                let ty = ctx.arena.ty_tuple(vars.iter().map(|(_, t)| *t));
+                let var_expr = ctx.arena.expr_var(arg, ty, Vec::new());
+
+                let decls = vars
+                    .into_iter()
+                    .enumerate()
+                    .map(|(idx, (var, ty))| {
+                        let expr = Expr::new(
+                            ctx.arena.exprs.alloc(ExprKind::Selector(
+                                var_expr,
+                                Symbol::tuple_field(idx as u32 + 1),
+                            )),
+                            ty,
+                            var_expr.span,
+                        );
+                        Decl::Val(Vec::new(), var, expr)
+                    })
+                    .collect();
+
+                let body = Expr::new(
+                    ctx.arena.exprs.alloc(ExprKind::Let(decls, expr)),
+                    expr.ty,
+                    expr.span,
+                );
+
                 // assign the tuple of bound pattern vars to a fresh var, which we will de-tuple
                 // inside of the lambda body
-                let body = ctx
-                    .arena
-                    .let_detuple(vars.clone(), arg, expr, ctx.tyvar_rank + 1);
-                let ty = ctx.arena.ty_tuple(vars.into_iter().map(|(_, t)| t));
+                // let body = ctx
+                //     .arena
+                //     .let_detuple(vars.clone(), arg, expr, ctx.tyvar_rank + 1);
                 Lambda { arg, body, ty }
             }
         };
@@ -448,12 +470,38 @@ impl<'a, 'ctx> Matrix<'a, 'ctx> {
             mat.pats.push(new_row);
         }
         mat.vars = vars;
-        self.ctx.arena.let_derecord(
-            record,
-            base.0,
-            mat.compile(facts, diags),
-            self.ctx.tyvar_rank + 1,
+
+        let base_expr = self.ctx.arena.expr_var(base.0, base.1, Vec::new());
+        let decls = record
+            .into_iter()
+            .map(|(label, var, ty)| {
+                let expr = Expr::new(
+                    self.ctx
+                        .arena
+                        .exprs
+                        .alloc(ExprKind::Selector(base_expr, label)),
+                    ty,
+                    Span::dummy(),
+                );
+                Decl::Val(Vec::new(), var, expr)
+            })
+            .collect();
+
+        Expr::new(
+            self.ctx
+                .arena
+                .exprs
+                .alloc(ExprKind::Let(decls, mat.compile(facts, diags))),
+            self.ret_ty,
+            Span::dummy(),
         )
+
+        // self.ctx.arena.let_derecord(
+        //     record,
+        //     base.0,
+        //     mat.compile(facts, diags),
+        //     self.ctx.tyvar_rank + 1,
+        // )
     }
 
     /// This is basically the same thing as the record rule, but for data

@@ -114,15 +114,15 @@ impl<'a> Phase<'a> for Monomorphize {
         ctx: &mut Compiler<'a>,
         input: Self::Input,
     ) -> Result<Self::Output, Vec<Diagnostic>> {
-        let mut alpha = sml_core::alpha::Rename::new(&ctx.arena);
-        let mut pp = PrettyPrinter::new(&ctx.interner);
-        let decls = input
-            .iter()
-            .map(|decl| alpha.visit_decl(decl, &mut pp))
-            .collect();
+        // let mut alpha = sml_core::alpha::Rename::new(&ctx.arena);
+        // let mut pp = PrettyPrinter::new(&ctx.interner);
+        // let decls = input
+        //     .iter()
+        //     .map(|decl| alpha.visit_decl(decl, &mut pp))
+        //     .collect();
 
-        alpha.dump_cache(&mut pp);
-        Ok(decls)
+        // alpha.dump_cache(&mut pp);
+        Ok(input)
     }
 
     fn output(&self, ctx: &mut Compiler<'a>, data: Self::Output) {
@@ -224,8 +224,8 @@ fn print_core_decl<'a>(ctx: &Compiler<'a>, decls: &[sml_core::Decl<'a>]) {
             for decl in decls {
                 use sml_core::{Decl, Rule};
                 match decl {
-                    Decl::Val(_, Rule { pat, .. }) => {
-                        pp.text("val ").print(pat).text(": ").print(pat.ty).line();
+                    Decl::Val(_, val, expr) => {
+                        pp.text("val ").print(val).text(": ").print(expr.ty).line();
                     }
                     Decl::Fun(_, binds) => {
                         for (name, lam) in binds {
