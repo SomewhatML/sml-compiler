@@ -107,6 +107,7 @@ impl<'a> Print for Expr<'a> {
                 let rec = SortedRecord::new_unchecked(rows.clone());
                 pp.print(&&rec)
             }
+            Selector(ex, sym) => pp.text("#").print(sym).text(" ").print(ex),
             Seq(exprs) => {
                 pp.text("(");
                 for (idx, expr) in exprs.iter().enumerate() {
@@ -251,12 +252,12 @@ impl<'a> Print for Decl<'a> {
     fn print<'b, 'c>(&self, pp: &'b mut PrettyPrinter<'c>) -> &'b mut PrettyPrinter<'c> {
         let mut map = HashMap::new();
         match self {
-            Decl::Val(vars, Rule { pat, expr }) => {
+            Decl::Val(vars, var, expr) => {
                 pp.line().text("val ");
                 print_tyvars(&vars, &mut map, pp)
-                    .print(pat)
+                    .print(var)
                     .text(": ")
-                    .print(pat.ty)
+                    .print(expr.ty)
                     .text(" = ")
                     .print(expr)
             }
