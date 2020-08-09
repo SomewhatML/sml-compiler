@@ -18,6 +18,8 @@ use sml_util::Const;
 use rustc_hash::FxHashMap;
 use std::fmt::Write;
 
+use crate::match_compile::MatchRule;
+
 pub fn check_and_elaborate<'a>(
     arena: &'a CoreArena<'a>,
     decl: &ast::Decl,
@@ -816,18 +818,24 @@ impl<'a> Context<'a> {
         )
     }
 
-    fn elab_rule(&mut self, rule: &ast::Rule, bind: bool) -> Rule<'a> {
-        let (pat, _) = self.elaborate_pat(&rule.pat, bind);
+    fn elab_rule(&mut self, rule: &ast::Rule, bind: bool) -> MatchRule<'a> {
+        let (pat, bindings) = self.elaborate_pat(&rule.pat, bind);
         let expr = self.elaborate_expr(&rule.expr);
-        Rule { pat, expr }
+        let sym = self.fresh_var();
+        MatchRule {
+            pat,
+            expr,
+            bindings,
+            sym,
+        }
     }
 
-    fn elab_rules(&mut self, sp: Span, rules: &[ast::Rule]) -> (Vec<Rule<'a>>, &'a Type<'a>) {
+    fn elab_rules(&mut self, sp: Span, rules: &[ast::Rule]) -> (Vec<MatchRule<'a>>, &'a Type<'a>) {
         self.with_scope(|ctx| {
             let rules = rules
                 .iter()
                 .map(|r| ctx.elab_rule(r, true))
-                .collect::<Vec<Rule>>();
+                .collect::<Vec<MatchRule>>();
 
             let mut rtys = rules
                 .iter()
@@ -1639,9 +1647,9 @@ impl<'a> Context<'a> {
             // Make a new scope, in which we define the pattern bindings, and proceed
             // to elaborate the body of the function clause
             self.tyvar_rank += 1;
-            let expr = self.with_scope(move |ctx| {
-                for (var, tv) in bindings {
-                    ctx.define_value(var, span, Scheme::Mono(tv), IdStatus::Var);
+            let expr = self.with_scope(|ctx| {
+                for (var, tv) in &bindings {
+                    ctx.define_value(*var, span, Scheme::Mono(tv), IdStatus::Var);
                 }
                 ctx.elaborate_expr(&expr)
             });
@@ -1654,9 +1662,11 @@ impl<'a> Context<'a> {
 
             let tuple_ty = self.arena.types.tuple(pats.iter().map(|pat| pat.ty));
             let tuple_pat = Pat::new(self.arena.pats.tuple(pats.iter().copied()), tuple_ty, span);
-            let rule = Rule {
+            let rule = MatchRule {
                 pat: tuple_pat,
                 expr,
+                bindings,
+                sym: self.fresh_var(),
             };
 
             if pats.iter().any(|p| p.flexible()) {
@@ -1794,7 +1804,13 @@ impl<'a> Context<'a> {
                     elab.push(Decl::Val(tyvars, f, expr));
                 }
                 _ => {
-                    let extend = crate::match_compile::val(ctx, expr, pat, &bindings);
+                    let rule = MatchRule {
+                        pat,
+                        expr,
+                        bindings,
+                        sym: ctx.fresh_var(),
+                    };
+                    let extend = crate::match_compile::val(ctx, tyvars, rule);
                     elab.extend(extend);
                     // elab.push(Decl::Val(tyvars, rule));
                 }

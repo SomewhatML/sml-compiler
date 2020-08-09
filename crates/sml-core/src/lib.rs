@@ -29,6 +29,7 @@ pub mod check;
 pub mod core_pp;
 pub mod elaborate;
 pub mod match_compile;
+pub mod type_check;
 pub mod types;
 
 pub type Var<'a> = (Symbol, &'a Type<'a>);
