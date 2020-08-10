@@ -124,39 +124,40 @@ pub fn val<'a>(ctx: &mut Context<'a>, tyvars: Vec<usize>, rule: MatchRule<'a>) -
     } = rule;
 
     let expr = match bindings.len() {
-        0 => rule.expr,
+        0 => expr,
         1 => ctx.arena.expr_var(bindings[0].0, bindings[0].1, Vec::new()),
         _ => ctx.arena.expr_tuple(bindings.iter().copied()),
     };
 
-    let mut decls = Vec::new();
-    decls.push(Decl::Val(Vec::new(), test, rule.expr));
-
-    match bindings.len() {
-        0 => {}
+    let mut decls = match bindings.len() {
+        0 => Vec::new(),
         1 => {
             let expr = ctx.arena.expr_var(result, bindings[0].1, Vec::new());
-            decls.push(Decl::Val(Vec::new(), bindings[0].0, expr));
+            vec![Decl::Val(Vec::new(), bindings[0].0, expr)]
         }
         _ => {
             let te = ctx.arena.expr_var(result, expr.ty, Vec::new());
-            decls.extend(bindings.iter().enumerate().map(|(idx, (var, ty))| {
-                let expr = Expr::new(
-                    ctx.arena
-                        .exprs
-                        .alloc(ExprKind::Selector(te, Symbol::tuple_field(idx as u32 + 1))),
-                    ty,
-                    Span::dummy(),
-                );
-                Decl::Val(Vec::new(), *var, expr)
-            }));
+            bindings
+                .iter()
+                .enumerate()
+                .map(|(idx, (var, ty))| {
+                    let expr = Expr::new(
+                        ctx.arena
+                            .exprs
+                            .alloc(ExprKind::Selector(te, Symbol::tuple_field(idx as u32 + 1))),
+                        ty,
+                        Span::dummy(),
+                    );
+                    Decl::Val(Vec::new(), *var, expr)
+                })
+                .collect()
         }
     };
 
     let pats = vec![vec![rule.pat]];
     let mut diags = MatchDiags::with_capacity(span, 1, C_BIND);
 
-    let (letdecls, rules) = preflight(
+    let (mut letdecls, rules) = preflight(
         ctx,
         vec![MatchRule {
             pat,
@@ -166,6 +167,8 @@ pub fn val<'a>(ctx: &mut Context<'a>, tyvars: Vec<usize>, rule: MatchRule<'a>) -
         }],
         &mut diags,
     );
+
+    letdecls.push(Decl::Val(Vec::new(), test, rule.expr));
 
     let mut mat = Matrix {
         ctx,
@@ -186,7 +189,7 @@ pub fn val<'a>(ctx: &mut Context<'a>, tyvars: Vec<usize>, rule: MatchRule<'a>) -
         span,
     );
     diags.emit_diagnostics(ctx);
-    decls.insert(1, Decl::Val(Vec::new(), result, expr));
+    decls.insert(0, Decl::Val(Vec::new(), result, expr));
     decls
 }
 
