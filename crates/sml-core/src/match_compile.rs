@@ -133,7 +133,8 @@ pub fn val<'a>(ctx: &mut Context<'a>, tyvars: Vec<usize>, rule: MatchRule<'a>) -
         0 => Vec::new(),
         1 => {
             let expr = ctx.arena.expr_var(result, bindings[0].1, Vec::new());
-            vec![Decl::Val(Vec::new(), bindings[0].0, expr)]
+            let tyvars = expr.ty.ftv_rank(ctx.tyvar_rank);
+            vec![Decl::Val(tyvars, bindings[0].0, expr)]
         }
         _ => {
             let te = ctx.arena.expr_var(result, expr.ty, Vec::new());
@@ -148,7 +149,8 @@ pub fn val<'a>(ctx: &mut Context<'a>, tyvars: Vec<usize>, rule: MatchRule<'a>) -
                         ty,
                         Span::dummy(),
                     );
-                    Decl::Val(Vec::new(), *var, expr)
+                    let tyvars = ty.ftv_rank(ctx.tyvar_rank);
+                    Decl::Val(tyvars, *var, expr)
                 })
                 .collect()
         }
@@ -189,7 +191,7 @@ pub fn val<'a>(ctx: &mut Context<'a>, tyvars: Vec<usize>, rule: MatchRule<'a>) -
         span,
     );
     diags.emit_diagnostics(ctx);
-    decls.insert(0, Decl::Val(Vec::new(), result, expr));
+    decls.insert(0, Decl::Val(tyvars, result, expr));
     decls
 }
 
@@ -279,15 +281,15 @@ fn preflight<'a>(
         };
 
         let ty = ctx.arena.types.arrow(lambda.ty, lambda.body.ty);
-        let name = ctx.fresh_var();
-        decls.push(Decl::Fun(Vec::new(), vec![(name, lambda)]));
+        // let name = ctx.fresh_var();
+        decls.push(Decl::Fun(Vec::new(), vec![(sym, lambda)]));
 
         finished.push(Rule {
             pat,
-            expr: ctx.arena.expr_var(name, ty, Vec::new()),
+            expr: ctx.arena.expr_var(sym, ty, Vec::new()),
         });
 
-        diags.renamed.push((expr.span, name));
+        diags.renamed.push((expr.span, sym));
     }
     (decls, finished)
 }

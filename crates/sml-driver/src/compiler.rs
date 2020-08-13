@@ -114,15 +114,15 @@ impl<'a> Phase<'a> for Monomorphize {
         ctx: &mut Compiler<'a>,
         input: Self::Input,
     ) -> Result<Self::Output, Vec<Diagnostic>> {
-        // let mut alpha = sml_core::alpha::Rename::new(&ctx.arena);
-        // let mut pp = PrettyPrinter::new(&ctx.interner);
-        // let decls = input
-        //     .iter()
-        //     .map(|decl| alpha.visit_decl(decl, &mut pp))
-        //     .collect();
+        let mut alpha = sml_core::alpha::Rename::new(&ctx.arena);
+        let mut pp = PrettyPrinter::new(&ctx.interner);
+        let decls = input
+            .iter()
+            .map(|decl| alpha.visit_decl(decl, &mut pp))
+            .collect();
 
-        // alpha.dump_cache(&mut pp);
-        Ok(input)
+        alpha.dump_cache(&mut pp);
+        Ok(decls)
     }
 
     fn output(&self, ctx: &mut Compiler<'a>, data: Self::Output) {

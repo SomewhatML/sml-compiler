@@ -369,7 +369,7 @@ impl<'a> TypeVar<'a> {
         self.data.get()
     }
 
-    fn rank(&self) -> usize {
+    pub fn rank(&self) -> usize {
         self.rank.get()
     }
 }

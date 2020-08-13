@@ -1782,7 +1782,7 @@ impl<'a> Context<'a> {
                     .message("pattern and expression have different types in `val` declaration")
             });
 
-            let dontgeneralize = !expr.non_expansive() || pat.flexible();
+            let dontgeneralize = dbg!(!expr.non_expansive()) || dbg!(pat.flexible());
             let mut tyvars = Vec::new();
             for (var, tv) in &bindings {
                 let sch = match dontgeneralize {
@@ -1790,6 +1790,7 @@ impl<'a> Context<'a> {
                     true => Scheme::Mono(tv),
                 };
                 if let Scheme::Poly(vars, _) = &sch {
+                    dbg!(vars);
                     tyvars.extend(vars);
                 }
                 ctx.define_value(*var, pat.span, sch, IdStatus::Var);

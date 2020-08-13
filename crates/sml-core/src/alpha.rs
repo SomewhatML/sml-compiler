@@ -16,7 +16,7 @@ impl<'a> Hash for Type<'a> {
         match &self {
             Type::Var(tv) => match tv.ty() {
                 Some(ty) => ty.hash(state),
-                None => 0.hash(state),
+                None => tv.id.hash(state),
             },
             Type::Flex(tv) => match tv.ty() {
                 Some(ty) => ty.hash(state),
@@ -41,7 +41,7 @@ impl<'a> PartialEq for Type<'a> {
                 (Some(a), Some(b)) => a == b,
                 (Some(_), None) => false,
                 (None, Some(_)) => false,
-                (None, None) => true,
+                (None, None) => a.id == b.id,
             },
             (Type::Flex(a), Type::Flex(b)) => match (a.ty(), b.ty()) {
                 (Some(a), Some(b)) => a == b,
@@ -114,7 +114,7 @@ impl<'a> Rename<'a> {
     pub fn add_entry(&mut self, name: Symbol, usage: Vec<&'a Type<'a>>) -> Symbol {
         let fresh = match self.swap_value(name) {
             Some(n) => n,
-            None => self.fresh()
+            None => self.fresh(),
         };
 
         let entry = self.cache.entry(name).or_insert_with(|| Entry {
@@ -390,7 +390,6 @@ impl<'a> Rename<'a> {
                 //     Expr::new(lett, body.ty, body.span)
                 // });
 
-                
                 self.leave();
                 // return new
                 ExprKind::Let(decls, body)
