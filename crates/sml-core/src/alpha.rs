@@ -112,7 +112,11 @@ impl<'a> Rename<'a> {
     }
 
     pub fn add_entry(&mut self, name: Symbol, usage: Vec<&'a Type<'a>>) -> Symbol {
-        let fresh = self.fresh();
+        let fresh = match self.swap_value(name) {
+            Some(n) => n,
+            None => self.fresh()
+        };
+
         let entry = self.cache.entry(name).or_insert_with(|| Entry {
             usages: HashMap::new(),
         });
@@ -213,8 +217,10 @@ impl<'a> Rename<'a> {
                 Decl::Fun(vars.clone(), funs)
             }
             Decl::Datatype(dts) => {
+                // Register all type names in the mutually recursive group
+                // prior to walking the bodies
                 for dt in dts {
-                    let name = self.register_type(dt.tycon.name);
+                    self.register_type(dt.tycon.name);
                 }
 
                 Decl::Datatype(
@@ -372,22 +378,21 @@ impl<'a> Rename<'a> {
                 ExprKind::Lambda(lam)
             }
             ExprKind::Let(decls, body) => {
-                // Remove redundant let expressions
-                // if decls.len() == 1 {
-                //     match decls.first() {
-                //         Some(Decl::Val(_, Rule { pat, expr })) if pat.equals_expr(&body) => {
-                //             return self.visit_expr(&expr, pp)
-                //         }
-                //         _ => {}
-                //     }
-                // }
                 self.enter();
                 let decls = decls
                     .iter()
                     .map(|d| self.visit_decl(d, pp))
                     .collect::<Vec<_>>();
+
                 let body = self.visit_expr(body, pp);
+                // let new = decls.into_iter().rev().fold(body, |body, decl| {
+                //     let lett = self.arena.exprs.alloc(ExprKind::Let(vec![decl], body));
+                //     Expr::new(lett, body.ty, body.span)
+                // });
+
+                
                 self.leave();
+                // return new
                 ExprKind::Let(decls, body)
             }
             ExprKind::List(exprs) => {

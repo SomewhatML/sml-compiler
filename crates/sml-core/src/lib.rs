@@ -131,14 +131,16 @@ impl<'ar> Expr<'ar> {
 
     pub fn non_expansive(&self) -> bool {
         match &self.kind {
-            ExprKind::Con(builtin::constructors::C_REF, _) => false,
-            ExprKind::Con(_, _) => true,
+            ExprKind::App(Expr { kind: ExprKind::Con(c, _), .. }, exp) => (*c != crate::builtin::constructors::C_REF) && exp.non_expansive(),
+            ExprKind::Con(c, _) => *c != crate::builtin::constructors::C_REF,
             ExprKind::Const(_) => true,
+            ExprKind::Case(_, _) => true,
             ExprKind::Lambda(_) => true,
             ExprKind::Var(_, _) => true,
             ExprKind::Primitive(_) => true,
             ExprKind::Record(rec) => rec.iter().all(|r| r.data.non_expansive()),
             ExprKind::List(exprs) => exprs.iter().all(|r| r.non_expansive()),
+            
             _ => false,
         }
     }
