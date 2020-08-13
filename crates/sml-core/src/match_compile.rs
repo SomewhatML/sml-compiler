@@ -136,24 +136,34 @@ pub fn val<'a>(ctx: &mut Context<'a>, tyvars: Vec<usize>, rule: MatchRule<'a>) -
             let tyvars = expr.ty.ftv_rank(ctx.tyvar_rank);
             vec![Decl::Val(tyvars, bindings[0].0, expr)]
         }
-        _ => {
-            let te = ctx.arena.expr_var(result, expr.ty, Vec::new());
-            bindings
-                .iter()
-                .enumerate()
-                .map(|(idx, (var, ty))| {
-                    let expr = Expr::new(
-                        ctx.arena
-                            .exprs
-                            .alloc(ExprKind::Selector(te, Symbol::tuple_field(idx as u32 + 1))),
-                        ty,
-                        Span::dummy(),
-                    );
-                    let tyvars = ty.ftv_rank(ctx.tyvar_rank);
-                    Decl::Val(tyvars, *var, expr)
-                })
-                .collect()
-        }
+        _ => bindings
+            .iter()
+            .enumerate()
+            .map(|(idx, (var, ty))| {
+                let targs = match tyvars.get(idx) {
+                    Some(id) => {
+                        let tv = ctx.fresh_tyvar();
+                        let mut map = FxHashMap::default();
+                        map.insert(*id, tv);
+
+                        vec![]
+                    }
+                    None => Vec::new(),
+                };
+
+                let te = ctx.arena.expr_var(result, expr.ty, targs);
+
+                let expr = Expr::new(
+                    ctx.arena
+                        .exprs
+                        .alloc(ExprKind::Selector(te, Symbol::tuple_field(idx as u32 + 1))),
+                    ty,
+                    Span::dummy(),
+                );
+                let tyvars = ty.ftv_rank(ctx.tyvar_rank);
+                Decl::Val(tyvars, *var, expr)
+            })
+            .collect(),
     };
 
     let pats = vec![vec![rule.pat]];

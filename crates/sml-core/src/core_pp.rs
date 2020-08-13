@@ -187,13 +187,11 @@ impl<'a> Type<'a> {
                         let x = map.len();
                         let last = ((x % 26) as u8 + b'a' as u8) as char;
                         let name = format!(
-                            "'{}#{}@{}",
+                            "'{}",
                             (0..x / 26)
                                 .map(|_| 'z')
                                 .chain(std::iter::once(last))
-                                .collect::<String>(),
-                            tyvar.id,
-                            tyvar.rank(),
+                                .collect::<String>()
                         );
                         pp.text(&name);
                         map.insert(tyvar.id, name);
