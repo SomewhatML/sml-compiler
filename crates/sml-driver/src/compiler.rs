@@ -114,15 +114,28 @@ impl<'a> Phase<'a> for Monomorphize {
         ctx: &mut Compiler<'a>,
         input: Self::Input,
     ) -> Result<Self::Output, Vec<Diagnostic>> {
-        let mut alpha = sml_core::alpha::Rename::new(&ctx.arena);
+        let mut alpha = sml_core::alpha::Rename::new(&ctx.arena, ctx.elab.builtin_constructors());
         let mut pp = PrettyPrinter::new(&ctx.interner);
         let decls = input
             .iter()
             .map(|decl| alpha.visit_decl(decl, &mut pp))
-            .collect();
+            .collect::<Vec<sml_core::Decl>>();
 
         alpha.dump_cache(&mut pp);
-        Ok(decls)
+
+        let mut mono = alpha.to_mono();
+
+        let mut out = Vec::new();
+        for decl in &decls {
+            mono.mono_decl_inner(
+                decl,
+                std::collections::HashMap::default(),
+                &mut pp,
+                &mut out,
+            );
+        }
+        Ok(out)
+        // Ok(decls)
     }
 
     fn output(&self, ctx: &mut Compiler<'a>, data: Self::Output) {
@@ -225,7 +238,9 @@ fn print_core_decl<'a>(ctx: &Compiler<'a>, decls: &[sml_core::Decl<'a>]) {
                 use sml_core::{Decl, Rule};
                 match decl {
                     Decl::Val(_, val, expr) => {
-                        pp.text("val ").print(val).text(": ").print(expr.ty).line();
+                        pp.wrap(80, |pp| {
+                            pp.text("val ").print(val).text(": ").print(expr.ty).line()
+                        });
                     }
                     Decl::Fun(_, binds) => {
                         for (name, lam) in binds {

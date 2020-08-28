@@ -145,6 +145,9 @@ pub struct Context<'a> {
     /// Depth of nested `local` declarations
     local_depth: usize,
 
+    /// Number of builtin data constructors
+    builtins: usize,
+
     pub(crate) arena: &'a CoreArena<'a>,
     pub elab_errors: Vec<ElabError>,
     unification_errors: Vec<CantUnify<'a>>,
@@ -168,6 +171,7 @@ impl<'a> Context<'a> {
             current: 0,
             tyvar_rank: 0,
             local_depth: 0,
+            builtins: 0,
             types: Vec::with_capacity(256),
             values: Vec::with_capacity(4096),
             elab_errors: Vec::default(),
@@ -176,8 +180,26 @@ impl<'a> Context<'a> {
         };
         ctx.namespaces.push(Namespace::default());
         populate_context(&mut ctx);
+        ctx.builtins = ctx.values.len();
         ctx.elab_decl_fixity(&ast::Fixity::Infixr, 5, constructors::C_CONS.name);
         ctx
+    }
+
+    pub fn builtin_constructors(&self) -> Vec<(Symbol, Vec<usize>)> {
+        let mut vec = Vec::new();
+        for (scheme, status) in &self.values[0..self.builtins] {
+            match status {
+                IdStatus::Con(con) | IdStatus::Exn(con) => {
+                    let tyvars = scheme.tyvars();
+                    if !tyvars.is_empty() {
+                        vec.push((con.name, tyvars.clone()));
+                        vec.push((con.tycon, tyvars));
+                    }
+                }
+                IdStatus::Var => {}
+            }
+        }
+        vec
     }
 
     /// Keep track of the type variable stack, while executing the combinator
