@@ -19,28 +19,26 @@ pub fn populate_context<'arena>(ctx: &mut elaborate::Context<'arena>) {
         ctx.define_type(tc.name, TypeStructure::Tycon(*tc));
     }
 
-    let nil = ctx.arena.types.fresh_var(0);
+    let list = ctx.arena.types.fresh_var(0);
 
     define_constructor(
         ctx,
         constructors::C_NIL,
-        Scheme::Poly(vec![nil.as_tyvar().id], ctx.arena.types.list(nil)),
+        Scheme::Poly(vec![list.as_tyvar().id], ctx.arena.types.list(list)),
     );
 
-    let cons = ctx.arena.types.fresh_var(0);
-
     // The inner types of cons: 'a * 'a list
-    let crec = ctx
+    let inner = ctx
         .arena
         .types
-        .tuple(vec![cons, ctx.arena.types.list(cons)]);
+        .tuple(vec![list, ctx.arena.types.list(list)]);
 
     define_constructor(
         ctx,
         constructors::C_CONS,
         Scheme::Poly(
-            vec![cons.as_tyvar().id],
-            ctx.arena.types.arrow(crec, ctx.arena.types.list(cons)),
+            vec![list.as_tyvar().id],
+            ctx.arena.types.arrow(inner, ctx.arena.types.list(list)),
         ),
     );
 

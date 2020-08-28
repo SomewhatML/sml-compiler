@@ -320,6 +320,13 @@ impl Tycon {
 }
 
 impl<'a> Scheme<'a> {
+    pub fn tyvars(&self) -> Vec<usize> {
+        match self {
+            Scheme::Mono(_) => Vec::new(),
+            Scheme::Poly(tyvars, _) => tyvars.clone(),
+        }
+    }
+
     pub fn arity(&self) -> usize {
         match self {
             Scheme::Mono(_) => 0,

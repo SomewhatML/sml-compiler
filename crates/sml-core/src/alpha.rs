@@ -63,9 +63,11 @@ impl<'a> PartialEq for Type<'a> {
     }
 }
 
+#[derive(Clone)]
 pub struct Entry<'a> {
     /// Relate each instantiation of a type to a fresh name
     usages: HashMap<Vec<&'a Type<'a>>, Symbol>,
+    tyvars: Vec<usize>,
 }
 
 pub struct Rename<'a> {
@@ -82,44 +84,63 @@ pub struct Namespace {
     values: HashMap<Symbol, Symbol>,
 }
 
+pub struct Graph {}
+
 impl<'a> Rename<'a> {
     // pub fn register(&mut self, name: Symbol, decl: )
 
-    pub fn new(arena: &'a CoreArena<'a>) -> Rename<'a> {
-        Rename {
+    pub fn new(arena: &'a CoreArena<'a>, builtin: Vec<(Symbol, Vec<usize>)>) -> Rename<'a> {
+        let mut r = Rename {
             arena,
             stack: vec![Namespace::default()],
             cache: HashMap::new(),
             diags: Vec::new(),
             id: 0,
+        };
+        for (sym, tyvars) in builtin {
+            if !tyvars.is_empty() {
+                r.add_entry(sym, tyvars);
+            }
+        }
+        r
+    }
+
+    pub fn to_mono(self) -> Mono<'a> {
+        Mono {
+            arena: self.arena,
+            cache: self.cache,
+            id: self.id,
         }
     }
 
-    // pub fn to_mono(self) -> Mono<'a> {
-    //     Mono {
-    //         arena: self.arena,
-    //         cache: self.cache,
-    //         id: self.id,
-    //     }
-    // }
-
+    #[inline]
     pub fn enter(&mut self) {
         self.stack.push(Namespace::default())
     }
 
+    #[inline]
     pub fn leave(&mut self) {
         self.stack.pop();
     }
 
-    pub fn add_entry(&mut self, name: Symbol, usage: Vec<&'a Type<'a>>) -> Symbol {
-        let fresh = match self.swap_value(name) {
-            Some(n) => n,
-            None => self.fresh(),
-        };
-
-        let entry = self.cache.entry(name).or_insert_with(|| Entry {
+    /// Add a declaration to the monomorphization cache
+    pub fn add_entry(&mut self, fresh: Symbol, tyvars: Vec<usize>) {
+        let entry = Entry {
             usages: HashMap::new(),
-        });
+            tyvars,
+        };
+        self.cache.insert(fresh, entry);
+    }
+
+    #[track_caller]
+    /// Add a variable instantiation to the mono cache
+    pub fn add_usage(&mut self, name: Symbol, usage: Vec<&'a Type<'a>>) -> Symbol {
+        let fresh = self.fresh();
+        let entry = self
+            .cache
+            .get_mut(&name)
+            .expect("monomorphization cache missing");
+        assert_eq!(entry.tyvars.len(), usage.len());
         *entry.usages.entry(usage).or_insert(fresh)
     }
 
@@ -129,7 +150,12 @@ impl<'a> Rename<'a> {
                 continue;
             }
             for (usage, name) in &entry.usages {
-                pp.line().print(k).text("=").print(name).text(" ");
+                pp.line();
+                for v in &entry.tyvars {
+                    pp.print(v);
+                }
+                pp.text(" ");
+                pp.print(k).text("=").print(name).text(" ");
                 for ty in usage {
                     pp.text(" ").print(*ty).text(",");
                 }
@@ -196,6 +222,10 @@ impl<'a> Rename<'a> {
         match decl {
             Decl::Val(vars, sym, expr) => {
                 let sym = self.register_val(*sym);
+                if !vars.is_empty() {
+                    self.add_entry(sym, vars.clone());
+                }
+
                 let expr = self.visit_expr(&expr, pp);
 
                 Decl::Val(vars.clone(), sym, expr)
@@ -205,6 +235,7 @@ impl<'a> Rename<'a> {
                     .into_iter()
                     .map(|(sym, mut lam)| {
                         let sym = self.register_val(*sym);
+                        self.add_entry(sym, vars.clone());
                         self.enter();
                         lam.arg = self.register_val(lam.arg);
                         lam.ty = self.visit_type(lam.ty, pp);
@@ -227,12 +258,21 @@ impl<'a> Rename<'a> {
                     dts.iter()
                         .map(|dt| {
                             let mut dt = dt.clone();
+                            let tyvars = dt.tyvars.clone();
+
                             dt.tycon.name = self.swap_type(dt.tycon.name).unwrap();
+                            if !tyvars.is_empty() {
+                                self.add_entry(dt.tycon.name, tyvars.clone());
+                            }
+
                             dt.constructors = dt
                                 .constructors
                                 .into_iter()
                                 .map(|(mut con, ty)| {
                                     con.name = self.register_val(con.name);
+                                    if !tyvars.is_empty() {
+                                        self.add_entry(con.name, tyvars.clone());
+                                    }
                                     con.tycon =
                                         self.swap_type(con.tycon).expect("BUG: Decl::Datatype");
                                     (con, ty)
@@ -351,13 +391,13 @@ impl<'a> Rename<'a> {
                     .map(|ty| self.visit_type(ty, pp))
                     .collect::<Vec<_>>();
 
+                con.name = self.swap_value(con.name).expect("BUG: ExprKind::Con");
+                con.tycon = self.swap_type(con.tycon).expect("BUG: ExprKind::Con");
+
                 // TODO: Unify constructors together to prevent copying the vector twice
                 if !tys.is_empty() {
-                    con.name = self.add_entry(con.name, tys.clone());
-                    con.tycon = self.add_entry(con.name, tys.clone());
-                } else {
-                    con.name = self.swap_value(con.name).expect("BUG: ExprKind::Con");
-                    con.tycon = self.swap_type(con.tycon).expect("BUG: ExprKind::Con");
+                    con.name = self.add_usage(con.name, tys.clone());
+                    con.tycon = self.add_usage(con.tycon, tys.clone());
                 }
                 ExprKind::Con(con, tys)
             }
@@ -414,10 +454,12 @@ impl<'a> Rename<'a> {
                     .map(|ty| self.visit_type(ty, pp))
                     .collect::<Vec<_>>();
 
+                let name = self.swap_value(*s).expect("BUG");
+
                 let name = if !tys.is_empty() {
-                    self.add_entry(*s, tys.clone())
+                    self.add_usage(name, tys.clone())
                 } else {
-                    self.swap_value(*s).expect("BUG")
+                    name
                 };
 
                 ExprKind::Var(name, tys)
@@ -427,231 +469,382 @@ impl<'a> Rename<'a> {
     }
 }
 
-// pub struct Mono<'a> {
-//     arena: &'a CoreArena<'a>,
-//     cache: HashMap<Symbol, Entry<'a>>,
-//     id: u32,
-// }
+pub struct Mono<'a> {
+    arena: &'a CoreArena<'a>,
+    cache: HashMap<Symbol, Entry<'a>>,
+    id: u32,
+}
 
-// impl<'a> Mono<'a> {
+type Bindings<'a> = HashMap<usize, &'a Type<'a>>;
+impl<'a> Mono<'a> {
+    fn mono_expr(
+        &mut self,
+        expr: &Expr<'a>,
+        bindings: Bindings<'a>,
+        pp: &mut PrettyPrinter<'_>,
+    ) -> Expr<'a> {
+        let mut expr = *expr;
+        expr.ty = self.mono_type(expr.ty, &bindings, pp);
+        expr
+    }
 
-//         pub fn visit_decl(&mut self, decl: &Decl<'a>, pp: &mut PrettyPrinter<'_>, out: &mut Vec<Decl<'a>>) {
-//             match decl {
-//                 Decl::Val(vars, Rule { pat, expr }) => {
-//                     let pat = self.visit_pat(&pat, pp);
-//                     let expr = self.visit_expr(&expr, pp);
+    fn mono_pat(
+        &mut self,
+        pat: &Pat<'a>,
+        bindings: Bindings<'a>,
+        pp: &mut PrettyPrinter<'_>,
+    ) -> Pat<'a> {
+        *pat
+    }
 
-//                     out.push(Decl::Val(vars.clone(), Rule { pat, expr }));
-//                 }
-//                 Decl::Fun(vars, funs) => {
-//                     let funs = funs
-//                         .into_iter()
-//                         .map(|(sym, mut lam)| {
-//                             lam.ty = self.visit_type(lam.ty, pp);
-//                             lam.body = self.visit_expr(&lam.body, pp);
-//                             (*sym, lam)
-//                         })
-//                         .collect();
+    fn mono_type(
+        &mut self,
+        ty: &'a Type<'a>,
+        bindings: &Bindings<'a>,
+        pp: &mut PrettyPrinter<'_>,
+    ) -> &'a Type<'a> {
+        match ty {
+            Type::Var(tyvar) => match tyvar.ty() {
+                Some(ty) => self.mono_type(ty, bindings, pp),
+                None => {
+                    // emit warning for unused type variable
+                    // self.arena.types.unit()
+                    bindings.get(&tyvar.id).copied().unwrap_or(ty)
+                }
+            },
+            Type::Record(fields) => {
+                let args = SortedRecord::new_unchecked(
+                    fields
+                        .iter()
+                        .map(|row| row.fmap(|ty| self.mono_type(ty, bindings, pp)))
+                        .collect(),
+                );
+                self.arena.types.alloc(Type::Record(args))
+            }
+            Type::Flex(flex) => match flex.ty() {
+                Some(ty) => self.mono_type(ty, bindings, pp),
+                None => {
+                    // emit warning for unused type variable
+                    self.arena.types.unit()
+                }
+            },
+            Type::Con(mut con, args) => {
+                match self.cache.get(&con.name).cloned() {
+                    Some(entry) => {
+                        for (usages, symbol) in &entry.usages {
+                            assert_eq!(usages.len(), args.len());
+                            if usages == args {
+                                con.name = *symbol;
+                                pp.line()
+                                    .text("monomorphizing tycon: ")
+                                    .print(ty)
+                                    .text(" => (");
+                                for u in usages.iter() {
+                                    pp.print(*u).text(", ");
+                                }
+                                pp.text(") => ").print(symbol);
+                                let mut s = String::new();
+                                pp.write_fmt(&mut s);
+                                println!("{}", s);
+                                // println!("usages of tycon! {:?}", con.name);
+                                return self.arena.types.alloc(Type::Con(con, Vec::new()));
+                            }
 
-//                     out.push(Decl::Fun(vars.clone(), funs));
-//                 }
-//                 Decl::Datatype(dts) => {
-//                     for dt in dts {
-//                         let name = self.register_type(dt.tycon.name);
-//                     }
+                            // bindings.extend(vars.iter().copied().zip(usages.iter().copied()));
+                            // out.push(Decl::Val(Vec::new(), *symbol, self.mono_expr(expr, bindings)));
+                        }
+                        if entry.usages.is_empty() {
+                            println!("no usages of type constructor? {:?}", con.name);
+                        }
+                    }
+                    None => {
+                        // println!("why is this not being reached?");
+                        // out.push(Decl::Val(Vec::new(), *sym, self.mono_expr(expr, bindings)));
+                    }
+                }
 
-//                     let decl = Decl::Datatype(
-//                         dts.iter()
-//                             .map(|dt| {
-//                                 let mut dt = dt.clone();
-//                                 dt.tycon.name = self.swap_type(dt.tycon.name).unwrap();
-//                                 dt.constructors = dt
-//                                     .constructors
-//                                     .into_iter()
-//                                     .map(|(mut con, ty)| {
-//                                         con.name = self.register_val(con.name);
-//                                         con.tycon =
-//                                             self.swap_type(con.tycon).expect("BUG: Decl::Datatype");
-//                                         (con, ty)
-//                                     })
-//                                     .collect();
-//                                 dt
-//                             })
-//                             .collect(),
-//                     );
-//                     out.push(decl);
-//                 }
-//                 Decl::Exn(con, ty) => {
-//                     let mut con = *con;
-//                     con.name = self.register_val(con.name);
-//                     // con.tycon should be EXN
-//                     let ty = ty.map(|ty| self.visit_type(ty, pp));
-//                     Decl::Exn(con, ty)
-//                 }
-//             }
-//         }
+                // con.name = self.swap_type(con.name).expect("BUG: Type::Con");
+                self.arena.types.alloc(Type::Con(
+                    con,
+                    args.iter()
+                        .map(|ty| self.mono_type(ty, bindings, pp))
+                        .collect(),
+                ))
+            }
+        }
+    }
 
-//         fn visit_type(&mut self, ty: &'a Type<'a>, pp: &mut PrettyPrinter<'_>) -> &'a Type<'a> {
-//             match ty {
-//                 Type::Var(tyvar) => match tyvar.ty() {
-//                     Some(ty) => self.visit_type(ty, pp),
-//                     None => {
-//                         // emit warning for unused type variable
-//                         // self.arena.types.unit()
-//                         ty
-//                     }
-//                 },
-//                 Type::Record(fields) => {
-//                     let args = SortedRecord::new_unchecked(
-//                         fields
-//                             .iter()
-//                             .map(|row| row.fmap(|ty| self.visit_type(ty, pp)))
-//                             .collect(),
-//                     );
-//                     self.arena.types.alloc(Type::Record(args))
-//                 }
-//                 Type::Flex(flex) => match flex.ty() {
-//                     Some(ty) => self.visit_type(ty, pp),
-//                     None => {
-//                         // emit warning for unused type variable
-//                         self.arena.types.unit()
-//                     }
-//                 },
-//                 Type::Con(mut con, args) => {
-//                     con.name = self.swap_type(con.name).expect("BUG: Type::Con");
-//                     self.arena.types.alloc(Type::Con(
-//                         con,
-//                         args.iter().map(|ty| self.visit_type(ty, pp)).collect(),
-//                     ))
-//                 }
-//             }
-//         }
+    // fn extend_bindings<F: FnMut(&mut Mono<'a>, Bindings<'a>, Symbol)>(
+    //     &mut self,
+    //     name: Symbol,
+    //     tyvars: &[usize],
+    //     bindings: Bindings<'a>,
+    //     f: F,
+    // ) {
+    //     match self.cache.get(&name).clone {
+    //         Some(entry) => {
+    //             for (usages, symbol) in &entry.usages {
+    //                 let mut bindings = bindings.clone();
+    //                 bindings.extend(tyvars.iter().copied().zip(usages.iter().copied()));
+    //                 f(self, bindings, *symbol)
+    //             }
+    //         }
+    //         None => f(self, bindings, name),
+    //     }
+    // }
 
-//         fn visit_pat(&mut self, pat: &Pat<'a>, pp: &mut PrettyPrinter<'_>) -> Pat<'a> {
-//             let ty = self.visit_type(pat.ty, pp);
+    pub fn mono_decl_inner(
+        &mut self,
+        decl: &Decl<'a>,
+        bindings: Bindings<'a>,
+        pp: &mut PrettyPrinter<'_>,
+        out: &mut Vec<Decl<'a>>,
+    ) {
+        match decl {
+            Decl::Val(vars, sym, expr) => {
+                dbg!(sym);
+                match self.cache.get(sym).cloned() {
+                    Some(entry) => {
+                        for (usages, symbol) in &entry.usages {
+                            dbg!(symbol);
+                            let mut bindings = bindings.clone();
+                            bindings.extend(vars.iter().copied().zip(usages.iter().copied()));
+                            out.push(Decl::Val(
+                                Vec::new(),
+                                *symbol,
+                                self.mono_expr(expr, bindings, pp),
+                            ));
+                        }
+                        if entry.usages.is_empty() {
+                            println!("why is this being reached?");
+                            out.push(Decl::Val(
+                                Vec::new(),
+                                *sym,
+                                self.mono_expr(expr, bindings, pp),
+                            ));
+                        }
+                    }
+                    None => {
+                        println!("why is this not being reached?");
+                        out.push(Decl::Val(
+                            Vec::new(),
+                            *sym,
+                            self.mono_expr(expr, bindings, pp),
+                        ));
+                    }
+                }
+            }
+            Decl::Fun(vars, funs) => {
+                let funs = funs
+                    .into_iter()
+                    .map(|(sym, mut lam)| {
+                        lam.ty = self.mono_type(lam.ty, &bindings, pp);
+                        lam.body = self.mono_expr(&lam.body, bindings.clone(), pp);
+                        (*sym, lam)
+                    })
+                    .collect();
 
-//             let kind = match pat.kind {
-//                 PatKind::App(mut con, Some(pat)) => {
-//                     con.name = self.swap_value(con.name).expect("BUG: PatKind::Con");
-//                     con.tycon = self.swap_type(con.tycon).expect("BUG: PatKind::Con");
-//                     PatKind::App(con, Some(self.visit_pat(pat, pp)))
-//                 }
-//                 PatKind::App(mut con, None) => {
-//                     con.name = self.swap_value(con.name).expect("BUG: PatKind::Con");
-//                     con.tycon = self.swap_type(con.tycon).expect("BUG: PatKind::Con");
-//                     PatKind::App(con, None)
-//                 }
-//                 PatKind::Const(c) => PatKind::Const(*c),
-//                 PatKind::Record(fields) => PatKind::Record(SortedRecord::new_unchecked(
-//                     fields
-//                         .iter()
-//                         .map(|row| row.fmap(|pat| self.visit_pat(pat, pp)))
-//                         .collect(),
-//                 )),
-//                 PatKind::Var(sym) => PatKind::Var(self.register_val(*sym)),
-//                 PatKind::Wild => PatKind::Var(self.fresh()),
-//             };
-//             Pat::new(self.arena.pats.alloc(kind), ty, pat.span)
-//         }
+                out.push(Decl::Fun(vars.clone(), funs));
+            }
+            Decl::Datatype(dts) => {
+                // for dt in dts {
+                //     let name = self.register_type(dt.tycon.name);
+                // }
 
-//         fn visit_expr(&mut self, expr: &Expr<'a>, pp: &mut PrettyPrinter<'_>) -> Expr<'a> {
-//             let ty = self.visit_type(expr.ty, pp);
-//             let kind = match expr.kind {
-//                 ExprKind::App(e1, e2) => {
-//                     let e1 = self.visit_expr(e1, pp);
-//                     let e2 = self.visit_expr(e2, pp);
-//                     ExprKind::App(e1, e2)
-//                 }
-//                 ExprKind::Case(casee, rules) => {
-//                     let (var, ty) = casee;
-//                     let var = self.swap_value(*var).expect("BUG: ExprKind::Case");
-//                     let ty = self.visit_type(ty, pp);
+                // let decl = Decl::Datatype(
+                //     dts.iter()
+                //         .map(|dt| {
+                //             let mut dt = dt.clone();
+                //             dt.tycon.name = self.swap_type(dt.tycon.name).unwrap();
+                //             dt.constructors = dt
+                //                 .constructors
+                //                 .into_iter()
+                //                 .map(|(mut con, ty)| {
+                //                     con.name = self.register_val(con.name);
+                //                     con.tycon =
+                //                         self.swap_type(con.tycon).expect("BUG: Decl::Datatype");
+                //                     (con, ty)
+                //                 })
+                //                 .collect();
+                //             dt
+                //         })
+                //         .collect(),
+                // );
+                // out.push(decl);
+                // todo!()
+            }
+            Decl::Exn(con, ty) => {
+                // let mut con = *con;
+                // con.name = self.register_val(con.name);
+                // // con.tycon should be EXN
+                // let ty = ty.map(|ty| self.visit_type(ty, pp));
+                // Decl::Exn(con, ty)
+                todo!()
+            }
+        }
+    }
 
-//                     let rules = rules
-//                         .iter()
-//                         .map(|rule| {
-//                             self.enter();
-//                             let pat = self.visit_pat(&rule.pat, pp);
-//                             let expr = self.visit_expr(&rule.expr, pp);
-//                             self.leave();
-//                             Rule { pat, expr }
-//                         })
-//                         .collect();
+    // fn visit_type(&mut self, ty: &'a Type<'a>, pp: &mut PrettyPrinter<'_>) -> &'a Type<'a> {
+    //     match ty {
+    //         Type::Var(tyvar) => match tyvar.ty() {
+    //             Some(ty) => self.visit_type(ty, pp),
+    //             None => {
+    //                 // emit warning for unused type variable
+    //                 // self.arena.types.unit()
+    //                 ty
+    //             }
+    //         },
+    //         Type::Record(fields) => {
+    //             let args = SortedRecord::new_unchecked(
+    //                 fields
+    //                     .iter()
+    //                     .map(|row| row.fmap(|ty| self.visit_type(ty, pp)))
+    //                     .collect(),
+    //             );
+    //             self.arena.types.alloc(Type::Record(args))
+    //         }
+    //         Type::Flex(flex) => match flex.ty() {
+    //             Some(ty) => self.visit_type(ty, pp),
+    //             None => {
+    //                 // emit warning for unused type variable
+    //                 self.arena.types.unit()
+    //             }
+    //         },
+    //         Type::Con(mut con, args) => {
+    //             con.name = self.swap_type(con.name).expect("BUG: Type::Con");
+    //             self.arena.types.alloc(Type::Con(
+    //                 con,
+    //                 args.iter().map(|ty| self.visit_type(ty, pp)).collect(),
+    //             ))
+    //         }
+    //     }
+    // }
 
-//                     ExprKind::Case((var, ty), rules)
-//                 }
-//                 ExprKind::Con(mut con, tys) => {
-//                     con.name = self.swap_value(con.name).expect("BUG: ExprKind::Con");
-//                     con.tycon = self.swap_type(con.tycon).expect("BUG: ExprKind::Con");
-//                     let tys = tys
-//                         .iter()
-//                         .map(|ty| self.visit_type(ty, pp))
-//                         .collect::<Vec<_>>();
-//                     if !tys.is_empty() {
-//                         self.cache.entry(con.name).or_default().push(tys.clone());
-//                     }
-//                     ExprKind::Con(con, tys)
-//                 }
-//                 ExprKind::Const(c) => ExprKind::Const(*c),
-//                 ExprKind::Handle(tryy, sym, handler) => {
-//                     let tryy = self.visit_expr(tryy, pp);
-//                     let sym = self.swap_value(*sym).expect("BUG: ExprKind::Handle");
-//                     let handler = self.visit_expr(handler, pp);
-//                     ExprKind::Handle(tryy, sym, handler)
-//                 }
-//                 ExprKind::Lambda(lam) => {
-//                     let mut lam = *lam;
-//                     self.enter();
-//                     lam.arg = self.register_val(lam.arg);
-//                     lam.ty = self.visit_type(lam.ty, pp);
-//                     lam.body = self.visit_expr(&lam.body, pp);
-//                     self.leave();
-//                     ExprKind::Lambda(lam)
-//                 }
-//                 ExprKind::Let(decls, body) => {
-//                     // Remove redundant let expressions
-//                     if decls.len() == 1 {
-//                         match decls.first() {
-//                             Some(Decl::Val(_, Rule { pat, expr })) if pat.equals_expr(&body) => {
-//                                 return self.visit_expr(&expr, pp)
-//                             }
-//                             _ => {}
-//                         }
-//                     }
-//                     self.enter();
-//                     let decls = decls
-//                         .iter()
-//                         .map(|d| self.visit_decl(d, pp))
-//                         .collect::<Vec<_>>();
-//                     let body = self.visit_expr(body, pp);
-//                     self.leave();
-//                     ExprKind::Let(decls, body)
-//                 }
-//                 ExprKind::List(exprs) => {
-//                     ExprKind::List(exprs.iter().map(|e| self.visit_expr(e, pp)).collect())
-//                 }
-//                 ExprKind::Primitive(sym) => ExprKind::Primitive(*sym),
-//                 ExprKind::Raise(e) => ExprKind::Raise(self.visit_expr(e, pp)),
-//                 ExprKind::Record(rows) => ExprKind::Record(
-//                     rows.iter()
-//                         .map(|row| row.fmap(|ex| self.visit_expr(ex, pp)))
-//                         .collect(),
-//                 ),
-//                 ExprKind::Seq(exprs) => {
-//                     ExprKind::Seq(exprs.iter().map(|e| self.visit_expr(e, pp)).collect())
-//                 }
-//                 ExprKind::Var(s, tys) => {
-//                     let name = self.swap_value(*s).expect("BUG");
-//                     let tys = tys
-//                         .iter()
-//                         .map(|ty| self.visit_type(ty, pp))
-//                         .collect::<Vec<_>>();
-//                     if !tys.is_empty() {
-//                         self.cache.entry(name).or_default().push(tys.clone());
-//                     }
-//                     ExprKind::Var(name, tys)
-//                 }
-//             };
-//             Expr::new(self.arena.exprs.alloc(kind), ty, expr.span)
-//         }
-// }
+    // fn visit_pat(&mut self, pat: &Pat<'a>, pp: &mut PrettyPrinter<'_>) -> Pat<'a> {
+    //     let ty = self.visit_type(pat.ty, pp);
+
+    //     let kind = match pat.kind {
+    //         PatKind::App(mut con, Some(pat)) => {
+    //             con.name = self.swap_value(con.name).expect("BUG: PatKind::Con");
+    //             con.tycon = self.swap_type(con.tycon).expect("BUG: PatKind::Con");
+    //             PatKind::App(con, Some(self.visit_pat(pat, pp)))
+    //         }
+    //         PatKind::App(mut con, None) => {
+    //             con.name = self.swap_value(con.name).expect("BUG: PatKind::Con");
+    //             con.tycon = self.swap_type(con.tycon).expect("BUG: PatKind::Con");
+    //             PatKind::App(con, None)
+    //         }
+    //         PatKind::Const(c) => PatKind::Const(*c),
+    //         PatKind::Record(fields) => PatKind::Record(SortedRecord::new_unchecked(
+    //             fields
+    //                 .iter()
+    //                 .map(|row| row.fmap(|pat| self.visit_pat(pat, pp)))
+    //                 .collect(),
+    //         )),
+    //         PatKind::Var(sym) => PatKind::Var(self.register_val(*sym)),
+    //         PatKind::Wild => PatKind::Var(self.fresh()),
+    //     };
+    //     Pat::new(self.arena.pats.alloc(kind), ty, pat.span)
+    // }
+
+    // fn visit_expr(&mut self, expr: &Expr<'a>, pp: &mut PrettyPrinter<'_>) -> Expr<'a> {
+    //     let ty = self.visit_type(expr.ty, pp);
+    //     let kind = match expr.kind {
+    //         ExprKind::App(e1, e2) => {
+    //             let e1 = self.visit_expr(e1, pp);
+    //             let e2 = self.visit_expr(e2, pp);
+    //             ExprKind::App(e1, e2)
+    //         }
+    //         ExprKind::Case(casee, rules) => {
+    //             let (var, ty) = casee;
+    //             let var = self.swap_value(*var).expect("BUG: ExprKind::Case");
+    //             let ty = self.visit_type(ty, pp);
+
+    //             let rules = rules
+    //                 .iter()
+    //                 .map(|rule| {
+    //                     self.enter();
+    //                     let pat = self.visit_pat(&rule.pat, pp);
+    //                     let expr = self.visit_expr(&rule.expr, pp);
+    //                     self.leave();
+    //                     Rule { pat, expr }
+    //                 })
+    //                 .collect();
+
+    //             ExprKind::Case((var, ty), rules)
+    //         }
+    //         ExprKind::Con(mut con, tys) => {
+    //             con.name = self.swap_value(con.name).expect("BUG: ExprKind::Con");
+    //             con.tycon = self.swap_type(con.tycon).expect("BUG: ExprKind::Con");
+    //             let tys = tys
+    //                 .iter()
+    //                 .map(|ty| self.visit_type(ty, pp))
+    //                 .collect::<Vec<_>>();
+    //             if !tys.is_empty() {
+    //                 self.cache.entry(con.name).or_default().push(tys.clone());
+    //             }
+    //             ExprKind::Con(con, tys)
+    //         }
+    //         ExprKind::Const(c) => ExprKind::Const(*c),
+    //         ExprKind::Handle(tryy, sym, handler) => {
+    //             let tryy = self.visit_expr(tryy, pp);
+    //             let sym = self.swap_value(*sym).expect("BUG: ExprKind::Handle");
+    //             let handler = self.visit_expr(handler, pp);
+    //             ExprKind::Handle(tryy, sym, handler)
+    //         }
+    //         ExprKind::Lambda(lam) => {
+    //             let mut lam = *lam;
+    //             self.enter();
+    //             lam.arg = self.register_val(lam.arg);
+    //             lam.ty = self.visit_type(lam.ty, pp);
+    //             lam.body = self.visit_expr(&lam.body, pp);
+    //             self.leave();
+    //             ExprKind::Lambda(lam)
+    //         }
+    //         ExprKind::Let(decls, body) => {
+    //             // Remove redundant let expressions
+    //             if decls.len() == 1 {
+    //                 match decls.first() {
+    //                     Some(Decl::Val(_, Rule { pat, expr })) if pat.equals_expr(&body) => {
+    //                         return self.visit_expr(&expr, pp)
+    //                     }
+    //                     _ => {}
+    //                 }
+    //             }
+    //             self.enter();
+    //             let decls = decls
+    //                 .iter()
+    //                 .map(|d| self.visit_decl(d, pp))
+    //                 .collect::<Vec<_>>();
+    //             let body = self.visit_expr(body, pp);
+    //             self.leave();
+    //             ExprKind::Let(decls, body)
+    //         }
+    //         ExprKind::List(exprs) => {
+    //             ExprKind::List(exprs.iter().map(|e| self.visit_expr(e, pp)).collect())
+    //         }
+    //         ExprKind::Primitive(sym) => ExprKind::Primitive(*sym),
+    //         ExprKind::Raise(e) => ExprKind::Raise(self.visit_expr(e, pp)),
+    //         ExprKind::Record(rows) => ExprKind::Record(
+    //             rows.iter()
+    //                 .map(|row| row.fmap(|ex| self.visit_expr(ex, pp)))
+    //                 .collect(),
+    //         ),
+    //         ExprKind::Seq(exprs) => {
+    //             ExprKind::Seq(exprs.iter().map(|e| self.visit_expr(e, pp)).collect())
+    //         }
+    //         ExprKind::Var(s, tys) => {
+    //             let name = self.swap_value(*s).expect("BUG");
+    //             let tys = tys
+    //                 .iter()
+    //                 .map(|ty| self.visit_type(ty, pp))
+    //                 .collect::<Vec<_>>();
+    //             if !tys.is_empty() {
+    //                 self.cache.entry(name).or_default().push(tys.clone());
+    //             }
+    //             ExprKind::Var(name, tys)
+    //         }
+    //     };
+    //     Expr::new(self.arena.exprs.alloc(kind), ty, expr.span)
+    // }
+}

@@ -194,3 +194,9 @@ impl Print for &Const {
         }
     }
 }
+
+impl<T: std::fmt::Display> Print for T {
+    fn print<'a, 'b>(&self, pp: &'a mut PrettyPrinter<'b>) -> &'a mut PrettyPrinter<'b> {
+        pp.text(self.to_string())
+    }
+}
