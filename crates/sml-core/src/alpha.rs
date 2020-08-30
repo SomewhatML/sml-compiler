@@ -6,6 +6,7 @@ use sml_util::hasher::IntHashMap;
 use sml_util::interner::Symbol;
 use sml_util::pretty_print::PrettyPrinter;
 use sml_util::span::Span;
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
@@ -75,7 +76,7 @@ pub struct Rename<'a> {
     stack: Vec<Namespace>,
     cache: HashMap<Symbol, Entry<'a>>,
     diags: Vec<Diagnostic>,
-    id: u32,
+    id: Cell<u32>,
 }
 
 #[derive(Default)]
@@ -95,7 +96,7 @@ impl<'a> Rename<'a> {
             stack: vec![Namespace::default()],
             cache: HashMap::new(),
             diags: Vec::new(),
-            id: 0,
+            id: Cell::new(0),
         };
         for (sym, tyvars) in builtin {
             if !tyvars.is_empty() {
@@ -109,7 +110,7 @@ impl<'a> Rename<'a> {
         Mono {
             arena: self.arena,
             cache: self.cache,
-            id: self.id,
+            id: self.id.get(),
         }
     }
 
@@ -135,13 +136,49 @@ impl<'a> Rename<'a> {
     #[track_caller]
     /// Add a variable instantiation to the mono cache
     pub fn add_usage(&mut self, name: Symbol, usage: Vec<&'a Type<'a>>) -> Symbol {
-        let fresh = self.fresh();
+        let f = self.fresh();
         let entry = self
             .cache
             .get_mut(&name)
             .expect("monomorphization cache missing");
         assert_eq!(entry.tyvars.len(), usage.len());
-        *entry.usages.entry(usage).or_insert(fresh)
+
+        let bindings = entry
+            .tyvars
+            .iter()
+            .copied()
+            .zip(usage.iter().copied())
+            .collect::<HashMap<_, _>>();
+
+        let ret = *entry.usages.entry(usage).or_insert(f);
+
+        // // Incredibly inefficient
+        // for (id, instance) in bindings {
+        //     for (_, entry) in self.cache.iter_mut() {
+        //         let mut append = Vec::new();
+        //         for (usages, _) in &entry.usages {
+        //             let mut should_append = false;
+        //             let entry = usages
+        //                 .iter()
+        //                 .map(|ty| match ty.to_unresolved() {
+        //                     Some(x) if x == id => {
+        //                         should_append = true;
+        //                         instance
+        //                     }
+        //                     _ => ty,
+        //                 })
+        //                 .collect::<Vec<_>>();
+        //             if should_append {
+        //                 append.push(entry);
+        //             }
+        //         }
+        //         for usage in append {
+        //             entry.usages.insert(usage, self.fresh());
+        //         }
+        //     }
+        // }
+
+        ret
     }
 
     pub fn dump_cache(&self, pp: &mut PrettyPrinter<'_>) {
@@ -168,9 +205,9 @@ impl<'a> Rename<'a> {
     }
 
     #[inline]
-    pub fn fresh(&mut self) -> Symbol {
-        let id = self.id;
-        self.id += 1;
+    pub fn fresh(&self) -> Symbol {
+        let id = self.id.get();
+        self.id.set(id + 1);
         Symbol::gensym(id)
     }
 
@@ -529,11 +566,15 @@ impl<'a> Mono<'a> {
                 }
             },
             Type::Con(mut con, args) => {
+                let args = args
+                    .iter()
+                    .map(|ty| self.mono_type(ty, bindings, pp))
+                    .collect::<Vec<_>>();
                 match self.cache.get(&con.name).cloned() {
                     Some(entry) => {
                         for (usages, symbol) in &entry.usages {
                             assert_eq!(usages.len(), args.len());
-                            if usages == args {
+                            if usages == &args {
                                 con.name = *symbol;
                                 pp.line()
                                     .text("monomorphizing tycon: ")
@@ -545,11 +586,10 @@ impl<'a> Mono<'a> {
                                 pp.text(") => ").print(symbol);
                                 let mut s = String::new();
                                 pp.write_fmt(&mut s);
-                                println!("{}", s);
+                                println!("{} {}", entry.usages.len(), s);
                                 // println!("usages of tycon! {:?}", con.name);
                                 return self.arena.types.alloc(Type::Con(con, Vec::new()));
                             }
-
                             // bindings.extend(vars.iter().copied().zip(usages.iter().copied()));
                             // out.push(Decl::Val(Vec::new(), *symbol, self.mono_expr(expr, bindings)));
                         }
@@ -564,12 +604,7 @@ impl<'a> Mono<'a> {
                 }
 
                 // con.name = self.swap_type(con.name).expect("BUG: Type::Con");
-                self.arena.types.alloc(Type::Con(
-                    con,
-                    args.iter()
-                        .map(|ty| self.mono_type(ty, bindings, pp))
-                        .collect(),
-                ))
+                self.arena.types.alloc(Type::Con(con, args))
             }
         }
     }
@@ -625,7 +660,6 @@ impl<'a> Mono<'a> {
                         }
                     }
                     None => {
-                        println!("why is this not being reached?");
                         out.push(Decl::Val(
                             Vec::new(),
                             *sym,
@@ -647,9 +681,37 @@ impl<'a> Mono<'a> {
                 out.push(Decl::Fun(vars.clone(), funs));
             }
             Decl::Datatype(dts) => {
-                // for dt in dts {
-                //     let name = self.register_type(dt.tycon.name);
-                // }
+                let mut datatypes = Vec::new();
+                for dt in dts {
+                    match self.cache.get(&dt.tycon.name).cloned() {
+                        Some(entry) => {
+                            for (usage, name) in &entry.usages {
+                                let mut dt = dt.clone();
+                                dt.tycon.name = *name;
+                                let mut bind = bindings.clone();
+                                bind.extend(dt.tyvars.iter().copied().zip(usage.iter().copied()));
+                                dt.tyvars = Vec::new();
+
+                                for (con, arg) in dt.constructors.iter_mut() {
+                                    if let Some(ty) = arg {
+                                        *ty = self.mono_type(ty, &bind, pp);
+                                    }
+                                }
+                                // for (con, ty) in dt.constructors {
+                                //     // mono constructors
+                                //     if let Some(ty) = ty {
+
+                                //     }
+                                // }
+                                datatypes.push(dt);
+                            }
+                        }
+                        None => {
+                            datatypes.push(dt.clone());
+                        }
+                    }
+                }
+                out.push(Decl::Datatype(datatypes))
 
                 // let decl = Decl::Datatype(
                 //     dts.iter()

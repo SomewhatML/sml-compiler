@@ -75,6 +75,16 @@ pub enum Scheme<'a> {
 }
 
 impl<'a> Type<'a> {
+    pub fn to_unresolved(&self) -> Option<usize> {
+        match self {
+            Type::Var(tv) => match tv.ty() {
+                Some(ty) => ty.to_unresolved(),
+                None => Some(tv.id),
+            },
+            _ => None,
+        }
+    }
+
     pub fn as_tyvar(&self) -> &TypeVar<'a> {
         match self {
             Type::Var(tv) => tv,
