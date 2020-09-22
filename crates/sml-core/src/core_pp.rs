@@ -267,11 +267,11 @@ impl<'a> Print for Decl<'a> {
                     pp.line().text("val ");
                     print_tyvars(&vars, &mut map, pp)
                         .print(name)
-                        .text(": ")
-                        .print(&Type::Con(
-                            crate::builtin::tycons::T_ARROW,
-                            vec![lam.ty, lam.body.ty],
-                        ))
+                        // .text(": ")
+                        // .print(&Type::Con(
+                        //     crate::builtin::tycons::T_ARROW,
+                        //     vec![lam.ty, lam.body.ty],
+                        // ))
                         .text(" = ")
                         .text("fn ")
                         .print(&lam.arg)
