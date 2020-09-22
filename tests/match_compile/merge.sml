@@ -2,11 +2,11 @@
 
 -- args: --vv --phase elab
 -- expected stdout:
--- val 'a merge: 'a list -> 'a list -> 'a list = fn x3 => fn x4 => 
+-- val 'a merge = fn x3 => fn x4 => 
 --   let
---     val x0: 'a list -> 'a list = fn xs => xs
---     val x1: 'a list -> 'a list = fn ys => ys
---     val x2: 'a * 'a list * 'a * 'a list -> 'a list = fn x6 => 
+--     val x0 = fn xs => xs
+--     val x1 = fn ys => ys
+--     val x2 = fn x6 => 
 --       let
 --         val x: 'a = #1 x6
 --         val xs: 'a list = #2 x6

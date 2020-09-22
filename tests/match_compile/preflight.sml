@@ -3,16 +3,16 @@
 -- args: --vv --phase elab
 -- expected stdout:
 -- datatype 'a option = Some of 'a | None
--- val ('a, 'b) map: 'a option -> 'a -> 'b -> 'b option = fn x2 => fn x3 => 
+-- val ('a, 'b) map = fn x2 => fn x3 => 
 --   let
---     val x0: 'a -> 'b * 'a -> 'b option = fn x5 => 
+--     val x0 = fn x5 => 
 --       let
 --         val f: 'a -> 'b = #1 x5
 --         val x: 'a = #2 x5
 --       in 
 --         Some f x
 --       end
---     val x1: unit -> 'a option = fn x6 => None
+--     val x1 = fn x6 => None
 --   in 
 --     
 --       case x2

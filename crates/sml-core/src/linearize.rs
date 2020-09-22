@@ -12,11 +12,10 @@
 
 use crate::arenas::CoreArena;
 use crate::{Decl, Expr, ExprKind, Rule};
-use sml_util::interner::Symbol;
 use sml_util::span::Span;
 
 pub fn run<'a>(arena: &'a CoreArena<'a>, decls: &[Decl<'a>]) -> Expr<'a> {
-    let mut lin = Linearize { arena };
+    let mut lin = Linearize::new(arena);
     let body = Expr::new(
         arena.exprs.alloc(ExprKind::Const(sml_util::Const::Unit)),
         arena.types.unit(),
@@ -35,6 +34,10 @@ pub struct Linearize<'a> {
 }
 
 impl<'a> Linearize<'a> {
+    pub fn new(arena: &'a CoreArena<'a>) -> Linearize<'a> {
+        Linearize { arena }
+    }
+
     pub fn visit_decl(&mut self, decl: &Decl<'a>) -> Decl<'a> {
         match decl {
             Decl::Val(vars, sym, expr) => {
@@ -57,7 +60,7 @@ impl<'a> Linearize<'a> {
         }
     }
 
-    fn visit_expr(&mut self, expr: &Expr<'a>) -> Expr<'a> {
+    pub fn visit_expr(&mut self, expr: &Expr<'a>) -> Expr<'a> {
         let kind = match expr.kind {
             ExprKind::App(e1, e2) => ExprKind::App(self.visit_expr(e1), self.visit_expr(e2)),
             ExprKind::Case(casee, rules) => {

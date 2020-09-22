@@ -5,7 +5,7 @@
 -- 1 warnings, 0 errors
 -- val x2: int * int list = 
 --   let
---     val x0: int * int list -> int * int list = fn x3 => 
+--     val x0 = fn x3 => 
 --       let
 --         val x: int = #1 x3
 --         val y: int list = #2 x3
