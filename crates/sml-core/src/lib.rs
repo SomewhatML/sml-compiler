@@ -224,7 +224,7 @@ impl<T> SortedRecord<T> {
         SortedRecord { rows }
     }
 
-    pub fn fmap<S, F: Fn(&T) -> S>(&self, f: F) -> SortedRecord<S> {
+    pub fn fmap<S, F: FnMut(&T) -> S>(&self, mut f: F) -> SortedRecord<S> {
         let mut v = Vec::with_capacity(self.rows.len());
         for row in self.iter() {
             v.push(Row {
