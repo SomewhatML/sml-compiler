@@ -2,22 +2,22 @@
 
 -- args: --vv --phase elab
 -- expected stdout:
--- val m: int -> int -> int = fn x0 => fn x1 => 
+-- val m: int -> int -> int = fn x3 => fn x4 => 
 --   let
---     val x3: int -> int = fn x => x
---     val x4: int -> int = fn y => y
---     val x6: unit -> int = fn x5 => 0
+--     val x0: int -> int = fn x => x
+--     val x1: int -> int = fn y => y
+--     val x2: unit -> int = fn x6 => 0
 --   in 
 --     
---       case x0
+--       case x3
 --         of 0 => 
---           case x1
---             of 0 => x3 x0
---              | _ => x4 x1
+--           case x4
+--             of 0 => x0 x3
+--              | _ => x1 x4
 --          | _ => 
---              case x1
---                of 0 => x3 x0
---                 | _ => x6 ()
+--              case x4
+--                of 0 => x0 x3
+--                 | _ => x2 ()
 --   end
 
 *)
