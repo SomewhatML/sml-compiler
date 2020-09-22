@@ -33,6 +33,7 @@ pub mod match_compile;
 // pub mod mono;
 pub mod type_check;
 pub mod types;
+pub mod visit;
 
 pub type Var<'a> = (Symbol, &'a Type<'a>);
 
