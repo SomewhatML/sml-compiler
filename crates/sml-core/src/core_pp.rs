@@ -1,5 +1,5 @@
 use crate::types::Type;
-use crate::{Decl, Expr, ExprKind, Pat, PatKind, Rule, SortedRecord};
+use crate::{Decl, Expr, ExprKind, Pat, PatKind, SortedRecord};
 use sml_util::interner::Symbol;
 use sml_util::pretty_print::{PrettyPrinter, Print};
 
@@ -67,7 +67,7 @@ impl<'a> Print for Expr<'a> {
                 }
                 pp
             }),
-            Con(con, tys) => pp.print(&con.name),
+            Con(con, _) => pp.print(&con.name),
             Const(c) => pp.print(&c),
             Handle(tryy, sym, handler) => pp
                 .print(tryy)
@@ -118,16 +118,8 @@ impl<'a> Print for Expr<'a> {
                 }
                 pp.text(")")
             }
-            Var(s, vars) => {
+            Var(s, _) => {
                 pp.print(s)
-                // if vars.is_empty() {
-                //     pp
-                // } else {
-                //     for v in vars {
-                //         pp.print(*v);
-                //     }
-                //     pp
-                // }
             }
         }
     }

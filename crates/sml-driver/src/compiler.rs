@@ -1,8 +1,9 @@
 use sml_core::elaborate::Context;
+use sml_core::{Decl, Expr};
 use sml_frontend::parser::Parser;
 use sml_util::diagnostics::{Diagnostic, Level};
 use sml_util::interner::*;
-use sml_util::pretty_print::{PrettyPrinter, Print};
+use sml_util::pretty_print::PrettyPrinter;
 use std::io::prelude::*;
 use std::time::Instant;
 
@@ -70,7 +71,7 @@ impl<'a> Phase<'a> for Parse {
 
 impl<'a> Phase<'a> for Elaborate {
     type Input = (sml_frontend::ast::Decl, Vec<Diagnostic>);
-    type Output = Vec<sml_core::Decl<'a>>;
+    type Output = Vec<Decl<'a>>;
     const PHASE: &'static str = "elaborate";
 
     fn pass(
@@ -106,8 +107,8 @@ impl<'a> Phase<'a> for Elaborate {
 }
 
 impl<'a> Phase<'a> for Flatten {
-    type Input = Vec<sml_core::Decl<'a>>;
-    type Output = sml_core::Expr<'a>;
+    type Input = Vec<Decl<'a>>;
+    type Output = Expr<'a>;
     const PHASE: &'static str = "flatten";
 
     fn pass(
@@ -130,8 +131,8 @@ impl<'a> Phase<'a> for Flatten {
 }
 
 impl<'a> Phase<'a> for Monomorphize {
-    type Input = sml_core::Expr<'a>;
-    type Output = sml_core::Expr<'a>;
+    type Input = Expr<'a>;
+    type Output = Expr<'a>;
     const PHASE: &'static str = "monomorphize";
 
     fn pass(
@@ -242,7 +243,7 @@ fn report(verb: u8, diags: Vec<Diagnostic>, src: &str) {
     }
 }
 
-fn print_core_decl<'a>(ctx: &Compiler<'a>, decls: &[sml_core::Decl<'a>]) {
+fn print_core_decl<'a>(ctx: &Compiler<'a>, decls: &[Decl<'a>]) {
     let io = std::io::stdout();
     let mut out = io.lock();
     match ctx.verbosity {
@@ -251,7 +252,6 @@ fn print_core_decl<'a>(ctx: &Compiler<'a>, decls: &[sml_core::Decl<'a>]) {
             // Print only types
             let mut pp = PrettyPrinter::new(&ctx.interner);
             for decl in decls {
-                use sml_core::{Decl, Rule};
                 match decl {
                     Decl::Val(_, val, expr) => {
                         pp.wrap(80, |pp| {

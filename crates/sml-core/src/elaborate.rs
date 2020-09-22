@@ -87,7 +87,6 @@ impl<'a> TypeStructure<'a> {
 struct PartialFun<'s, 'a> {
     name: Symbol,
     clauses: Vec<PartialFnBinding<'s, 'a>>,
-    arity: usize,
     /// Argument types, invariant that |arg_tys| = arity
     arg_tys: Vec<&'a Type<'a>>,
     /// The resulting type
@@ -1366,7 +1365,7 @@ impl<'a> Context<'a> {
             Variable(sym) => match self.lookup_value(sym) {
                 // Rule 35
                 Some((scheme, IdStatus::Exn(c))) | Some((scheme, IdStatus::Con(c))) => {
-                    let (ty, args) = self.instantiate(scheme);
+                    let (ty, _args) = self.instantiate(scheme);
                     Pat::new(self.arena.pats.alloc(PatKind::App(*c, None)), ty, pat.span)
                 }
                 _ => {
@@ -1635,7 +1634,6 @@ impl<'a> Context<'a> {
         PartialFun {
             name,
             clauses,
-            arity,
             arg_tys,
             res_ty,
             ty,
