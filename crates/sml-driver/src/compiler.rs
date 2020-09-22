@@ -106,7 +106,8 @@ impl<'a> Phase<'a> for Elaborate {
 
 impl<'a> Phase<'a> for Monomorphize {
     type Input = Vec<sml_core::Decl<'a>>;
-    type Output = Vec<sml_core::Decl<'a>>;
+    // type Output = Vec<sml_core::Decl<'a>>;
+    type Output = sml_core::Expr<'a>;
     const PHASE: &'static str = "monomorphize";
 
     fn pass(
@@ -114,32 +115,58 @@ impl<'a> Phase<'a> for Monomorphize {
         ctx: &mut Compiler<'a>,
         input: Self::Input,
     ) -> Result<Self::Output, Vec<Diagnostic>> {
-        let mut alpha = sml_core::alpha::Rename::new(&ctx.arena, ctx.elab.builtin_constructors());
-        let mut pp = PrettyPrinter::new(&ctx.interner);
-        let decls = input
-            .iter()
-            .map(|decl| alpha.visit_decl(decl, &mut pp))
-            .collect::<Vec<sml_core::Decl>>();
+        // let mut alpha = sml_core::alpha::Rename::new(&ctx.arena, ctx.elab.builtin_constructors());
+        // let mut pp = PrettyPrinter::new(&ctx.interner);
+        // let decls = input
+        //     .iter()
+        //     .map(|decl| alpha.visit_decl(decl, &mut pp))
+        //     .collect::<Vec<sml_core::Decl>>();
 
-        alpha.dump_cache(&mut pp);
+        // use sml_core::{Expr, ExprKind};
+        // let unit = Expr::new(
+        //     ctx.arena
+        //         .exprs
+        //         .alloc(ExprKind::Const(sml_util::Const::Unit)),
+        //     ctx.arena.types.unit(),
+        //     sml_util::span::Span::dummy(),
+        // );
+        // let exprs = decls.into_iter().rev().fold(unit, |ex, decl| {
+        //     Expr::new(
+        //         ctx.arena.exprs.alloc(ExprKind::Let(vec![decl], ex)),
+        //         ctx.arena.types.unit(),
+        //         sml_util::span::Span::dummy(),
+        //     )
+        // });
 
-        let mut mono = alpha.to_mono();
+        // alpha.dump_cache(&mut pp);
 
-        let mut out = Vec::new();
-        for decl in &decls {
-            mono.mono_decl_inner(
-                decl,
-                std::collections::HashMap::default(),
-                &mut pp,
-                &mut out,
-            );
-        }
-        Ok(out)
+        // let mut mono = alpha.to_mono();
+
+        // let mut out = Vec::new();
+        // for decl in &decls {
+        //     mono.mono_decl_inner(
+        //         decl,
+        //         std::collections::HashMap::default(),
+        //         &mut pp,
+        //         &mut out,
+        //     );
+        // }
+        // Ok(out)
+        // Ok(input)
         // Ok(decls)
+
+        let expr = sml_core::alpha::Linearize::run(&ctx.arena, &input);
+        Ok(expr)
     }
 
     fn output(&self, ctx: &mut Compiler<'a>, data: Self::Output) {
-        print_core_decl(ctx, &data)
+        // print_core_decl(ctx, &data)
+        let mut pp = PrettyPrinter::new(&ctx.interner);
+        pp.print(&data);
+        let io = std::io::stdout();
+        let mut out = io.lock();
+        pp.write(&mut out).unwrap();
+        out.flush().unwrap();
     }
 }
 

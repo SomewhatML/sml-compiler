@@ -236,10 +236,14 @@ fn preflight<'a>(
     for MatchRule {
         pat,
         expr,
-        bindings,
+        // bindings,
         sym,
+        ..
     } in rules
     {
+        // TODO: Ensure that `collect_vars`, and match bindings passed in are
+        // bound in the SAME order. Otherwise we will violate type safety
+        let bindings = collect_vars(pat);
         let lambda = match bindings.len() {
             0 => Lambda {
                 arg: ctx.fresh_var(),

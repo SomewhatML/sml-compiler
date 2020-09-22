@@ -1,9 +1,9 @@
 (* Test that the parser will issue a warning on top-level expression 
 
--- args: --v
+-- args: --v --phase elab
 -- expected stdout:
 -- 1 warnings, 0 errors
--- val x0: int
+-- val x1: int
 
 -- expected stderr:
 -- Warn

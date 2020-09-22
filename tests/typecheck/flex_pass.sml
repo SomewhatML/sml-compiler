@@ -3,7 +3,9 @@
 -- args: --v --phase elab
 -- expected stdout:
 -- val record: {x: int, y: bool, c: string, d: int ref}
--- val (x, y): int * bool
+-- val x2: int * bool
+-- val x: int
+-- val y: bool
 
 *)
 

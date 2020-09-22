@@ -193,7 +193,8 @@ impl<'a> Type<'a> {
                                 .chain(std::iter::once(last))
                                 .collect::<String>()
                         );
-                        pp.text(&format!("{}#{}", name, tyvar.id));
+                        // pp.text(&format!("{}#{}", name, tyvar.id));
+                        pp.text(&name);
                         map.insert(tyvar.id, name);
                         pp
                     }
