@@ -71,6 +71,7 @@ impl ArgParse {
                                 "parse" => "parse".into(),
                                 "elab" => "elaborate".into(),
                                 "mono" => "monomorphize".into(),
+                                "flat" => "flatten".into(),
                                 item => panic!("unrecognized compiler phase: {}", item),
                             };
                         builder = builder.phase(phase);

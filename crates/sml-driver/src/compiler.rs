@@ -43,6 +43,7 @@ pub trait Phase<'a> {
 struct Parse;
 struct Elaborate;
 struct Monomorphize;
+struct Flatten;
 
 impl<'a> Phase<'a> for Parse {
     type Input = FileId;
@@ -104,9 +105,32 @@ impl<'a> Phase<'a> for Elaborate {
     }
 }
 
-impl<'a> Phase<'a> for Monomorphize {
+impl<'a> Phase<'a> for Flatten {
     type Input = Vec<sml_core::Decl<'a>>;
-    // type Output = Vec<sml_core::Decl<'a>>;
+    type Output = sml_core::Expr<'a>;
+    const PHASE: &'static str = "flatten";
+
+    fn pass(
+        &self,
+        ctx: &mut Compiler<'a>,
+        input: Self::Input,
+    ) -> Result<Self::Output, Vec<Diagnostic>> {
+        Ok(sml_core::linearize::run(&ctx.arena, &input))
+    }
+
+    fn output(&self, ctx: &mut Compiler<'a>, data: Self::Output) {
+        // print_core_decl(ctx, &data)
+        let mut pp = PrettyPrinter::new(&ctx.interner);
+        pp.print(&data);
+        let io = std::io::stdout();
+        let mut out = io.lock();
+        pp.write(&mut out).unwrap();
+        out.flush().unwrap();
+    }
+}
+
+impl<'a> Phase<'a> for Monomorphize {
+    type Input = sml_core::Expr<'a>;
     type Output = sml_core::Expr<'a>;
     const PHASE: &'static str = "monomorphize";
 
@@ -115,47 +139,9 @@ impl<'a> Phase<'a> for Monomorphize {
         ctx: &mut Compiler<'a>,
         input: Self::Input,
     ) -> Result<Self::Output, Vec<Diagnostic>> {
-        // let decls = input
-        //     .iter()
-        //     .map(|decl| alpha.visit_decl(decl, &mut pp))
-        //     .collect::<Vec<sml_core::Decl>>();
-
-        // use sml_core::{Expr, ExprKind};
-        // let unit = Expr::new(
-        //     ctx.arena
-        //         .exprs
-        //         .alloc(ExprKind::Const(sml_util::Const::Unit)),
-        //     ctx.arena.types.unit(),
-        //     sml_util::span::Span::dummy(),
-        // );
-        // let exprs = decls.into_iter().rev().fold(unit, |ex, decl| {
-        //     Expr::new(
-        //         ctx.arena.exprs.alloc(ExprKind::Let(vec![decl], ex)),
-        //         ctx.arena.types.unit(),
-        //         sml_util::span::Span::dummy(),
-        //     )
-        // });
-
-        // let mut mono = alpha.to_mono();
-
-        // let mut out = Vec::new();
-        // for decl in &decls {
-        //     mono.mono_decl_inner(
-        //         decl,
-        //         std::collections::HashMap::default(),
-        //         &mut pp,
-        //         &mut out,
-        //     );
-        // }
-        // Ok(out)
-        // Ok(input)
-        // Ok(decls)
-
-        let expr = sml_core::linearize::run(&ctx.arena, &input);
-
         let mut alpha = sml_core::alpha::Rename::new(&ctx.arena, ctx.elab.builtin_constructors());
         let mut pp = PrettyPrinter::new(&ctx.interner);
-        let expr = alpha.visit_expr(&expr, &mut pp);
+        let expr = alpha.visit_expr(&input, &mut pp);
         alpha.dump_cache(&mut pp);
 
         Ok(expr)
@@ -212,6 +198,7 @@ impl<'a> Compiler<'a> {
         self.src = input;
         let input = self.run_phase(Parse, FileId(0))?;
         let input = self.run_phase(Elaborate, input)?;
+        let input = self.run_phase(Flatten, input)?;
         let input = self.run_phase(Monomorphize, input)?;
 
         Monomorphize.output(self, input);
