@@ -10,102 +10,6 @@ use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
-pub struct Linearize<'a> {
-    arena: &'a CoreArena<'a>,
-}
-impl<'a> Linearize<'a> {
-    pub fn run(arena: &'a CoreArena<'a>, decls: &[Decl<'a>]) -> Expr<'a> {
-        let mut lin = Linearize { arena };
-        let body = Expr::new(
-            arena.exprs.alloc(ExprKind::Const(sml_util::Const::Unit)),
-            arena.types.unit(),
-            Span::dummy(),
-        );
-        decls.into_iter().rev().fold(body, |body, decl| {
-            let lett = arena
-                .exprs
-                .alloc(ExprKind::Let(vec![lin.visit_decl(decl)], body));
-            Expr::new(lett, body.ty, body.span)
-        })
-    }
-
-    pub fn visit_decl(&mut self, decl: &Decl<'a>) -> Decl<'a> {
-        match decl {
-            Decl::Val(vars, sym, expr) => {
-                let expr = self.visit_expr(&expr);
-                Decl::Val(vars.clone(), *sym, expr)
-            }
-            Decl::Fun(vars, funs) => {
-                let funs = funs
-                    .into_iter()
-                    .map(|(sym, lam)| {
-                        let mut lam = *lam;
-                        lam.body = self.visit_expr(&lam.body);
-                        (*sym, lam)
-                    })
-                    .collect();
-                Decl::Fun(vars.clone(), funs)
-            }
-            Decl::Exn(con, arg) => Decl::Exn(*con, *arg),
-            Decl::Datatype(dts) => Decl::Datatype(dts.clone()),
-        }
-    }
-
-    fn visit_expr(&mut self, expr: &Expr<'a>) -> Expr<'a> {
-        let kind = match expr.kind {
-            ExprKind::App(e1, e2) => ExprKind::App(self.visit_expr(e1), self.visit_expr(e2)),
-            ExprKind::Case(casee, rules) => {
-                let rules = rules
-                    .iter()
-                    .map(|rule| Rule {
-                        pat: rule.pat,
-                        expr: self.visit_expr(&rule.expr),
-                    })
-                    .collect();
-
-                ExprKind::Case(*casee, rules)
-            }
-            ExprKind::Handle(tryy, sym, handler) => {
-                let tryy = self.visit_expr(tryy);
-                let handler = self.visit_expr(handler);
-                ExprKind::Handle(tryy, *sym, handler)
-            }
-            ExprKind::Lambda(lam) => {
-                let mut lam = *lam;
-                lam.body = self.visit_expr(&lam.body);
-                ExprKind::Lambda(lam)
-            }
-            ExprKind::Let(decls, body) => {
-                let decls = decls.iter().map(|d| self.visit_decl(d)).collect::<Vec<_>>();
-                let body = self.visit_expr(body);
-                let new = decls.into_iter().rev().fold(body, |body, decl| {
-                    let lett = self.arena.exprs.alloc(ExprKind::Let(vec![decl], body));
-                    Expr::new(lett, body.ty, body.span)
-                });
-                return new;
-            }
-            ExprKind::List(exprs) => {
-                ExprKind::List(exprs.iter().map(|e| self.visit_expr(e)).collect())
-            }
-            ExprKind::Raise(e) => ExprKind::Raise(self.visit_expr(e)),
-            ExprKind::Record(rows) => ExprKind::Record(
-                rows.iter()
-                    .map(|row| row.fmap(|ex| self.visit_expr(ex)))
-                    .collect(),
-            ),
-            ExprKind::Selector(ex, label) => ExprKind::Selector(self.visit_expr(ex), *label),
-            ExprKind::Seq(exprs) => {
-                ExprKind::Seq(exprs.iter().map(|e| self.visit_expr(e)).collect())
-            }
-            ExprKind::Const(c) => ExprKind::Const(*c),
-            ExprKind::Primitive(p) => ExprKind::Primitive(*p),
-            ExprKind::Con(a, args) => ExprKind::Con(*a, args.clone()),
-            ExprKind::Var(a, args) => ExprKind::Var(*a, args.clone()),
-        };
-        Expr::new(self.arena.exprs.alloc(kind), expr.ty, expr.span)
-    }
-}
-
 /// A [`Hash`] implementation that ignores type variables. This really shouldn't
 /// be used anywhere outside of the monomorphization code
 impl<'a> Hash for Type<'a> {
@@ -351,6 +255,69 @@ impl<'a> Rename<'a> {
         }
     }
 
+    pub fn mono_decl(
+        &mut self,
+        decl: &Decl<'a>,
+        mono: &mut Vec<Decl<'a>>,
+        pp: &mut PrettyPrinter<'_>,
+    ) {
+        let mut s = String::new();
+        pp.print(decl);
+        pp.write_fmt(&mut s);
+        // println!("monodec {}", s);
+        match decl {
+            Decl::Val(vars, sym, expr) => {
+                let mut s = String::new();
+                pp.print(sym);
+                pp.write_fmt(&mut s);
+                // println!("mono {}", s);
+                match self.cache.get(sym).cloned() {
+                    Some(entry) => {
+                        for (usages, symbol) in &entry.usages {
+                            mono.push(Decl::Val(Vec::new(), *symbol, *expr));
+                        }
+                        if entry.usages.is_empty() {
+                            println!("why is this being reached?");
+                            mono.push(Decl::Val(Vec::new(), *sym, *expr));
+                        }
+                    }
+                    None => {
+                        mono.push(Decl::Val(Vec::new(), *sym, *expr));
+                    }
+                }
+            }
+            Decl::Fun(vars, funs_) => {
+                let mut funs = Vec::new();
+                for (name, lambda) in funs_ {
+                    let mut s = String::new();
+                    pp.print(name);
+
+                    match self.cache.get(name).cloned() {
+                        Some(entry) => {
+                            for (usages, symbol) in &entry.usages {
+                                pp.text("->").print(symbol).text("\n").print(name);
+                                funs.push((*symbol, *lambda));
+                            }
+                            if entry.usages.is_empty() {
+                                pp.text("->").print(name).text(" EMPTY\n").print(name);
+                                funs.push((*name, *lambda));
+                            }
+                        }
+                        None => {
+                            funs.push((*name, *lambda));
+                        }
+                    }
+                    pp.write_fmt(&mut s);
+
+                    // println!("monofn {}", s);
+                }
+                dbg!(funs.len());
+                mono.push(Decl::Fun(Vec::new(), funs));
+            }
+            _ => (),
+        }
+    }
+
     pub fn visit_decl(&mut self, decl: &Decl<'a>, pp: &mut PrettyPrinter<'_>) -> Decl<'a> {
         match decl {
             Decl::Val(vars, sym, expr) => {
@@ -492,7 +459,7 @@ impl<'a> Rename<'a> {
         Pat::new(self.arena.pats.alloc(kind), ty, pat.span)
     }
 
-    fn visit_expr(&mut self, expr: &Expr<'a>, pp: &mut PrettyPrinter<'_>) -> Expr<'a> {
+    pub fn visit_expr(&mut self, expr: &Expr<'a>, pp: &mut PrettyPrinter<'_>) -> Expr<'a> {
         let ty = self.visit_type(expr.ty, pp);
         let kind = match expr.kind {
             ExprKind::App(e1, e2) => {
@@ -558,14 +525,26 @@ impl<'a> Rename<'a> {
                     .collect::<Vec<_>>();
 
                 let body = self.visit_expr(body, pp);
-                let new = decls.into_iter().rev().fold(body, |body, decl| {
-                    let lett = self.arena.exprs.alloc(ExprKind::Let(vec![decl], body));
-                    Expr::new(lett, body.ty, body.span)
-                });
+                let mut mono = Vec::new();
+                for decl in &decls {
+                    self.mono_decl(decl, &mut mono, pp);
+                }
+
+                if mono.is_empty() {
+                    let mut s = String::new();
+                    pp.print(expr);
+                    pp.write_fmt(&mut s);
+                    println!("let?? {}", s);
+                }
+
+                // let new = decls.into_iter().rev().fold(body, |body, decl| {
+                //     let lett = self.arena.exprs.alloc(ExprKind::Let(vec![decl], body));
+                //     Expr::new(lett, body.ty, body.span)
+                // });
 
                 self.leave();
-                return new;
-                // ExprKind::Let(decls, body)
+                // return new;
+                ExprKind::Let(mono, body)
             }
             ExprKind::List(exprs) => {
                 ExprKind::List(exprs.iter().map(|e| self.visit_expr(e, pp)).collect())

@@ -28,6 +28,7 @@ pub mod builtin;
 pub mod check;
 pub mod core_pp;
 pub mod elaborate;
+pub mod linearize;
 pub mod match_compile;
 // pub mod mono;
 pub mod type_check;
