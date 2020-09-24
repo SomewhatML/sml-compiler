@@ -81,6 +81,8 @@ pub struct Rename<'a> {
     cache: HashMap<Symbol, Entry<'a>>,
     diags: Vec<Diagnostic>,
     id: Cell<u32>,
+
+    bindings: HashMap<usize, &'a Type<'a>>,
 }
 
 #[derive(Default)]
@@ -101,6 +103,7 @@ impl<'a> Rename<'a> {
             cache: HashMap::new(),
             diags: Vec::new(),
             id: Cell::new(0),
+            bindings: HashMap::new(),
         };
         for (sym, tyvars) in builtin {
             if !tyvars.is_empty() {
@@ -208,6 +211,15 @@ impl<'a> Rename<'a> {
         println!("{}", b);
     }
 
+    pub fn dump_bindings(&self, pp: &mut PrettyPrinter<'_>) {
+        for (k, entry) in &self.bindings {
+            pp.line().text("var ").print(k).text(": ").print(*entry);
+        }
+        let mut b = String::new();
+        let _ = pp.write_fmt(&mut b);
+        println!("{}", b);
+    }
+
     #[inline]
     pub fn fresh(&self) -> Symbol {
         let id = self.id.get();
@@ -278,48 +290,229 @@ impl<'a> Rename<'a> {
                 match self.cache.get(sym).cloned() {
                     Some(entry) => {
                         for (usages, symbol) in &entry.usages {
-                            mono.push(Decl::Val(Vec::new(), *symbol, *expr));
+                            for (v, u) in vars.iter().zip(usages.iter()) {
+                                self.bindings.insert(*v, *u);
+                            }
+                            mono.push(Decl::Val(Vec::new(), *symbol, self.mono_expr(expr, pp)));
                         }
                         if entry.usages.is_empty() {
                             println!("why is this being reached?");
-                            mono.push(Decl::Val(Vec::new(), *sym, *expr));
+                            mono.push(Decl::Val(Vec::new(), *sym, self.mono_expr(expr, pp)));
                         }
                     }
                     None => {
-                        mono.push(Decl::Val(Vec::new(), *sym, *expr));
+                        mono.push(Decl::Val(Vec::new(), *sym, self.mono_expr(expr, pp)));
                     }
                 }
             }
             Decl::Fun(vars, funs_) => {
                 let mut funs = Vec::new();
                 for (name, lambda) in funs_ {
-                    let mut s = String::new();
-                    pp.print(name);
-
+                    // pp.print(name);
+                    // let mut lambda = *lambda;
                     match self.cache.get(name).cloned() {
                         Some(entry) => {
                             for (usages, symbol) in &entry.usages {
-                                pp.text("->").print(symbol).text("\n").print(name);
-                                funs.push((*symbol, *lambda));
+                                let mut lam = *lambda;
+                                for (v, u) in vars.iter().zip(usages.iter()) {
+                                    self.bindings.insert(*v, *u);
+                                }
+
+                                self.dump_bindings(pp);
+                                lam.ty = self.visit_type(lam.ty, pp);
+                                lam.body = self.mono_expr(&lam.body, pp);
+                                funs.push((*symbol, lam));
+                                let mut s = String::new();
+                                pp.print(&lam.body);
+                                pp.write_fmt(&mut s);
+                                println!("{}", s);
+
+                                for (v, u) in vars.iter().zip(usages.iter()) {
+                                    self.bindings.remove(v);
+                                }
                             }
                             if entry.usages.is_empty() {
-                                pp.text("->").print(name).text(" EMPTY\n").print(name);
-                                funs.push((*name, *lambda));
+                                let mut lam = *lambda;
+                                lam.ty = self.visit_type(lam.ty, pp);
+                                lam.body = self.mono_expr(&lam.body, pp);
+                                // pp.text("->").print(name).text(" EMPTY\n").print(name);\
+                                // lambda.ty = self.visit_type(lambda.ty, pp);
+                                // lambda.body = self.mono_expr(&lambda.body, pp);
+                                funs.push((*name, lam));
                             }
                         }
                         None => {
-                            funs.push((*name, *lambda));
+                            let mut lam = *lambda;
+                            lam.ty = self.visit_type(lam.ty, pp);
+                            lam.body = self.mono_expr(&lam.body, pp);
+                            funs.push((*name, lam));
                         }
                     }
-                    pp.write_fmt(&mut s);
-
-                    // println!("monofn {}", s);
                 }
-                dbg!(funs.len());
                 mono.push(Decl::Fun(Vec::new(), funs));
             }
             _ => (),
         }
+    }
+
+    fn mono_type(
+        &mut self,
+        ty: &'a Type<'a>,
+        bindings: &Bindings<'a>,
+        pp: &mut PrettyPrinter<'_>,
+    ) -> &'a Type<'a> {
+        match ty {
+            Type::Var(tyvar) => match tyvar.ty() {
+                Some(ty) => self.mono_type(ty, bindings, pp),
+                None => {
+                    // emit warning for unused type variable
+                    // self.arena.types.unit()
+                    bindings.get(&tyvar.id).copied().unwrap_or(ty)
+                }
+            },
+            Type::Record(fields) => {
+                let args = SortedRecord::new_unchecked(
+                    fields
+                        .iter()
+                        .map(|row| row.fmap(|ty| self.mono_type(ty, bindings, pp)))
+                        .collect(),
+                );
+                self.arena.types.alloc(Type::Record(args))
+            }
+            Type::Flex(flex) => match flex.ty() {
+                Some(ty) => self.mono_type(ty, bindings, pp),
+                None => {
+                    // emit warning for unused type variable
+                    self.arena.types.unit()
+                }
+            },
+            Type::Con(mut con, args) => {
+                let args = args
+                    .iter()
+                    .map(|ty| self.mono_type(ty, bindings, pp))
+                    .collect::<Vec<_>>();
+
+                match self.cache.get(&con.name).cloned() {
+                    Some(entry) => {
+                        for (usages, symbol) in &entry.usages {
+                            assert_eq!(usages.len(), args.len());
+                            if usages == &args {
+                                con.name = *symbol;
+                                pp.line()
+                                    .text("monomorphizing tycon: ")
+                                    .print(ty)
+                                    .text(" => (");
+                                for u in usages.iter() {
+                                    pp.print(*u).text(", ");
+                                }
+                                pp.text(") => ").print(symbol);
+                                let mut s = String::new();
+                                pp.write_fmt(&mut s);
+                                println!("{} {}", entry.usages.len(), s);
+                                // println!("usages of tycon! {:?}", con.name);
+                                return self.arena.types.alloc(Type::Con(con, Vec::new()));
+                            }
+                            // bindings.extend(vars.iter().copied().zip(usages.iter().copied()));
+                            // out.push(Decl::Val(Vec::new(), *symbol, self.mono_expr(expr, bindings)));
+                        }
+                        if entry.usages.is_empty() {
+                            println!("no usages of type constructor? {:?}", con.name);
+                        }
+                    }
+                    None => {
+                        // println!("why is this not being reached?");
+                        // out.push(Decl::Val(Vec::new(), *sym, self.mono_expr(expr, bindings)));
+                    }
+                }
+
+                // con.name = self.swap_type(con.name).expect("BUG: Type::Con");
+                self.arena.types.alloc(Type::Con(con, args))
+            }
+        }
+    }
+
+    pub fn mono_expr(&mut self, expr: &Expr<'a>, pp: &mut PrettyPrinter<'_>) -> Expr<'a> {
+        let ty = self.visit_type(expr.ty, pp);
+        let kind = match expr.kind {
+            ExprKind::App(e1, e2) => {
+                let e1 = self.mono_expr(e1, pp);
+                let e2 = self.mono_expr(e2, pp);
+                ExprKind::App(e1, e2)
+            }
+            ExprKind::Case(casee, rules) => {
+                let (var, ty) = casee;
+                let ty = self.visit_type(ty, pp);
+
+                let rules = rules
+                    .iter()
+                    .map(|rule| {
+                        self.enter();
+                        let pat = self.visit_pat(&rule.pat, pp);
+                        let expr = self.mono_expr(&rule.expr, pp);
+                        self.leave();
+                        Rule { pat, expr }
+                    })
+                    .collect();
+
+                ExprKind::Case((*var, ty), rules)
+            }
+            ExprKind::Con(mut con, tys) => {
+                let tys = tys
+                    .iter()
+                    .map(|ty| self.visit_type(ty, pp))
+                    .collect::<Vec<_>>();
+                ExprKind::Con(con, tys)
+            }
+            ExprKind::Const(c) => ExprKind::Const(*c),
+            ExprKind::Handle(tryy, sym, handler) => {
+                let tryy = self.mono_expr(tryy, pp);
+                let sym = self.swap_value(*sym).expect("BUG: ExprKind::Handle");
+                let handler = self.mono_expr(handler, pp);
+                ExprKind::Handle(tryy, sym, handler)
+            }
+            ExprKind::Lambda(lam) => {
+                let mut lam = *lam;
+                self.enter();
+                lam.ty = self.visit_type(lam.ty, pp);
+                lam.body = self.mono_expr(&lam.body, pp);
+                self.leave();
+                ExprKind::Lambda(lam)
+            }
+            ExprKind::Let(decls, body) => {
+                self.enter();
+                let body = self.mono_expr(body, pp);
+                let mut mono = Vec::new();
+                for decl in decls {
+                    self.mono_decl(decl, &mut mono, pp);
+                }
+
+                self.leave();
+                // return new;
+                ExprKind::Let(mono, body)
+            }
+            ExprKind::List(exprs) => {
+                ExprKind::List(exprs.iter().map(|e| self.mono_expr(e, pp)).collect())
+            }
+            ExprKind::Primitive(sym) => ExprKind::Primitive(*sym),
+            ExprKind::Raise(e) => ExprKind::Raise(self.mono_expr(e, pp)),
+            ExprKind::Record(rows) => ExprKind::Record(
+                rows.iter()
+                    .map(|row| row.fmap(|ex| self.mono_expr(ex, pp)))
+                    .collect(),
+            ),
+            ExprKind::Selector(ex, label) => ExprKind::Selector(self.mono_expr(ex, pp), *label),
+            ExprKind::Seq(exprs) => {
+                ExprKind::Seq(exprs.iter().map(|e| self.mono_expr(e, pp)).collect())
+            }
+            ExprKind::Var(s, tys) => {
+                let tys = tys
+                    .iter()
+                    .map(|ty| self.visit_type(ty, pp))
+                    .collect::<Vec<_>>();
+                ExprKind::Var(*s, tys)
+            }
+        };
+        Expr::new(self.arena.exprs.alloc(kind), ty, expr.span)
     }
 
     pub fn visit_decl(&mut self, decl: &Decl<'a>, pp: &mut PrettyPrinter<'_>) -> Decl<'a> {
@@ -402,9 +595,13 @@ impl<'a> Rename<'a> {
             Type::Var(tyvar) => match tyvar.ty() {
                 Some(ty) => self.visit_type(ty, pp),
                 None => {
+                    match self.bindings.get(&tyvar.id) {
+                        Some(bound) => bound,
+                        None => ty,
+                    }
                     // emit warning for unused type variable
                     // self.arena.types.unit()
-                    ty
+                    // ty
                 }
             },
             Type::Record(fields) => {
