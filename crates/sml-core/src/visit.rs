@@ -2,9 +2,7 @@ use super::*;
 use types::Type;
 
 pub trait Visitor<'a>: Sized {
-    fn alloc_pat(&self, _: PatKind) -> &'a PatKind<'a>;
-    fn alloc_expr(&self, _: ExprKind) -> &'a ExprKind<'a>;
-    fn alloc_type(&self, _: Type<'_>) -> &'a Type<'a>;
+    fn arena(&self) -> &'a crate::arenas::CoreArena<'a>;
 
     fn visit_decl(&mut self, decl: &Decl<'a>) -> Decl<'a> {
         self.walk_decl(decl)
@@ -117,7 +115,7 @@ pub trait Visitor<'a>: Sized {
             PatKind::Wild => PatKind::Wild,
         };
 
-        Pat::new(self.alloc_pat(kind), ty, pat.span)
+        Pat::new(self.arena().pats.alloc(kind), ty, pat.span)
     }
 
     fn visit_expr_app(&mut self, a: Expr<'a>, b: Expr<'a>) -> ExprKind<'a> {
@@ -235,6 +233,6 @@ pub trait Visitor<'a>: Sized {
             ExprKind::Seq(seq) => self.visit_expr_seq(seq),
             ExprKind::Var(var, targs) => self.visit_expr_var(*var, targs),
         };
-        Expr::new(self.alloc_expr(kind), ty, expr.span)
+        Expr::new(self.arena().exprs.alloc(kind), ty, expr.span)
     }
 }
