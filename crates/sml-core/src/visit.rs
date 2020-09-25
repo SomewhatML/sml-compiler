@@ -9,7 +9,9 @@ pub trait Visitor<'a>: Sized {
     fn visit_decl(&mut self, decl: &Decl<'a>) -> Decl<'a> {
         self.walk_decl(decl)
     }
-    fn visit_expr(&mut self, _: Expr<'a>) -> Expr<'a>;
+    fn visit_expr(&mut self, expr: Expr<'a>) -> Expr<'a> {
+        self.walk_expr(expr)
+    }
     fn visit_type(&mut self, _: &'a Type<'a>) -> &'a Type<'a>;
 
     fn visit_pat(&mut self, pat: Pat<'a>) -> Pat<'a> {
@@ -168,6 +170,53 @@ pub trait Visitor<'a>: Sized {
         })
     }
 
+    fn visit_expr_let(&mut self, decls: &[Decl<'a>], body: Expr<'a>) -> ExprKind<'a> {
+        ExprKind::Let(
+            decls.into_iter().map(|d| self.visit_decl(d)).collect(),
+            self.visit_expr(body),
+        )
+    }
+
+    fn visit_expr_list(&mut self, list: &[Expr<'a>]) -> ExprKind<'a> {
+        ExprKind::List(list.into_iter().map(|ex| self.visit_expr(*ex)).collect())
+    }
+
+    fn visit_expr_primitive(&mut self, prim: Symbol) -> ExprKind<'a> {
+        ExprKind::Primitive(prim)
+    }
+
+    fn visit_expr_raise(&mut self, expr: Expr<'a>) -> ExprKind<'a> {
+        ExprKind::Raise(self.visit_expr(expr))
+    }
+
+    fn visit_expr_record(&mut self, fields: &[Row<Expr<'a>>]) -> ExprKind<'a> {
+        ExprKind::Record(
+            fields
+                .into_iter()
+                .map(|row| Row {
+                    label: row.label,
+                    data: self.visit_expr(row.data),
+                    span: row.span,
+                })
+                .collect(),
+        )
+    }
+
+    fn visit_expr_selector(&mut self, expr: Expr<'a>, sym: Symbol) -> ExprKind<'a> {
+        ExprKind::Selector(self.visit_expr(expr), sym)
+    }
+
+    fn visit_expr_seq(&mut self, seq: &[Expr<'a>]) -> ExprKind<'a> {
+        ExprKind::Seq(seq.into_iter().map(|ex| self.visit_expr(*ex)).collect())
+    }
+
+    fn visit_expr_var(&mut self, sym: Symbol, targs: &[&'a Type<'a>]) -> ExprKind<'a> {
+        ExprKind::Var(
+            self.visit_sym(&sym),
+            targs.into_iter().map(|ty| self.visit_type(*ty)).collect(),
+        )
+    }
+
     fn walk_expr(&mut self, expr: Expr<'a>) -> Expr<'a> {
         let ty = self.visit_type(expr.ty);
         let kind = match expr.kind {
@@ -177,7 +226,14 @@ pub trait Visitor<'a>: Sized {
             ExprKind::Const(c) => self.visit_expr_const(*c),
             ExprKind::Handle(expr, sym, handle) => self.visit_expr_handle(*expr, sym, *handle),
             ExprKind::Lambda(lambda) => self.visit_expr_lambda(*lambda),
-            _ => return expr,
+            ExprKind::Let(decls, body) => self.visit_expr_let(decls, *body),
+            ExprKind::List(list) => self.visit_expr_list(list),
+            ExprKind::Primitive(prim) => self.visit_expr_primitive(*prim),
+            ExprKind::Raise(expr) => self.visit_expr_raise(*expr),
+            ExprKind::Record(fields) => self.visit_expr_record(fields),
+            ExprKind::Selector(expr, sym) => self.visit_expr_selector(*expr, *sym),
+            ExprKind::Seq(seq) => self.visit_expr_seq(seq),
+            ExprKind::Var(var, targs) => self.visit_expr_var(*var, targs),
         };
         Expr::new(self.alloc_expr(kind), ty, expr.span)
     }
