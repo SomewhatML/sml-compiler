@@ -117,4 +117,68 @@ pub trait Visitor<'a>: Sized {
 
         Pat::new(self.alloc_pat(kind), ty, pat.span)
     }
+
+    fn visit_expr_app(&mut self, a: Expr<'a>, b: Expr<'a>) -> ExprKind<'a> {
+        ExprKind::App(self.visit_expr(a), self.visit_expr(b))
+    }
+
+    fn visit_expr_case(&mut self, scrutinee: Var<'a>, rules: &[Rule<'a>]) -> ExprKind<'a> {
+        let rules = rules
+            .into_iter()
+            .map(|Rule { pat, expr }| Rule {
+                pat: self.visit_pat(*pat),
+                expr: self.visit_expr(*expr),
+            })
+            .collect();
+        ExprKind::Case(
+            (self.visit_sym(&scrutinee.0), self.visit_type(scrutinee.1)),
+            rules,
+        )
+    }
+
+    fn visit_expr_con(&mut self, con: Constructor, targs: &[&'a Type<'a>]) -> ExprKind<'a> {
+        ExprKind::Con(
+            self.visit_con(con),
+            targs.into_iter().map(|ty| self.visit_type(*ty)).collect(),
+        )
+    }
+
+    fn visit_expr_const(&mut self, c: Const) -> ExprKind<'a> {
+        ExprKind::Const(c)
+    }
+
+    fn visit_expr_handle(
+        &mut self,
+        expr: Expr<'a>,
+        sym: &Symbol,
+        handle: Expr<'a>,
+    ) -> ExprKind<'a> {
+        ExprKind::Handle(
+            self.visit_expr(expr),
+            self.visit_sym(sym),
+            self.visit_expr(handle),
+        )
+    }
+
+    fn visit_expr_lambda(&mut self, lambda: Lambda<'a>) -> ExprKind<'a> {
+        ExprKind::Lambda(Lambda {
+            arg: self.visit_sym(&lambda.arg),
+            ty: self.visit_type(lambda.ty),
+            body: self.visit_expr(lambda.body),
+        })
+    }
+
+    fn walk_expr(&mut self, expr: Expr<'a>) -> Expr<'a> {
+        let ty = self.visit_type(expr.ty);
+        let kind = match expr.kind {
+            ExprKind::App(a, b) => self.visit_expr_app(*a, *b),
+            ExprKind::Case(scrutinee, rules) => self.visit_expr_case(*scrutinee, rules),
+            ExprKind::Con(con, targs) => self.visit_expr_con(*con, targs),
+            ExprKind::Const(c) => self.visit_expr_const(*c),
+            ExprKind::Handle(expr, sym, handle) => self.visit_expr_handle(*expr, sym, *handle),
+            ExprKind::Lambda(lambda) => self.visit_expr_lambda(*lambda),
+            _ => return expr,
+        };
+        Expr::new(self.alloc_expr(kind), ty, expr.span)
+    }
 }
