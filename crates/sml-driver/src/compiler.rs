@@ -143,7 +143,6 @@ impl<'a> Phase<'a> for Monomorphize {
         let mut alpha = sml_core::alpha::Rename::new(&ctx.arena, ctx.elab.builtin_constructors());
         let mut pp = PrettyPrinter::new(&ctx.interner);
         let expr = alpha.visit_expr(&input, &mut pp);
-        alpha.dump_cache(&mut pp);
 
         Ok(expr)
     }
