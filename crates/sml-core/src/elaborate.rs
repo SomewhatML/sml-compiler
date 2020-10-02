@@ -1002,7 +1002,7 @@ impl<'a> Context<'a> {
             }
             ast::ExprKind::Handle(tryy, rules) => {
                 let tryy = self.elaborate_expr(tryy);
-                let (rules, ty) = self.elab_rules(expr.span, rules);
+                let (mut rules, ty) = self.elab_rules(expr.span, rules);
 
                 let (arg, res) = match ty.de_arrow() {
                     Some((a, r)) => (a, r),
@@ -1025,9 +1025,25 @@ impl<'a> Context<'a> {
                     c.span(expr.span)
                         .message("handler match rules don't have `exn` type")
                 });
-                // tryy handle case $gensym of |...
+                // tryy handle case $gensym of |...S
                 let gensym = self.fresh_var();
                 let scrutinee = self.arena.expr_var(gensym, arg, Vec::new());
+
+                // Generate a wildtype binding
+                rules.push(MatchRule {
+                    pat: Pat::new(self.arena.pats.wild(), ty, Span::dummy()),
+                    expr: Expr::new(
+                        self.arena.exprs.alloc(ExprKind::Raise(self.arena.expr_var(
+                            gensym,
+                            self.arena.types.exn(),
+                            Vec::new(),
+                        ))),
+                        res,
+                        expr.span,
+                    ),
+                    bindings: Vec::new(),
+                    sym: self.fresh_var(),
+                });
                 let body = crate::match_compile::case(self, scrutinee, res, rules, expr.span);
                 Expr::new(
                     self.arena.exprs.alloc(ExprKind::Handle(tryy, gensym, body)),

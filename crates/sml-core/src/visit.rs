@@ -105,13 +105,17 @@ pub trait Visitor<'a>: Sized {
         PatKind::Record(record.fmap(|pat| self.visit_pat(*pat)))
     }
 
+    fn visit_pat_var(&mut self, var: &Symbol) -> PatKind<'a> {
+        PatKind::Var(self.visit_sym(var))
+    }
+
     fn walk_pat(&mut self, pat: Pat<'a>) -> Pat<'a> {
         let ty = self.visit_type(pat.ty);
         let kind = match pat.kind {
             PatKind::App(con, arg) => self.visit_pat_app(*con, *arg),
             PatKind::Const(c) => PatKind::Const(*c),
             PatKind::Record(record) => self.visit_pat_record(record),
-            PatKind::Var(s) => PatKind::Var(self.visit_sym(s)),
+            PatKind::Var(s) => self.visit_pat_var(s),
             PatKind::Wild => PatKind::Wild,
         };
 
