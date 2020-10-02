@@ -2,8 +2,11 @@
 #![allow(unused_variables)]
 #![allow(unused_must_use)]
 #![allow(dead_code)]
-use crate::arenas::CoreArena;
-use crate::types::{Constructor, Type};
+use crate::{arenas::CoreArena, Datatype};
+use crate::{
+    types::{Constructor, Type},
+    Var,
+};
 use crate::{Decl, Expr, ExprKind, Lambda, Pat, PatKind, Row, Rule, SortedRecord};
 use sml_util::diagnostics::Diagnostic;
 use sml_util::hasher::IntHashMap;
@@ -215,6 +218,152 @@ impl<'a> Cache<'a> {
     #[inline]
     pub fn get(&self, sym: &Symbol) -> Option<&Entry<'a>> {
         self.cache.get(sym)
+    }
+}
+
+pub struct R<'a> {
+    cache: Cache<'a>,
+    arena: &'a CoreArena<'a>,
+}
+
+use crate::visit::Visitor;
+impl<'a> Visitor<'a> for R<'a> {
+    fn arena(&self) -> &'a CoreArena<'a> {
+        self.arena
+    }
+
+    fn visit_type(&mut self, ty: &'a Type<'a>) -> &'a Type<'a> {
+        ty
+    }
+
+    fn visit_decl_val(&mut self, vars: &[usize], sym: &Symbol, expr: Expr<'a>) -> Decl<'a> {
+        if vars.is_empty() {
+            let newsym = self.cache.register_val(*sym);
+            Decl::Val(Vec::new(), newsym, self.visit_expr(expr))
+        } else {
+            let newsym = self.cache.register_val(*sym);
+            self.cache.add_entry(newsym, vars.into());
+            Decl::Val(Vec::new(), newsym, self.visit_expr(expr))
+        }
+    }
+
+    fn visit_decl_dt(&mut self, dts: &[Datatype<'a>]) -> Decl<'a> {
+        for dt in dts {
+            self.cache.register_type(dt.tycon.name);
+        }
+
+        let x = dts
+            .iter()
+            .map(|dt| {
+                let mut dt = dt.clone();
+                let tyvars = dt.tyvars.clone();
+
+                dt.tycon.name = self.cache.swap_type(dt.tycon.name).unwrap();
+                if !tyvars.is_empty() {
+                    self.cache.add_entry(dt.tycon.name, tyvars.clone());
+                }
+
+                dt.constructors = dt
+                    .constructors
+                    .into_iter()
+                    .map(|(mut con, ty)| {
+                        con.name = self.cache.register_val(con.name);
+                        if !tyvars.is_empty() {
+                            self.cache.add_entry(con.name, tyvars.clone());
+                        }
+                        con.tycon = self
+                            .cache
+                            .swap_type(con.tycon)
+                            .expect("BUG: Decl::Datatype");
+                        (con, ty)
+                    })
+                    .collect();
+                dt
+            })
+            .collect();
+        Decl::Datatype(x)
+    }
+
+    fn visit_decl_exn(&mut self, con: Constructor, arg: Option<&'a Type<'a>>) -> Decl<'a> {
+        let mut con = con;
+        con.name = self.cache.register_val(con.name);
+        // con.tycon should be EXN
+        let ty = arg.map(|ty| self.visit_type(ty));
+        Decl::Exn(con, ty)
+    }
+
+    fn visit_decl_fun(&mut self, vars: &[usize], funs: &[(Symbol, Lambda<'a>)]) -> Decl<'a> {
+        let funs = funs
+            .into_iter()
+            .map(|(sym, mut lam)| {
+                let sym = self.cache.register_val(*sym);
+                self.cache.add_entry(sym, vars.into());
+                self.cache.enter();
+                lam.arg = self.cache.register_val(lam.arg);
+                lam.ty = self.visit_type(lam.ty);
+                lam.body = self.visit_expr(lam.body);
+                self.cache.leave();
+                (sym, lam)
+            })
+            .collect();
+
+        Decl::Fun(Vec::new(), funs)
+    }
+
+    fn visit_con(&mut self, mut con: Constructor) -> Constructor {
+        con.name = self.cache.swap_value(con.name).unwrap();
+        con.tycon = self.cache.swap_value(con.tycon).unwrap();
+        con
+    }
+
+    fn visit_pat_var(&mut self, var: &Symbol) -> PatKind<'a> {
+        PatKind::Var(self.cache.register_val(*var))
+    }
+
+    /// New variables might be bound in rules, so we need to bind them in cache
+    fn visit_expr_case(&mut self, scrutinee: Var<'a>, rules: &[Rule<'a>]) -> ExprKind<'a> {
+        let (var, ty) = scrutinee;
+        let scrutinee = (self.cache.swap_value(var).unwrap(), self.visit_type(ty));
+        let rules = rules
+            .iter()
+            .map(|rule| {
+                self.cache.enter();
+                let pat = self.visit_pat(rule.pat);
+                let expr = self.visit_expr(rule.expr);
+                self.cache.leave();
+                Rule { pat, expr }
+            })
+            .collect();
+        ExprKind::Case(scrutinee, rules)
+    }
+
+    fn visit_expr_con(&mut self, con: Constructor, targs: &[&'a Type<'a>]) -> ExprKind<'a> {
+        let mut con = self.visit_con(con);
+        // TODO: Unify constructors together to prevent copying the vector twice
+        if !targs.is_empty() {
+            con.name = self.cache.add_usage(con.name, targs.into());
+            con.tycon = self.cache.add_usage(con.tycon, targs.into());
+        }
+        ExprKind::Con(con, Vec::new())
+    }
+
+    fn visit_expr_lambda(&mut self, mut lambda: Lambda<'a>) -> ExprKind<'a> {
+        self.cache.enter();
+        lambda.arg = self.cache.register_val(lambda.arg);
+        lambda.ty = self.visit_type(lambda.ty);
+        lambda.body = self.visit_expr(lambda.body);
+        self.cache.leave();
+        ExprKind::Lambda(lambda)
+    }
+
+    fn visit_expr_var(&mut self, sym: Symbol, targs: &[&'a Type<'a>]) -> ExprKind<'a> {
+        let sym = self.cache.swap_value(sym).expect("bug");
+        let sym = if targs.is_empty() {
+            sym
+        } else {
+            self.cache.add_usage(sym, targs.into())
+        };
+        ExprKind::Var(sym, Vec::new())
     }
 }
 
@@ -588,7 +737,7 @@ impl<'a> Rename<'a> {
             ExprKind::Const(c) => ExprKind::Const(*c),
             ExprKind::Handle(tryy, sym, handler) => {
                 let tryy = self.visit_expr(tryy, pp);
-                let sym = self.cache.swap_value(*sym).expect("BUG: ExprKind::Handle");
+                let sym = self.cache.register_val(*sym);
                 let handler = self.visit_expr(handler, pp);
                 ExprKind::Handle(tryy, sym, handler)
             }
