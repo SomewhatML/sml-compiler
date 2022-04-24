@@ -139,9 +139,10 @@ impl<'a> Type<'a> {
         match self {
             Type::Con(tycon, args) => {
                 if tycon == &crate::builtin::tycons::T_ARROW {
-                    pp.text("(");
+                    // pp.text("(");
                     args[0].print_rename(pp, map).text(" -> ");
-                    args[1].print_rename(pp, map).text(")")
+                    args[1].print_rename(pp, map)
+                    //.text(")")
                 } else {
                     for arg in args {
                         arg.print_rename(pp, map).text(" ");
@@ -151,14 +152,15 @@ impl<'a> Type<'a> {
             }
             Type::Record(fields) => {
                 if let Symbol::Tuple(_) = fields[0].label {
-                    pp.text("(");
+                    // pp.text("(");
                     for (idx, row) in fields.iter().enumerate() {
                         row.data.print_rename(pp, map);
                         if idx != fields.rows.len() - 1 {
                             pp.text(" * ");
                         }
                     }
-                    pp.text(")")
+                    pp
+                    // pp.text(")")
                 } else {
                     pp.text("{");
                     for (idx, row) in fields.iter().enumerate() {
@@ -179,14 +181,15 @@ impl<'a> Type<'a> {
                         let x = map.len();
                         let last = ((x % 26) as u8 + b'a' as u8) as char;
                         let name = format!(
-                            "'{}",
+                            "'{}{}",
                             (0..x / 26)
                                 .map(|_| 'z')
                                 .chain(std::iter::once(last))
-                                .collect::<String>()
+                                .collect::<String>(),
+                            tyvar.id
                         );
-                        pp.text(&format!("{}#{}", name, tyvar.id));
-                        // pp.text(&name);
+                        // pp.text(&format!("{}#{}", name, tyvar.id));
+                        pp.text(&name);
                         map.insert(tyvar.id, name);
                         pp
                     }
@@ -260,16 +263,16 @@ impl<'a> Print for Decl<'a> {
                     print_tyvars(&vars, &mut map, pp)
                         .print(name)
                         .text(": ")
-                        // .print(&Type::Con(
-                        //     crate::builtin::tycons::T_ARROW,
-                        //     vec![lam.ty, lam.body.ty],
-                        // ))
+                        .print(&Type::Con(
+                            crate::builtin::tycons::T_ARROW,
+                            vec![lam.ty, lam.body.ty],
+                        ))
                         .text(" = ")
-                        .text("fn (")
+                        .text("fn ")
                         .print(&lam.arg)
-                        .text(": ")
-                        .print(lam.ty)
-                        .text(") => ")
+                        // .text(": ")
+                        // .print(lam.ty)
+                        .text(" => ")
                         .print(&lam.body);
                 }
                 pp

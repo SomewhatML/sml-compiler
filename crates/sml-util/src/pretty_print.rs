@@ -168,6 +168,13 @@ impl<'a> PrettyPrinter<'a> {
     pub fn print<P: Print>(&mut self, p: &P) -> &mut Self {
         p.print(self)
     }
+
+    pub fn stdout(&mut self) {
+        let mut buf = String::new();
+        self.write_fmt(&mut buf)
+            .expect("Failed to format to string!");
+        println!("{}", &buf);
+    }
 }
 
 pub trait Print {

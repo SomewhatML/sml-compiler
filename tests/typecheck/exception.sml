@@ -7,9 +7,10 @@
 
 *)
 
-exception EX of int;
+exception EX of int
+(* exception EX2 of int *)
 
 fun try 0 = raise (EX 0)
   | try n = n
 
-val x = try 1 handle EX x => x;
+val x = try 1 handle (EX x) => 1

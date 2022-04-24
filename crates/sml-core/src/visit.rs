@@ -140,7 +140,7 @@ pub trait Visitor<'a>: Sized {
         )
     }
 
-    fn visit_expr_con(&mut self, con: Constructor, targs: &[&'a Type<'a>]) -> ExprKind<'a> {
+    fn visit_expr_con(&mut self, con: Constructor, targs: &'a [&'a Type<'a>]) -> ExprKind<'a> {
         ExprKind::Con(
             self.visit_con(con),
             targs.into_iter().map(|ty| self.visit_type(*ty)).collect(),
@@ -212,7 +212,7 @@ pub trait Visitor<'a>: Sized {
         ExprKind::Seq(seq.into_iter().map(|ex| self.visit_expr(*ex)).collect())
     }
 
-    fn visit_expr_var(&mut self, sym: Symbol, targs: &[&'a Type<'a>]) -> ExprKind<'a> {
+    fn visit_expr_var(&mut self, sym: Symbol, targs: &'a [&'a Type<'a>]) -> ExprKind<'a> {
         ExprKind::Var(
             self.visit_sym(&sym),
             targs.into_iter().map(|ty| self.visit_type(*ty)).collect(),
@@ -220,7 +220,6 @@ pub trait Visitor<'a>: Sized {
     }
 
     fn walk_expr(&mut self, expr: Expr<'a>) -> Expr<'a> {
-        let ty = self.visit_type(expr.ty);
         let kind = match expr.kind {
             ExprKind::App(a, b) => self.visit_expr_app(*a, *b),
             ExprKind::Case(scrutinee, rules) => self.visit_expr_case(*scrutinee, rules),
@@ -237,6 +236,7 @@ pub trait Visitor<'a>: Sized {
             ExprKind::Seq(seq) => self.visit_expr_seq(seq),
             ExprKind::Var(var, targs) => self.visit_expr_var(*var, targs),
         };
+        let ty = self.visit_type(expr.ty);
         Expr::new(self.arena().exprs.alloc(kind), ty, expr.span)
     }
 }

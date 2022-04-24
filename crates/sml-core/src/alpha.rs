@@ -145,9 +145,9 @@ impl<'a> Cache<'a> {
 
     pub fn dump_cache(&self, pp: &mut PrettyPrinter<'_>) {
         for (k, entry) in &self.cache {
-            if entry.usages.is_empty() {
-                continue;
-            }
+            // if entry.usages.is_empty() {
+            //     continue;
+            // }
             for (usage, name) in &entry.usages {
                 pp.line();
                 for v in &entry.tyvars {
@@ -378,6 +378,13 @@ impl<'a> Rename<'a> {
         }
     }
 
+    pub fn new2(arena: &'a CoreArena<'a>, builtin: Vec<(Symbol, Vec<usize>)>) -> R<'a> {
+        R {
+            cache: Cache::new(builtin),
+            arena,
+        }
+    }
+
     pub fn mono_decl(
         &mut self,
         decl: &Decl<'a>,
@@ -496,9 +503,9 @@ impl<'a> Rename<'a> {
             ExprKind::Const(c) => ExprKind::Const(*c),
             ExprKind::Handle(tryy, sym, handler) => {
                 let tryy = self.mono_expr(tryy, pp);
-                let sym = self.cache.swap_value(*sym).expect("BUG: ExprKind::Handle");
+                // let sym = self.cache.swap_value(*sym).expect("BUG: ExprKind::Handle");
                 let handler = self.mono_expr(handler, pp);
-                ExprKind::Handle(tryy, sym, handler)
+                ExprKind::Handle(tryy, *sym, handler)
             }
             ExprKind::Lambda(lam) => {
                 let mut lam = *lam;
@@ -615,6 +622,7 @@ impl<'a> Rename<'a> {
             Decl::Exn(con, ty) => {
                 let mut con = *con;
                 con.name = self.cache.register_val(con.name);
+                self.cache.dump_cache(pp);
                 // con.tycon should be EXN
                 let ty = ty.map(|ty| self.visit_type(ty, pp));
                 Decl::Exn(con, ty)
@@ -656,7 +664,10 @@ impl<'a> Rename<'a> {
                 }
             },
             Type::Con(mut con, args) => {
-                con.name = self.cache.swap_type(con.name).expect("BUG: Type::Con");
+                if !args.is_empty() {
+                    pp.print(ty);
+                }
+                // con.name = self.cache.swap_type(con.name).expect("BUG: Type::Con");
                 self.arena.types.alloc(Type::Con(
                     con,
                     args.iter().map(|ty| self.visit_type(ty, pp)).collect(),
@@ -670,6 +681,8 @@ impl<'a> Rename<'a> {
 
         let kind = match pat.kind {
             PatKind::App(mut con, Some(pat)) => {
+                self.cache.dump_cache(pp);
+
                 con.name = self.cache.swap_value(con.name).expect("BUG: PatKind::Con");
                 con.tycon = self.cache.swap_type(con.tycon).expect("BUG: PatKind::Con");
                 PatKind::App(con, Some(self.visit_pat(pat, pp)))

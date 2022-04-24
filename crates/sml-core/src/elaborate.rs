@@ -1030,20 +1030,20 @@ impl<'a> Context<'a> {
                 let scrutinee = self.arena.expr_var(gensym, arg, Vec::new());
 
                 // Generate a wildtype binding
-                rules.push(MatchRule {
-                    pat: Pat::new(self.arena.pats.wild(), ty, Span::dummy()),
-                    expr: Expr::new(
-                        self.arena.exprs.alloc(ExprKind::Raise(self.arena.expr_var(
-                            gensym,
-                            self.arena.types.exn(),
-                            Vec::new(),
-                        ))),
-                        res,
-                        expr.span,
-                    ),
-                    bindings: Vec::new(),
-                    sym: self.fresh_var(),
-                });
+                // rules.push(MatchRule {
+                //     pat: Pat::new(self.arena.pats.wild(), ty, Span::dummy()),
+                //     expr: Expr::new(
+                //         self.arena.exprs.alloc(ExprKind::Raise(self.arena.expr_var(
+                //             gensym,
+                //             self.arena.types.exn(),
+                //             Vec::new(),
+                //         ))),
+                //         res,
+                //         expr.span,
+                //     ),
+                //     bindings: Vec::new(),
+                //     sym: self.fresh_var(),
+                // });
                 let body = crate::match_compile::case(self, scrutinee, res, rules, expr.span);
                 Expr::new(
                     self.arena.exprs.alloc(ExprKind::Handle(tryy, gensym, body)),

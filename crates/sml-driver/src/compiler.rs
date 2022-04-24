@@ -4,6 +4,7 @@ use sml_frontend::parser::Parser;
 use sml_util::diagnostics::{Diagnostic, Level};
 use sml_util::interner::*;
 use sml_util::pretty_print::PrettyPrinter;
+use std::collections::HashMap;
 use std::io::prelude::*;
 use std::time::Instant;
 
@@ -140,10 +141,12 @@ impl<'a> Phase<'a> for Monomorphize {
         ctx: &mut Compiler<'a>,
         input: Self::Input,
     ) -> Result<Self::Output, Vec<Diagnostic>> {
-        let mut alpha = sml_core::alpha::Rename::new(&ctx.arena, ctx.elab.builtin_constructors());
-        let mut pp = PrettyPrinter::new(&ctx.interner);
-        let expr = alpha.visit_expr(&input, &mut pp);
-
+        use sml_core::visit::Visitor;
+        // let mut alpha = sml_core::alpha::Rename::new2(&ctx.arena, ctx.elab.builtin_constructors());
+        let pp = PrettyPrinter::new(&ctx.interner);
+        let mut mono = sml_core::mono::Mono::new(pp, &ctx.arena);
+        let expr = mono.visit_expr(input);
+        // let expr = input;
         Ok(expr)
     }
 
