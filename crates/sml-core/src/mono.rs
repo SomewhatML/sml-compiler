@@ -1,18 +1,32 @@
-use crate::alpha::Rename;
 use crate::arenas::CoreArena;
 use crate::types::{Constructor, Tycon, Type};
 use crate::visit::Visitor;
-use crate::{Decl, Lambda, TypeId};
+use crate::{builtin, Datatype, Decl, Expr, ExprKind, Lambda, TypeId};
 use sml_util::interner::Symbol;
 use sml_util::pretty_print::PrettyPrinter;
 use std::any::Any;
 use std::collections::HashMap;
 
+// struct TypeMap<'a, T> {
+//     inner: HashMap<T, HashMap<&'a [&'a Type<'a>], T>>
+// }
+
+// impl<'a, T> TypeMap<'a, T> {
+//     pub fn new() -> Self {
+//         TypeMap {
+//             inner: HashMap::default(),
+//         }
+//     }
+
+//     pub fn insert(&mut self, key: T, types: &'a [&'a Type<'a>])
+
+// }
+
 pub struct Mono<'a, 'i> {
     pub pp: PrettyPrinter<'i>,
     pub arena: &'a CoreArena<'a>,
-    map: HashMap<Symbol, HashMap<&'a [&'a Type<'a>], Symbol>>,
-    constrs: HashMap<Symbol, (Symbol, HashMap<&'a [&'a Type<'a>], Constructor>)>,
+    values: HashMap<Symbol, HashMap<&'a [&'a Type<'a>], Symbol>>,
+    types: HashMap<Symbol, HashMap<&'a [&'a Type<'a>], Symbol>>,
     next: u32,
 }
 
@@ -53,9 +67,17 @@ impl<'a, 'i> Mono<'a, 'i> {
         Mono {
             pp,
             arena,
-            map: HashMap::default(),
-            constrs: HashMap::default(),
+            values: HashMap::default(),
+            types: HashMap::default(),
             next: 100,
+        }
+    }
+
+    fn mk_replacer(&self, tyvars: &[usize], targs: &'a [&'a Type<'a>]) -> ReplaceTy<'a> {
+        let map = tyvars.iter().zip(targs).map(|(v, a)| (*v, *a)).collect();
+        ReplaceTy {
+            arena: &self.arena,
+            map,
         }
     }
 
@@ -63,7 +85,12 @@ impl<'a, 'i> Mono<'a, 'i> {
         if !targs.is_empty() {
             let sym = Symbol::Gensym(self.next);
             self.next += 1;
-            *self.map.entry(var).or_default().entry(targs).or_insert(sym)
+            *self
+                .values
+                .entry(var)
+                .or_default()
+                .entry(targs)
+                .or_insert(sym)
         } else {
             var
         }
@@ -73,11 +100,12 @@ impl<'a, 'i> Mono<'a, 'i> {
         if !targs.is_empty() {
             let sym = Symbol::Gensym(self.next);
             self.next += 1;
-            let (tycon, _) = self
-                .constrs
+            *self
+                .types
                 .entry(tycon)
-                .or_insert_with(|| (sym, HashMap::new()));
-            *tycon
+                .or_default()
+                .entry(targs)
+                .or_insert(sym)
         } else {
             tycon
         }
@@ -87,28 +115,99 @@ impl<'a, 'i> Mono<'a, 'i> {
         if !targs.is_empty() {
             let sym = Symbol::Gensym(self.next);
             self.next += 1;
-            let (tycon, map) = self
-                .constrs
-                .entry(con.tycon)
-                .or_insert_with(|| (sym, HashMap::new()));
-            match map.get(targs) {
-                Some(con) => *con,
-                None => {
-                    let newcon = Constructor {
-                        name: Symbol::Gensym(self.next),
-                        type_id: TypeId(self.next),
-                        tycon: *tycon,
-                        tag: con.tag,
-                        arity: con.arity,
-                        type_arity: 0,
-                    };
-                    map.insert(targs, newcon);
-
-                    newcon
-                }
+            let tycon = self.rename_tycon(con.tycon, targs);
+            let name = self.rename_var(con.name, targs);
+            Constructor {
+                name,
+                tycon,
+                type_arity: 0,
+                ..con
             }
         } else {
             con
+        }
+    }
+
+    pub fn run(&mut self, top: Expr<'a>) -> Expr<'a> {
+        let body = self.visit_expr(top);
+        let decls = self.visit_builtin();
+        Expr::new(
+            self.arena.exprs.alloc(ExprKind::Let(decls, body)),
+            body.ty,
+            body.span,
+        )
+    }
+
+    fn visit_builtin(&mut self) -> Vec<Decl<'a>> {
+        // let list = Datatype {
+        // tycon: builtin::tycons::T_LIST,
+        // tyvars: todo!(),
+        // constructors: todo!(),
+        // }
+        let mut duplicated = Vec::new();
+        match self.types.get(&builtin::tycons::T_LIST.name) {
+            Some(map) => {
+                // let cons = self.values.get(&builtin::constructors::C_CONS.name).expect("BUG");
+                // let nil = self.values.get(&builtin::constructors::C_NIL.name).expect("BUG");
+                // let cons = [builtin::constructors::C_CONS, builtin::constructors::C_NIL];
+                for (targs, &tycon) in map {
+                    let mut constructors = Vec::new();
+                    let rng = self.arena.types.alloc(Type::Con(
+                        Tycon {
+                            name: tycon,
+                            arity: 0,
+                            scope_depth: 0,
+                        },
+                        Vec::new(),
+                    ));
+                    let dom = self.arena.types.tuple([targs[0], rng]);
+                    if let Some(old) = self.values.get(&builtin::constructors::C_CONS.name) {
+                        if let Some(&name) = old.get(targs) {
+                            let con = Constructor {
+                                name,
+                                tycon,
+                                type_arity: 0,
+                                ..builtin::constructors::C_CONS
+                            };
+
+                            constructors.push((con, Some(dom)));
+                        }
+                    }
+                    if let Some(old) = self.values.get(&builtin::constructors::C_NIL.name) {
+                        if let Some(&name) = old.get(targs) {
+                            let con = Constructor {
+                                name,
+                                tycon,
+                                type_arity: 0,
+                                ..builtin::constructors::C_NIL
+                            };
+                            constructors.push((con, None));
+                        }
+                    }
+                    // }
+                    // if constructors.is_empty() {
+                    //     constructors.push()
+                    // }
+                    duplicated.push(Datatype {
+                        tycon: Tycon {
+                            name: tycon,
+                            arity: 0,
+                            scope_depth: 0,
+                        },
+                        tyvars: Vec::new(),
+                        constructors,
+                    });
+                }
+            }
+            None => {
+                //List not used! Impressive!
+            }
+        }
+
+        if duplicated.is_empty() {
+            Vec::new()
+        } else {
+            vec![Decl::Datatype(duplicated)]
         }
     }
 
@@ -116,7 +215,7 @@ impl<'a, 'i> Mono<'a, 'i> {
         match decl {
             Decl::Val(vars, sym, expr) => {
                 if !vars.is_empty() {
-                    match self.map.get(sym) {
+                    match self.values.get(sym) {
                         Some(targs) => {
                             self.pp.text("duplicating new Val decl").print(sym).stdout();
                             // for (concrete, newname)
@@ -141,10 +240,10 @@ impl<'a, 'i> Mono<'a, 'i> {
             }
 
             Decl::Fun(vars, lambda) => {
+                let mut duplicated = Vec::new();
                 if !vars.is_empty() {
-                    let mut duplicated = Vec::new();
                     for (name, lam) in lambda {
-                        match self.map.get(name) {
+                        match self.values.get(name) {
                             Some(targs) => {
                                 if targs.is_empty() {
                                     self.pp
@@ -193,37 +292,71 @@ impl<'a, 'i> Mono<'a, 'i> {
                     }
                     // let duplicated = duplicated.iter().map(|(s,l)| (*s, self.visit_lambda(l))).collect();
                     // Vars must be empty now
-                    vec.push(Decl::Fun(Vec::new(), duplicated));
                 } else {
-                    vec.push(Decl::Fun(Vec::new(), lambda.to_vec()));
+                    for (sym, lam) in lambda {
+                        duplicated.push((*sym, self.visit_lambda(lam)));
+                    }
                 }
+                vec.push(Decl::Fun(Vec::new(), duplicated));
             }
             Decl::Datatype(dts) => {
                 let mut duplicated = Vec::new();
                 for dt in dts {
                     if !dt.tyvars.is_empty() {
-                        match self.constrs.get(&dt.tycon.name) {
-                            Some((tycon, map)) => {
+                        if let Some(tycon_map) = self.types.get(&dt.tycon.name) {
+                            for (tyargs, &tycon) in tycon_map {
                                 let mut constructors = Vec::new();
-                                for (targs, constr) in map {
-                                    constructors.push((*constr, None));
+                                for &(con, ty) in &dt.constructors {
+                                    match self.values.get(&con.name) {
+                                        Some(map) => {
+                                            match map.get(tyargs) {
+                                                Some(&name) => {
+                                                    let ty = match ty {
+                                                        Some(ty) => Some(
+                                                            self.mk_replacer(&dt.tyvars, tyargs)
+                                                                .visit_type(ty),
+                                                        ),
+                                                        None => None,
+                                                    };
+                                                    let con = Constructor {
+                                                        name,
+                                                        tycon,
+                                                        type_arity: 0,
+                                                        ..con
+                                                    };
+                                                    constructors.push((con, ty));
+                                                }
+                                                None => {
+                                                    self.pp
+                                                        .text("BUG constructor ")
+                                                        .print(&con.name)
+                                                        .text(" not found with tyargs")
+                                                        .line()
+                                                        .stdout();
+                                                    // Bug? or just unused?
+                                                }
+                                            }
+                                        }
+                                        None => {
+                                            self.pp
+                                                .text("BUG constructor ")
+                                                .print(&con.name)
+                                                .text(" not found in mono cache")
+                                                .line()
+                                                .stdout();
+                                        }
+                                    }
                                 }
-                                duplicated.push(crate::Datatype {
+
+                                duplicated.push(Datatype {
                                     tycon: Tycon {
-                                        name: *tycon,
+                                        name: tycon,
                                         arity: 0,
-                                        scope_depth: dt.tycon.scope_depth,
+                                        scope_depth: dt.tycon.arity,
                                     },
                                     tyvars: Vec::new(),
                                     constructors,
-                                });
-                            }
-                            None => {
-                                self.pp
-                                    .text("BUG: dt missing from cache ")
-                                    .print(&*decl)
-                                    .line()
-                                    .stdout();
+                                })
                             }
                         }
                     } else {
@@ -232,10 +365,11 @@ impl<'a, 'i> Mono<'a, 'i> {
                 }
                 vec.push(Decl::Datatype(duplicated))
             }
-            _ => {
-                let decl = self.walk_decl(decl);
-                vec.push(decl);
-            }
+            Decl::Exn(_, _) => todo!(),
+            // _ => {
+            //     let decl = self.walk_decl(decl);
+            //     vec.push(decl);
+            // }
         }
     }
 }
@@ -298,9 +432,9 @@ impl<'a, 'i> Visitor<'a> for Mono<'a, 'i> {
         body: crate::Expr<'a>,
     ) -> crate::ExprKind<'a> {
         // let decls: Vec<Decl<'a>> = decls.iter().map(|d| self.visit_decl(d)).collect();
-        for decl in decls {
-            self.visit_decl(decl);
-        }
+        // for decl in decls {
+        //     self.visit_decl(decl);
+        // }
         let expr = self.visit_expr(body);
         let mut new_decs = Vec::new();
         for decl in decls {
@@ -322,4 +456,8 @@ impl<'a, 'i> Visitor<'a> for Mono<'a, 'i> {
             targs.into_iter().map(|ty| self.visit_type(*ty)).collect(),
         )
     }
+
+    // fn visit_expr_list(&mut self, list: &[Expr<'a>]) -> ExprKind<'a> {
+
+    // }
 }

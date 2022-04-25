@@ -141,12 +141,10 @@ impl<'a> Phase<'a> for Monomorphize {
         ctx: &mut Compiler<'a>,
         input: Self::Input,
     ) -> Result<Self::Output, Vec<Diagnostic>> {
-        use sml_core::visit::Visitor;
-        // let mut alpha = sml_core::alpha::Rename::new2(&ctx.arena, ctx.elab.builtin_constructors());
+        // use sml_core::visit::Visitor;
         let pp = PrettyPrinter::new(&ctx.interner);
         let mut mono = sml_core::mono::Mono::new(pp, &ctx.arena);
-        let expr = mono.visit_expr(input);
-        // let expr = input;
+        let expr = mono.run(input);
         Ok(expr)
     }
 
